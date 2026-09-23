@@ -4,8 +4,8 @@ Device health check — inspect storage (HDD/SSD/NVMe) identity, capacity, healt
 and estimated remaining life. Terminal UI, single static binary, no mandatory
 external tools.
 
-> Status: **M1 + M2** — device enumeration plus SMART health/endurance via
-> `smartctl -a -j` (ATA + NVMe). Native ioctl (M3) and the TUI are pending.
+> Status: **M1–M3** — device enumeration, native SMART (ATA via `HDIO_DRIVE_CMD`,
+> NVMe via admin ioctl), and `smartctl` enrichment when available. TUI pending.
 > Full plan: [`../docs/DCHECK.md`](../docs/DCHECK.md).
 
 ## Usage
@@ -20,8 +20,10 @@ dcheck --version
 ```
 
 Devices are read from `/sys/block`, so they are listed as soon as they are
-**attached**, mounted or not. Health comes from `smartctl -a -j` when
-smartmontools is installed; **SMART reads require root** (`sudo dcheck storage`).
+**attached**, mounted or not. Health is read **natively** (ATA `HDIO_DRIVE_CMD`,
+NVMe admin ioctl) and enriched by `smartctl -a -j` when installed. **SMART reads
+require root** (`sudo dcheck storage`). Set `DCHECK_NATIVE=1` to force the
+native path.
 
 **On macOS / any host without `/sys`**, dcheck automatically falls back to
 built-in demo data, so you can try it with just:

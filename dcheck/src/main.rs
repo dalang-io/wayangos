@@ -8,6 +8,7 @@ mod enumerate;
 mod health;
 mod json;
 mod model;
+mod native;
 mod report;
 mod smartctl;
 

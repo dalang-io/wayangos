@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1 + M2 done** (enumeration + smartctl-based health & life estimate) — native SMART (M3), TUI and vendor DB growth pending · Target MVP: **storage** · Owner: TBD
+Status: **M1–M3 done** (enumeration + native SMART for ATA/NVMe + smartctl fallback) — TUI and vendor DB growth pending · Target MVP: **storage** · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -141,17 +141,19 @@ enumeration/reporting can be tested against a synthetic `/sys` + `/proc` fixture
 
 Priority order:
 
-1. **`smartctl -a -j`** — implemented (M2). Parsed with a built-in, std-only
-   JSON reader (`src/json.rs`). Handles ATA attributes (5/9/197/198/199/231/233/
-   241/242) and the NVMe health log (`percentage_used`, `data_units_written`,
-   temperature, power-on hours). Set `DCHECK_SMART_JSON=<file>` to parse a
-   captured file instead of running smartctl (used by tests).
-2. **Native ioctl** (planned, M3; no external deps):
-   - NVMe: admin Get Log Page, `LOG_ID 0x02` (SMART/Health) → health %, temperature,
-     available spare, data units written/read, power-on hours, media errors.
-   - SATA: `SG_IO` ATA PASS-THROUGH → `SMART READ DATA` (0xD0) attributes +
-     `SMART RETURN STATUS` (0xDA) for pass/fail.
-3. If neither works: still show identity/capacity, mark health `?` with a hint.
+1. **Native ioctl** (implemented, M3; no external deps):
+   - ATA: `HDIO_DRIVE_CMD` SMART READ DATA (0xD0) + SMART RETURN STATUS (0xDA)
+     → attributes, power-on hours/cycles, temperature, TBW, pass/fail.
+     (`SG_IO` ATA PASS-THROUGH was prototyped but rejected by libata on test
+     hardware; `HDIO_DRIVE_CMD` is simpler and reliable.)
+   - NVMe: admin Get Log Page, `LOG_ID 0x02` (SMART/Health) → health %,
+     temperature, data units written/read, power-on hours/cycles, critical
+     warning. Parsed from the 512-byte log.
+2. **`smartctl -a -j`** (implemented, M2) — used automatically when present and
+   the native path yields nothing. Adds SATA link speed, form factor, thresholds.
+   Parsed with a built-in, std-only JSON reader. `DCHECK_SMART_JSON=<file>`
+   parses a captured file; `DCHECK_NATIVE=1` forces the native path.
+3. If neither works: show identity/capacity, mark health unavailable.
 
 ### Field mapping (examples)
 
@@ -287,7 +289,7 @@ dcheck/
 | M0 | This plan | done |
 | M1 | CLI skeleton + enumerate devices + identity/capacity | **done** (no SMART yet) |
 | M2 | Health via `smartctl -j` (if present) | **done** (ATA + NVMe parsing) |
-| M3 | Native NVMe ioctl + ATA `SG_IO` fallback | removes smartctl dependency |
+| M3 | Native NVMe ioctl + ATA `SG_IO` fallback | **done** (ATA via `HDIO_DRIVE_CMD`; NVMe ioctl, not live-tested) |
 | M4 | TBW / wear / life-estimate + vendor DB | core MVP differentiator |
 | M5 | TUI polish (menu, list, report) + `storage` shorthand | MVP complete |
 | M6 | FreeBSD backend, `--json`, packaging, CI | cross-platform |

@@ -71,9 +71,30 @@ pub fn print_list(devices: &[Device]) {
     }
 }
 
+/// Prefer smartctl when it works; otherwise fall back to the native reader.
+/// `DCHECK_NATIVE=1` forces the native path (used for testing).
+fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
+    let force_native = std::env::var_os("DCHECK_NATIVE").is_some();
+    let smartctl_result = if force_native {
+        None
+    } else {
+        smartctl::read_smart(&d.path)
+    };
+
+    if let Some(s) = &smartctl_result {
+        if s.error.is_none() {
+            return smartctl_result;
+        }
+    }
+    if let Some(native) = crate::native::read(d) {
+        return Some(native);
+    }
+    smartctl_result
+}
+
 /// Print a full report for one device, including SMART health when available.
 pub fn print_report(d: &Device) {
-    let smart = smartctl::read_smart(&d.path);
+    let smart = read_smart(d);
 
     println!("dcheck report — {}", d.path);
     println!("{}", "=".repeat(60));
@@ -170,6 +191,9 @@ fn print_health(d: &Device, s: &smartctl::SmartData) {
     let h = health::evaluate(d, s);
 
     println!("  Verdict      : {}", h.verdict.label());
+    if !s.source.is_empty() {
+        println!("  Source       : {}", s.source);
+    }
     if let Some(passed) = s.passed {
         println!("  SMART status : {}", if passed { "passed" } else { "FAILED" });
     }

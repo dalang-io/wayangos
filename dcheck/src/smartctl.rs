@@ -10,6 +10,8 @@ use crate::json::Json;
 
 #[derive(Debug, Default, Clone)]
 pub struct SmartData {
+    /// How the data was obtained: `smartctl` or `native`.
+    pub source: String,
     pub passed: Option<bool>,
     pub model: Option<String>,
     pub serial: Option<String>,
@@ -71,7 +73,10 @@ pub fn read_smart(device: &str) -> Option<SmartData> {
 }
 
 fn parse_smart(j: &Json) -> SmartData {
-    let mut s = SmartData::default();
+    let mut s = SmartData {
+        source: "smartctl".to_string(),
+        ..SmartData::default()
+    };
 
     s.model = str_at(j, &["model_name"]);
     s.serial = str_at(j, &["serial_number"]);
