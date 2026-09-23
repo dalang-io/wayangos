@@ -742,6 +742,25 @@ fn draw(f: &mut Frame, app: &mut App) {
     }
 }
 
+/// Colourise a plain report line for the TUI (headers, verdicts).
+fn colorize_line(line: &str, p: &Palette) -> Line<'static> {
+    let t = line.to_string();
+    let style = if line.starts_with('▚') || line.starts_with("▐ ") || line.starts_with('[') {
+        Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+    } else if line.contains("FAILED")
+        || line.contains("REPLACE")
+        || line.contains('✖')
+        || line.contains("BACK UP")
+    {
+        Style::default().fg(p.bad).add_modifier(Modifier::BOLD)
+    } else if line.contains("MONITOR") || line.contains("! ") {
+        Style::default().fg(p.warn)
+    } else {
+        Style::default()
+    };
+    Line::from(Span::styled(t, style))
+}
+
 fn severity_label(sev: u8) -> &'static str {
     match sev {
         0 => "OK",
@@ -883,13 +902,12 @@ fn draw_report(
             )),
         ])
     } else {
-        Text::from(
-            app.report_lines
-                .iter()
-                .cloned()
-                .map(Line::from)
-                .collect::<Vec<_>>(),
-        )
+        let lines: Vec<Line> = app
+            .report_lines
+            .iter()
+            .map(|l| colorize_line(l, palette))
+            .collect();
+        Text::from(lines)
     };
 
     let para = Paragraph::new(body)

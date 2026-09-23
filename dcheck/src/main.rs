@@ -12,6 +12,7 @@ mod health;
 mod json;
 mod model;
 mod monitor;
+mod mount;
 mod native;
 mod ram;
 mod report;

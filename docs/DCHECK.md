@@ -386,6 +386,8 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - CPU vendor (`GenuineIntel`/`AuthenticAMD`/Apple), max clock (`cpuinfo_max_freq`
   / `hw.cpufrequency_max`), cache size.
 - macOS: memory modules via `system_profiler SPMemoryDataType` (Intel only).
+- Disk report is styled (banner, `▐` sections, rules) and shows a **usage meter**
+  for every mounted partition (`statvfs`: used%/used/total).
 - **AC:** verified — Dell R630 shows DDR4 2133 MT/s SK Hynix HMA84GL7…, 1/24
   slots; CPU GenuineIntel, 80 threads, cache 50 MB. sysfs fallback verified on
   both Fedora and R630.

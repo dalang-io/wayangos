@@ -89,6 +89,29 @@ pub fn print_list(devices: &[Device]) {
     }
 }
 
+/// Whether to use ASCII-only glyphs.
+fn ui_plain() -> bool {
+    std::env::var_os("DCHECK_PLAIN").is_some()
+}
+
+/// Section header, e.g. `▐ IDENTITY` (plain: `[ IDENTITY ]`).
+fn section(name: &str) -> String {
+    if ui_plain() {
+        format!("[ {name} ]")
+    } else {
+        format!("▐ {name}")
+    }
+}
+
+/// Horizontal rule.
+fn rule() -> String {
+    if ui_plain() {
+        "-".repeat(64)
+    } else {
+        "─".repeat(64)
+    }
+}
+
 /// Print a full report for one device, including SMART health when available.
 pub fn print_report(d: &Device) {
     for line in device_report_lines(d) {
@@ -102,7 +125,13 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     let nid = crate::native::identity(d);
     let mut out: Vec<String> = Vec::new();
 
-    out.push(format!("dcheck report — {}", d.path));
+    let banner = if ui_plain() {
+        format!("dcheck report - {}", d.path)
+    } else {
+        format!("▚ dcheck report · {}", d.path)
+    };
+    out.push(banner);
+    out.push(rule());
 
     // Prefer SMART, then native identity, then sysfs.
     let vendor = d.vendor.clone();
@@ -123,7 +152,7 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
         .or_else(|| d.firmware.clone());
 
     out.push(String::new());
-    out.push("[ Identity ]".into());
+    out.push(section("IDENTITY"));
     out.push(format!("  Device       : {}", d.path));
     out.push(format!("  Kernel name  : {}", d.name));
     out.push(format!("  Vendor       : {}", opt(&vendor)));
@@ -145,7 +174,7 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     }
 
     out.push(String::new());
-    out.push("[ Capacity ]".into());
+    out.push(section("CAPACITY"));
     out.push(format!("  Total        : {}", human_size(d.size_bytes)));
     out.push(format!("  Raw bytes    : {} bytes", d.size_bytes));
     out.push(format!("  Block size   : {} bytes", d.logical_block_size));
@@ -154,20 +183,41 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     } else {
         out.push(format!("  Partitions   : {}", d.partitions.len()));
         for p in &d.partitions {
-            let mount = p.mountpoint.as_deref().unwrap_or("not mounted");
             let fs = p.filesystem.as_deref().unwrap_or("-");
-            out.push(format!(
-                "    {:<16} {:>10}  {:<8} {}",
-                p.path,
-                human_size(p.size_bytes),
-                fs,
-                mount
-            ));
+            match p.mountpoint.as_deref() {
+                Some(mp) => match crate::mount::usage(mp) {
+                    Some(u) => out.push(format!(
+                        "    {:<16} {:>10}  {:<8} {:<12} {} {:>3.0}%  {}/{} used",
+                        p.path,
+                        human_size(p.size_bytes),
+                        fs,
+                        mp,
+                        bar(u.percent, 16),
+                        u.percent,
+                        human_size(u.used),
+                        human_size(u.total)
+                    )),
+                    None => out.push(format!(
+                        "    {:<16} {:>10}  {:<8} {}",
+                        p.path,
+                        human_size(p.size_bytes),
+                        fs,
+                        mp
+                    )),
+                },
+                None => out.push(format!(
+                    "    {:<16} {:>10}  {:<8} {}",
+                    p.path,
+                    human_size(p.size_bytes),
+                    fs,
+                    "not mounted"
+                )),
+            }
         }
     }
 
     out.push(String::new());
-    out.push("[ Interface ]".into());
+    out.push(section("INTERFACE"));
     out.push(format!("  Transport    : {}", d.bus));
     let speed = smart
         .as_ref()
@@ -189,7 +239,7 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     }
 
     out.push(String::new());
-    out.push("[ Health ]".into());
+    out.push(section("HEALTH"));
     match &smart {
         Some(s) => health_lines(d, s, &mut out),
         None => {
@@ -208,7 +258,7 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     if let Some(s) = smart.as_ref() {
         if !s.attributes.is_empty() {
             out.push(String::new());
-            out.push("[ SMART attributes ]".into());
+            out.push(section("SMART ATTRIBUTES"));
             out.push(format!(
                 "  {:<4} {:<28} {:>4} {:>4} {:>4} {:>14}  {}",
                 "ID", "NAME", "VAL", "WST", "THR", "RAW", "ST"
@@ -357,7 +407,7 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     }
     out.push(format!("  Source       : {}", r.source));
     out.push(String::new());
-    out.push("[ Health ]".to_string());
+    out.push(section("HEALTH"));
     let (label, sev) = r.verdict();
     out.push(format!("  Verdict      : {label}"));
     if r.ecc_correctable > 0 || r.ecc_uncorrectable > 0 {
@@ -371,7 +421,7 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     let _ = sev;
     if !r.modules.is_empty() {
         out.push(String::new());
-        out.push("[ Modules ]".to_string());
+        out.push(section("MODULES"));
         for m in &r.modules {
             let speed = m
                 .speed_mts
@@ -427,7 +477,7 @@ pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
     }
     out.push(format!("  Source       : {}", c.source));
     out.push(String::new());
-    out.push("[ Health ]".to_string());
+    out.push(section("HEALTH"));
     let (label, _) = c.verdict(crate::config::load().temp_warn_c);
     out.push(format!("  Verdict      : {label}"));
     out
