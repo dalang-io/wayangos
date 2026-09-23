@@ -354,7 +354,10 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - Config file `~/.config/dcheck/config.json` (`temp_warn_c`, `watch_interval`,
   `theme`). ✅
 - TUI palette adapts to light/dark terminals (`--light`/`--dark`,
-  `DCHECK_THEME`, auto via `COLORFGBG`). ✅
+  `DCHECK_THEME`, auto via `COLORFGBG`; `NO_COLOR` disables color). ✅
+- TUI UX: background SMART reads with spinner, per-device health in the list,
+  contextual report title with position indicator, `?` help overlay, mouse
+  scrolling, `r` rescan, `Home`/`End`/`g`/`G`. ✅
 - `dcheck prometheus` metrics. ✅
 - Man page `dcheck/dcheck.1`. ✅
 - Release artifacts: tarballs + `SHA256SUMS`, optional GPG signing via `GPG_KEY`. ✅

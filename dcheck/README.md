@@ -29,11 +29,13 @@ dcheck ram | cpu        # coming soon
 dcheck --version
 ```
 
-In the UI: `↑`/`↓` move, `Enter` select, `b`/`Esc` back, `PgUp`/`PgDn` scroll,
-`q` quit.
+In the UI: `↑`/`↓` move, `Enter` open, `b`/`Esc` back, `PgUp`/`PgDn` and
+`Home`/`End` (`g`/`G`) scroll, `r` rescan, `?` help, `q` quit. The mouse wheel
+scrolls. SMART reads run in the background with a spinner; the list shows
+per-device health.
 The palette adapts to a **light or dark terminal**. Force it with
 `dcheck tui --light` / `--dark`, `DCHECK_THEME=light`, or `"theme": "light"` in
-the config; otherwise it auto-detects via `COLORFGBG`.
+the config; otherwise it auto-detects via `COLORFGBG` (`NO_COLOR` disables color).
 
 Devices are read from `/sys/block`, so they are listed as soon as they are
 **attached**, mounted or not. Health is read **natively** (ATA `HDIO_DRIVE_CMD`,

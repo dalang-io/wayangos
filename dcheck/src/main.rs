@@ -70,8 +70,9 @@ fn interactive() -> bool {
 
 fn run_tui(force_demo: bool, light_override: Option<bool>) -> i32 {
     let light = config::resolve_light(light_override);
+    let demo = force_demo || std::env::var_os("DCHECK_DEMO").is_some();
     let devices = load_devices(force_demo);
-    match tui::run(devices, light) {
+    match tui::run(devices, light, demo) {
         Ok(()) => 0,
         Err(err) => {
             eprintln!("dcheck: TUI error: {err}");

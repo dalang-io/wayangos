@@ -27,6 +27,17 @@ impl Verdict {
             Verdict::Unknown => "UNKNOWN",
         }
     }
+
+    /// 0=ok, 1=unknown, 2=monitor, 3=backup/replace.
+    pub fn severity(self) -> u8 {
+        match self {
+            Verdict::Ok => 0,
+            Verdict::Unknown => 1,
+            Verdict::Monitor => 2,
+            Verdict::BackupNow => 3,
+            Verdict::Replace => 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
