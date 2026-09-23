@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M10 partial** (Linux + FreeBSD, native + smartctl, ATA attributes+thresholds, self-test + bench, link speed, TUI, `--json`, monitoring/alerts, TBW overrides) · passthrough + NVMe extras backlog · Owner: TBD
+Status: **M1–M10 done** (Linux + FreeBSD, native + smartctl, ATA attributes+thresholds, self-test + bench, link speed, TUI, `--json`, monitoring/alerts, TBW overrides, passthrough probing, NVMe extras) · M11 polish in progress · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -339,12 +339,15 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - Alerts on verdict worsening or new issues; webhook POST via `curl`. ✅
 - **AC:** verified on real SATA (check exit 0; watch alerts once on device appear).
 
-### M10 — Hardware coverage + endurance overrides (PAUSED: override done)
+### M10 — Hardware coverage + endurance overrides — DONE
 - Vendor TBW overrides from `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`). ✅
-  verified on real SATA (override changed "Rated TBW" to 600 TB).
-- Passthrough selection: USB (`-d sat`), RAID (`-d megaraid,N`, `3ware`, `areca`,
-  `cciss`); auto-probe when the default fails. ⏳ backlog
-- NVMe: error log page + per-sensor temperatures. ⏳ backlog
+- Passthrough probing: bus-aware `-d` candidates (USB `sat`/`usbjmicron`/…,
+  SCSI `megaraid,N`/`3ware`/`areca`/`cciss`); `DCHECK_SMART_ARGS="-d X"` forces
+  one. Auto-tried when the default fails. ✅ (unit-tested; USB/RAID hardware not
+  available here)
+- NVMe extras: media errors, available spare (+threshold), warning/critical
+  temperature time, error-log entries — shown in report/JSON and flagged when
+  spare < threshold or media errors > 0. ✅ (unit-tested)
 
 ### M11 — Polish
 - Config file, `--prometheus`, man page, signed release artifacts.

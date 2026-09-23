@@ -84,6 +84,19 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
     if smart.crc_errors.unwrap_or(0) > 0 {
         issues.push(format!("{} UDMA CRC errors (check cable/port)", smart.crc_errors.unwrap()));
     }
+    if smart.media_errors.unwrap_or(0) > 0 {
+        issues.push(format!("{} NVMe media errors", smart.media_errors.unwrap()));
+    }
+    if let (Some(spare), Some(thresh)) = (smart.available_spare, smart.available_spare_threshold) {
+        if spare < thresh {
+            issues.push(format!("available spare {spare}% below threshold {thresh}%"));
+        }
+    }
+    if let Some(t) = smart.critical_temp_time {
+        if t > 0 {
+            notes.push(format!("{t} min spent at critical temperature"));
+        }
+    }
     if let Some(t) = smart.temperature_c {
         if t >= 60 {
             issues.push(format!("temperature high ({t}°C)"));
@@ -157,6 +170,7 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         || wear_used.map(|w| w >= 90).unwrap_or(false)
         || smart.pending.unwrap_or(0) > 0
         || smart.uncorrectable.unwrap_or(0) > 0
+        || smart.media_errors.unwrap_or(0) > 0
     {
         Verdict::BackupNow
     } else if !issues.is_empty() {

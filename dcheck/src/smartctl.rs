@@ -7,6 +7,7 @@
 use std::process::Command;
 
 use crate::json::Json;
+use crate::model::Bus;
 
 #[derive(Debug, Default, Clone)]
 pub struct SmartData {
@@ -37,6 +38,13 @@ pub struct SmartData {
     pub attributes: Vec<SmartAttribute>,
     pub in_smartctl_database: Option<bool>,
     pub smart_available: Option<bool>,
+    /// NVMe: media errors, spare, temperature-time counters, error-log entries.
+    pub media_errors: Option<u64>,
+    pub available_spare: Option<u64>,
+    pub available_spare_threshold: Option<u64>,
+    pub warning_temp_time: Option<u64>,
+    pub critical_temp_time: Option<u64>,
+    pub nvme_errors: Option<u64>,
     /// Non-fatal error reported by smartctl (e.g. permission denied).
     pub error: Option<String>,
 }
@@ -128,24 +136,92 @@ pub fn attr_name(id: u8) -> &'static str {
     }
 }
 
-/// Run (or load) smartctl output and parse it. Returns `None` only when neither
-/// a JSON file nor the `smartctl` binary is available.
+/// Run (or load) smartctl output and parse it (no bus hint). Used by the
+/// FreeBSD backend and available for direct calls.
+#[cfg_attr(not(target_os = "freebsd"), allow(dead_code))]
 pub fn read_smart(device: &str) -> Option<SmartData> {
-    let text = match std::env::var("DCHECK_SMART_JSON") {
-        Ok(path) if !path.is_empty() => std::fs::read_to_string(path).ok()?,
-        _ => {
-            let output = Command::new("smartctl")
-                .arg("-a")
-                .arg("-j")
-                .arg(device)
-                .output()
-                .ok()?;
-            String::from_utf8_lossy(&output.stdout).into_owned()
-        }
-    };
+    read_smart_impl(device, None)
+}
 
+/// Bus-aware read: probes `-d` passthrough types when the default fails
+/// (USB-SATA bridges, RAID controllers, ...).
+pub fn read_smart_dev(device: &crate::model::Device) -> Option<SmartData> {
+    read_smart_impl(&device.path, Some(device.bus))
+}
+
+fn read_smart_impl(device: &str, bus: Option<Bus>) -> Option<SmartData> {
+    if let Ok(path) = std::env::var("DCHECK_SMART_JSON") {
+        if !path.is_empty() {
+            let text = std::fs::read_to_string(path).ok()?;
+            return Some(parse_smart(&Json::parse(&text)?));
+        }
+    }
+
+    let mut fallback: Option<SmartData> = None;
+    for dtype in d_candidates(bus) {
+        if let Some(s) = run_smartctl(device, dtype.as_deref()) {
+            if s.error.is_none() && has_smart_data(&s) {
+                return Some(s);
+            }
+            if fallback.is_none() {
+                fallback = Some(s);
+            }
+        }
+    }
+    fallback
+}
+
+fn run_smartctl(device: &str, dtype: Option<&str>) -> Option<SmartData> {
+    let mut cmd = Command::new("smartctl");
+    if let Some(d) = dtype {
+        cmd.arg("-d").arg(d);
+    }
+    let output = cmd.arg("-a").arg("-j").arg(device).output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
     let json = Json::parse(&text)?;
-    Some(parse_smart(&json))
+    let mut s = parse_smart(&json);
+    if let Some(d) = dtype {
+        s.source = format!("smartctl -d {d}");
+    }
+    Some(s)
+}
+
+fn has_smart_data(s: &SmartData) -> bool {
+    s.passed.is_some() || s.model.is_some() || !s.attributes.is_empty() || s.lba_written.is_some()
+}
+
+/// Candidate `-d` types to try, most likely first. `DCHECK_SMART_ARGS`
+/// (e.g. `-d megaraid,0`) forces a single one.
+fn d_candidates(bus: Option<Bus>) -> Vec<Option<String>> {
+    let explicit = std::env::var("DCHECK_SMART_ARGS")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    candidates_for(bus, explicit.as_deref())
+}
+
+fn candidates_for(bus: Option<Bus>, explicit: Option<&str>) -> Vec<Option<String>> {
+    if let Some(args) = explicit {
+        let value = args.trim().trim_start_matches("-d").trim().to_string();
+        return vec![Some(value)];
+    }
+    match bus {
+        Some(Bus::Usb) => vec![
+            Some("sat".into()),
+            Some("usbjmicron".into()),
+            Some("usbprolific".into()),
+            None,
+        ],
+        Some(Bus::Scsi) => vec![
+            None,
+            Some("sat".into()),
+            Some("megaraid,0".into()),
+            Some("megaraid,1".into()),
+            Some("3ware,0".into()),
+            Some("areca,0".into()),
+            Some("cciss,0".into()),
+        ],
+        _ => vec![None, Some("sat".into())],
+    }
 }
 
 fn parse_smart(j: &Json) -> SmartData {
@@ -292,6 +368,14 @@ fn parse_smart(j: &Json) -> SmartData {
         if let Some(units) = nvme.get("data_units_read").and_then(Json::as_u64) {
             s.lba_read = Some(units.saturating_mul(1000));
         }
+        s.media_errors = nvme.get("media_errors").and_then(Json::as_u64);
+        s.available_spare = nvme.get("available_spare").and_then(Json::as_u64);
+        s.available_spare_threshold = nvme
+            .get("available_spare_threshold")
+            .and_then(Json::as_u64);
+        s.warning_temp_time = nvme.get("warning_temp_time").and_then(Json::as_u64);
+        s.critical_temp_time = nvme.get("critical_comp_time").and_then(Json::as_u64);
+        s.nvme_errors = nvme.get("num_err_log_entries").and_then(Json::as_u64);
         if s.logical_block_size.is_none() {
             s.logical_block_size = Some(512);
         }
@@ -358,13 +442,46 @@ mod tests {
                 "temperature": 31,
                 "percentage_used": 7,
                 "data_units_written": 1234567,
-                "power_on_hours": 900
+                "power_on_hours": 900,
+                "media_errors": 2,
+                "available_spare": 100,
+                "available_spare_threshold": 10,
+                "warning_temp_time": 5,
+                "critical_comp_time": 0,
+                "num_err_log_entries": 3
             }
         }"#;
         let s = parse_smart(&Json::parse(sample).unwrap());
         assert_eq!(s.life_percent, Some(93)); // 100 - 7
         assert_eq!(s.power_on_hours, Some(900));
+        assert_eq!(s.media_errors, Some(2));
+        assert_eq!(s.available_spare, Some(100));
+        assert_eq!(s.nvme_errors, Some(3));
+        assert_eq!(s.warning_temp_time, Some(5));
         // 1234567 * 1000 * 512 bytes
         assert_eq!(s.bytes_written(), Some(1234567 * 1000 * 512));
+    }
+
+    #[test]
+    fn passthrough_candidates_per_bus() {
+        assert_eq!(candidates_for(None, None), vec![None, Some("sat".into())]);
+        assert_eq!(candidates_for(Some(Bus::Usb), None)[0], Some("sat".into()));
+        let scsi = candidates_for(Some(Bus::Scsi), None);
+        assert_eq!(scsi[0], None);
+        assert!(scsi.contains(&Some("megaraid,0".into())));
+        assert!(scsi.contains(&Some("areca,0".into())));
+        // explicit override wins
+        assert_eq!(
+            candidates_for(Some(Bus::Scsi), Some("-d megaraid,3")),
+            vec![Some("megaraid,3".into())]
+        );
+    }
+
+    #[test]
+    fn detects_usable_smart_data() {
+        let mut s = SmartData::default();
+        assert!(!has_smart_data(&s));
+        s.passed = Some(true);
+        assert!(has_smart_data(&s));
     }
 }

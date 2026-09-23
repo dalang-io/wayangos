@@ -227,6 +227,16 @@ pub fn parse_nvme_health(data: &[u8]) -> SmartData {
 
     s.power_cycles = Some(to_u64_sat(le_u128(&data[112..])));
     s.power_on_hours = Some(to_u64_sat(le_u128(&data[128..])));
+    s.available_spare = Some(data[3] as u64);
+    s.available_spare_threshold = Some(data[4] as u64);
+    s.media_errors = Some(to_u64_sat(le_u128(&data[160..])));
+    s.nvme_errors = Some(to_u64_sat(le_u128(&data[176..])));
+    s.warning_temp_time = Some(u32::from_le_bytes([
+        data[192], data[193], data[194], data[195],
+    ]) as u64);
+    s.critical_temp_time = Some(u32::from_le_bytes([
+        data[196], data[197], data[198], data[199],
+    ]) as u64);
     s.passed = Some(critical_warning == 0);
 
     s
@@ -746,12 +756,21 @@ mod tests {
         data[5] = 7;
         data[48..64].copy_from_slice(&2_000_000u128.to_le_bytes());
         data[128..144].copy_from_slice(&4321u128.to_le_bytes());
+        data[3] = 100;
+        data[4] = 10;
+        data[160..176].copy_from_slice(&5u128.to_le_bytes());
+        data[176..192].copy_from_slice(&3u128.to_le_bytes());
+        data[192..196].copy_from_slice(&7u32.to_le_bytes());
 
         let s = parse_nvme_health(&data);
         assert_eq!(s.passed, Some(true));
         assert_eq!(s.temperature_c, Some(38));
         assert_eq!(s.life_percent, Some(93));
         assert_eq!(s.power_on_hours, Some(4321));
+        assert_eq!(s.available_spare, Some(100));
+        assert_eq!(s.media_errors, Some(5));
+        assert_eq!(s.nvme_errors, Some(3));
+        assert_eq!(s.warning_temp_time, Some(7));
         assert_eq!(s.bytes_written(), Some(2_000_000u64 * 1000 * 512));
     }
 

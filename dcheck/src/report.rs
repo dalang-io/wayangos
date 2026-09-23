@@ -253,6 +253,24 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
     if let Some(used) = h.wear_used_percent {
         out.push(format!("  Wear         : {used}% used"));
     }
+    if let Some(m) = s.media_errors {
+        if m > 0 {
+            out.push(format!("  Media errors : {m}"));
+        }
+    }
+    if let (Some(spare), Some(thresh)) = (s.available_spare, s.available_spare_threshold) {
+        out.push(format!("  Spare        : {spare}% (threshold {thresh}%)"));
+    }
+    if let Some(w) = s.warning_temp_time {
+        if w > 0 {
+            out.push(format!("  Temp warnings: {w} min above threshold"));
+        }
+    }
+    if let Some(c) = s.critical_temp_time {
+        if c > 0 {
+            out.push(format!("  Critical temp: {c} min"));
+        }
+    }
     match h.rated_tbw_bytes {
         Some(r) => out.push(format!("  Rated TBW    : {}", human_size(r))),
         None => out.push("  Rated TBW    : unknown (model not in endurance table)".into()),
@@ -302,7 +320,7 @@ fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
     let smartctl_result = if force_native {
         None
     } else {
-        smartctl::read_smart(&d.path)
+        smartctl::read_smart_dev(d)
     };
 
     if let Some(s) = &smartctl_result {
@@ -382,6 +400,10 @@ pub fn device_json(d: &Device) -> crate::json::Json {
             ("written_bytes", opt_num(h.tbw_bytes.map(|v| v as f64))),
             ("read_bytes", opt_num(s.bytes_read().map(|v| v as f64))),
             ("wear_used_percent", opt_num(h.wear_used_percent.map(|v| v as f64))),
+            ("media_errors", opt_num(s.media_errors.map(|v| v as f64))),
+            ("available_spare", opt_num(s.available_spare.map(|v| v as f64))),
+            ("warning_temp_time", opt_num(s.warning_temp_time.map(|v| v as f64))),
+            ("critical_temp_time", opt_num(s.critical_temp_time.map(|v| v as f64))),
             ("rated_tbw_bytes", opt_num(h.rated_tbw_bytes.map(|v| v as f64))),
             ("remaining_hours", opt_num(h.remaining_poh.map(|v| v as f64))),
             ("life_days_247", opt_num(h.days_247.map(|v| v as f64))),
