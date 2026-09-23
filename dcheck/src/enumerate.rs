@@ -373,7 +373,90 @@ pub fn has_sysfs() -> bool {
 
 /// Built-in sample devices, used for demos on hosts without sysfs (e.g. macOS)
 /// and by `dcheck demo`. Not read from disk.
+static DEMO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True once built-in demo devices are in use; SMART reads then return
+/// [`demo_smart`] instead of touching hardware.
+pub fn is_demo() -> bool {
+    DEMO.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Synthetic SMART data for the demo devices (healthy NVMe, worn SATA SSD,
+/// HDD with bad sectors, USB/MMC without SMART).
+pub fn demo_smart(d: &Device) -> Option<crate::smartctl::SmartData> {
+    use crate::smartctl::{SmartAttribute, SmartData};
+    let attr = |id, name: &str, value, threshold, raw| SmartAttribute {
+        id,
+        name: name.to_string(),
+        value,
+        worst: value,
+        threshold,
+        raw,
+        prefailure: threshold > 0,
+        online: true,
+    };
+    let base = SmartData {
+        source: "demo".to_string(),
+        passed: Some(true),
+        model: d.model.clone(),
+        serial: d.serial.clone(),
+        firmware: d.firmware.clone(),
+        logical_block_size: Some(512),
+        ..Default::default()
+    };
+    match d.name.as_str() {
+        "nvme0n1" => Some(SmartData {
+            temperature_c: Some(41),
+            power_on_hours: Some(3_120),
+            power_cycles: Some(812),
+            lba_written: Some(35_156_250_000), // 18 TB
+            lba_read: Some(52_734_375_000),
+            life_percent: Some(94),
+            media_errors: Some(0),
+            available_spare: Some(100),
+            available_spare_threshold: Some(10),
+            interface_speed: Some("8.0 GT/s x4".to_string()),
+            ..base
+        }),
+        "sda" => Some(SmartData {
+            temperature_c: Some(36),
+            power_on_hours: Some(12_400),
+            power_cycles: Some(2_210),
+            lba_written: Some(113_281_250_000), // 58 TB of 80 TBW
+            reallocated: Some(0),
+            pending: Some(0),
+            interface_speed: Some("6.0 Gb/s".to_string()),
+            attributes: vec![
+                attr(5, "Reallocated_Sector_Ct", 100, 10, 0),
+                attr(9, "Power_On_Hours", 100, 0, 12_400),
+                attr(194, "Temperature_Celsius", 64, 0, 36),
+                attr(241, "Total_LBAs_Written", 100, 0, 113_281_250_000),
+            ],
+            ..base
+        }),
+        "sdb" => Some(SmartData {
+            temperature_c: Some(47),
+            power_on_hours: Some(28_050),
+            power_cycles: Some(4_120),
+            rotation_rate: Some(5400),
+            reallocated: Some(8),
+            pending: Some(2),
+            uncorrectable: Some(0),
+            interface_speed: Some("6.0 Gb/s".to_string()),
+            attributes: vec![
+                attr(5, "Reallocated_Sector_Ct", 90, 36, 8),
+                attr(9, "Power_On_Hours", 62, 0, 28_050),
+                attr(194, "Temperature_Celsius", 103, 0, 47),
+                attr(197, "Current_Pending_Sector", 200, 0, 2),
+            ],
+            ..base
+        }),
+        _ => None,
+    }
+}
+
 pub fn demo_devices() -> Vec<Device> {
+    DEMO.store(true, std::sync::atomic::Ordering::Relaxed);
     fn part(path: &str, size: u64, mount: Option<&str>, fs: Option<&str>) -> Partition {
         Partition {
             path: path.to_string(),

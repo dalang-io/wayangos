@@ -51,17 +51,20 @@ CPU report: model, topology, clock, temperature (Linux), 1-minute load.
 Print Prometheus metrics.
 .TP
 .BR tui " [" \-\-light | \-\-dark "] [" \-\-mouse "] [" \-\-plain "] [" \-\-transparent ]
-Terminal UI. Paints a dark background by default (like OpenCode);
+Terminal UI: a sci-fi HUD with a command deck, storage array, per-device
+vitals dashboard and memory/processor dashboards. Uses neon truecolor when the
+terminal supports it, else the ANSI palette. Default is dark;
 .B \-\-transparent
-keeps the terminal background. Default is dark.
+keeps the terminal background.
 .B \-\-plain
 uses ASCII borders/symbols for fonts without box-drawing glyphs.
 .TP
 .BR demo ", " \-\-version ", " \-\-help
 See above.
 .SH KEYS (TUI)
-↑/↓ or j/k move; Enter open; Esc/b back; PgUp/PgDn page; Home/End or g/G jump;
-r rescan; c copy report (OSC52); ? help; q quit.
+↑/↓ or j/k move; Enter open; Esc/b back; 1/2/3 jump to storage/memory/processor;
+PgUp/PgDn page; Home/End or g/G jump; r rescan/refresh; c copy log (OSC52);
+? command reference; q quit. Any key skips the start-up splash.
 Text is selectable by default; mouse-wheel scrolling is opt-in with
 .BR \-\-mouse .
 .SH EXIT STATUS
@@ -98,16 +101,31 @@ Select the accent:
 .B light
 (blue) or
 .BR dark
-(cyan, default). Colours otherwise come from the terminal palette.
+(cyan, default).
+.TP
+.B DCHECK_COLOR
+.B truecolor
+forces the neon 24-bit palette,
+.B ansi
+the terminal's 16-colour palette,
+.B none
+no colour. Default: truecolor when
+.B COLORTERM
+is
+.BR truecolor / 24bit ,
+else ansi.
+.TP
+.B NO_COLOR
+Disable colour entirely.
+.TP
+.B DCHECK_NO_SPLASH
+Skip the TUI start-up splash.
 .TP
 .B DCHECK_PLAIN
 Use ASCII borders/symbols in the TUI.
 .TP
 .B DCHECK_TRANSPARENT
 Keep the terminal background instead of a forced dark/light one.
-.TP
-.B COLORFGBG
-Consulted by the TUI to auto-detect a light background.
 .TP
 .B DCHECK_TBW_JSON
 Path to a TBW override map; default
@@ -116,7 +134,7 @@ Path to a TBW override map; default
 .TP
 .I ~/.config/dcheck/config.json
 Optional settings:
-.RB { "temp_warn_c": \ 60, "watch_interval": \ 60 }.
+.RB { "temp_warn_c": \ 60, "watch_interval": \ 60, "theme": \ "dark", "plain": \ false, "transparent": \ false, "splash": \ true }.
 .TP
 .I ~/.config/dcheck/tbw.json
 Rated endurance overrides:

@@ -21,6 +21,8 @@ pub struct Config {
     pub plain: bool,
     /// Use the terminal's own background instead of a forced dark/light one.
     pub transparent: bool,
+    /// Show the short boot splash when the TUI starts.
+    pub splash: bool,
 }
 
 impl Default for Config {
@@ -32,6 +34,7 @@ impl Default for Config {
             mouse: false,
             plain: false,
             transparent: false,
+            splash: true,
         }
     }
 }
@@ -106,6 +109,9 @@ pub fn parse(text: &str) -> Config {
         }
         if let Some(v) = map.get("transparent").and_then(|v| v.as_bool()) {
             cfg.transparent = v;
+        }
+        if let Some(v) = map.get("splash").and_then(|v| v.as_bool()) {
+            cfg.splash = v;
         }
     }
     cfg

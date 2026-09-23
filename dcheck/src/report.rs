@@ -121,7 +121,23 @@ pub fn print_report(d: &Device) {
 
 /// Build the full report for one device as lines.
 pub fn device_report_lines(d: &Device) -> Vec<String> {
+    device_report_lines_with(d, read_smart(d).as_ref())
+}
+
+/// Read SMART once and return both the report lines and the evaluated health
+/// (for the TUI dashboard).
+pub fn device_report(d: &Device) -> (Vec<String>, Option<(smartctl::SmartData, health::Health)>) {
     let smart = read_smart(d);
+    let lines = device_report_lines_with(d, smart.as_ref());
+    let metrics = smart.map(|s| {
+        let h = health::evaluate(d, &s);
+        (s, h)
+    });
+    (lines, metrics)
+}
+
+/// Report lines for already-read SMART data.
+pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>) -> Vec<String> {
     let nid = crate::native::identity(d);
     let mut out: Vec<String> = Vec::new();
 
@@ -136,17 +152,14 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     // Prefer SMART, then native identity, then sysfs.
     let vendor = d.vendor.clone();
     let model = smart
-        .as_ref()
         .and_then(|s| s.model.clone())
         .or_else(|| nid.model.clone())
         .or_else(|| d.model.clone());
     let serial = smart
-        .as_ref()
         .and_then(|s| s.serial.clone())
         .or_else(|| nid.serial.clone())
         .or_else(|| d.serial.clone());
     let firmware = smart
-        .as_ref()
         .and_then(|s| s.firmware.clone())
         .or_else(|| nid.firmware.clone())
         .or_else(|| d.firmware.clone());
@@ -161,10 +174,10 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     out.push(format!("  Firmware     : {}", opt(&firmware)));
     out.push(format!("  Bus          : {}", d.bus));
     out.push(format!("  Type         : {}", d.kind));
-    if let Some(ff) = smart.as_ref().and_then(|s| s.form_factor.clone()) {
+    if let Some(ff) = smart.and_then(|s| s.form_factor.clone()) {
         out.push(format!("  Form factor  : {ff}"));
     }
-    if let Some(rr) = smart.as_ref().and_then(|s| s.rotation_rate) {
+    if let Some(rr) = smart.and_then(|s| s.rotation_rate) {
         if rr > 0 {
             out.push(format!("  Rotation     : {rr} rpm"));
         }
@@ -220,13 +233,11 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     out.push(section("INTERFACE"));
     out.push(format!("  Transport    : {}", d.bus));
     let speed = smart
-        .as_ref()
         .and_then(|s| s.interface_speed.clone())
         .or_else(|| crate::native::link_speed(d));
     match speed {
         Some(sp) => {
             let ver = smart
-                .as_ref()
                 .and_then(|s| s.sata_version.clone())
                 .unwrap_or_default();
             if ver.is_empty() {
@@ -240,7 +251,7 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
 
     out.push(String::new());
     out.push(section("HEALTH"));
-    match &smart {
+    match smart {
         Some(s) => health_lines(d, s, &mut out),
         None => {
             out.push("  SMART        : unavailable (run as root, or install smartmontools)".into());
@@ -255,7 +266,7 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
         }
     }
 
-    if let Some(s) = smart.as_ref() {
+    if let Some(s) = smart {
         if !s.attributes.is_empty() {
             out.push(String::new());
             out.push(section("SMART ATTRIBUTES"));
@@ -363,7 +374,7 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
     }
 }
 
-fn fmt_years(days: u64) -> String {
+pub fn fmt_years(days: u64) -> String {
     if days < 365 {
         format!("{days}d")
     } else {
@@ -605,6 +616,9 @@ fn metric(name: &str, device: &str, label: Option<&str>, value: f64) -> String {
 /// Prefer smartctl when it works; otherwise fall back to the native reader.
 /// `DCHECK_NATIVE=1` forces the native path (used for testing).
 fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
+    if crate::enumerate::is_demo() {
+        return crate::enumerate::demo_smart(d);
+    }
     let force_native = std::env::var_os("DCHECK_NATIVE").is_some();
     let smartctl_result = if force_native {
         None

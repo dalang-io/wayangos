@@ -14,17 +14,17 @@
 
 ## B. Rework TUI — tema sci-fi
 
-- [ ] Pecah `src/tui.rs` → `src/tui/{mod,theme,widgets,views}.rs`
-- [ ] Tema neon truecolor (auto via `COLORTERM`, override `DCHECK_COLOR`) + fallback ANSI
-- [ ] Widget HUD: panel bracket, segmented gauge, badge, keycap footer, spinner braille
-- [ ] Splash boot ≤ 0,5 dtk (skip: tombol apa pun, `--plain`, `DCHECK_NO_SPLASH`, `"splash": false`)
-- [ ] Header `◢◤ DCHECK // DEVICE HEALTH SYSTEM` + hostname + status global
-- [ ] Menu "command deck" dengan kartu ringkas (storage / RAM / CPU, prefetch di background)
-- [ ] Storage: badge health berwarna + mini gauge life%
-- [ ] Report: dashboard VITALS (verdict, gauge life/suhu/TBW, issues) + TELEMETRY LOG
-- [ ] RAM: gauge used/swap, peta slot DIMM, ECC, suhu
-- [ ] CPU: gauge load/suhu, grid core, clock, cache
-- [ ] Help sebagai overlay modal
-- [ ] Layout kompak untuk terminal kecil (< 60×16)
-- [ ] Test snapshot `TestBackend` (80×24, 140×40, plain ASCII-only, NO_COLOR)
-- [ ] Update README, `dcheck.1`, config `splash`
+- [x] Pecah `src/tui.rs` → `src/tui/{mod,theme,widgets,views}.rs`
+- [x] Tema neon truecolor (auto via `COLORTERM`, override `DCHECK_COLOR`) + fallback ANSI
+- [x] Widget HUD: panel bracket, segmented gauge, badge, keycap footer, spinner braille
+- [x] Splash boot ≤ 0,5 dtk (skip: tombol apa pun, `--plain`, `DCHECK_NO_SPLASH`, `"splash": false`)
+- [x] Header `◢◤ DCHECK // DEVICE HEALTH SYSTEM` + hostname + status global
+- [x] Menu "command deck" dengan kartu ringkas (storage / RAM / CPU, prefetch di background)
+- [x] Storage: badge health berwarna + mini gauge life%
+- [x] Report: dashboard VITALS (verdict, gauge life/suhu/TBW, issues) + TELEMETRY LOG
+- [x] RAM: gauge used/swap, peta slot DIMM, ECC, suhu
+- [x] CPU: gauge load/suhu, grid core, clock, cache
+- [x] Help sebagai overlay modal
+- [x] Layout kompak untuk terminal kecil (< 60×16)
+- [x] Test snapshot `TestBackend` (80×24, 140×40, plain ASCII-only, NO_COLOR)
+- [x] Update README, `dcheck.1`, config `splash`

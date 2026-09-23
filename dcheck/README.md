@@ -33,19 +33,34 @@ dcheck ram | cpu        # memory / CPU report (or --json)
 dcheck --version
 ```
 
-In the UI: `↑`/`↓` move, `Enter` open, `b`/`Esc` back, `PgUp`/`PgDn` and
-`Home`/`End` (`g`/`G`) scroll, `r` rescan, `c` copy report (OSC52), `?` help,
-`q` quit. Text stays **selectable** by default; mouse-wheel scrolling is opt-in
-with `dcheck tui --mouse` (it disables native selection). SMART reads run in the
-background with a spinner; the list shows per-device health.
-The UI uses a compact **sci-fi style** (double-line panels, status badges, text
-meters) that stays cheap to render for low-spec devices. It paints a **dark
-background by default** (like OpenCode); `--transparent` (or
-`"transparent": true` / `DCHECK_TRANSPARENT`) keeps your terminal's own
-background. Use `--plain` for ASCII-only borders/symbols on limited fonts.
-Colours use the terminal's **ANSI palette**. Default is dark (cyan accent);
-`--light` switches to a light background + blue accent, `NO_COLOR` disables
-colour, and selection uses reverse-video.
+In the UI: `↑`/`↓` move, `Enter` open, `b`/`Esc` back, `1`/`2`/`3` jump to
+storage/memory/processor, `PgUp`/`PgDn` and `Home`/`End` (`g`/`G`) scroll,
+`r` rescan/refresh, `c` copy the log (OSC52), `?` command reference, `q` quit.
+Text stays **selectable** by default; mouse-wheel scrolling is opt-in with
+`dcheck tui --mouse` (it disables native selection).
+
+The UI is a **sci-fi HUD**:
+
+- a short boot splash (≤0.5 s, any key skips; `DCHECK_NO_SPLASH=1` or
+  `"splash": false` disables it);
+- a **command deck** menu with live summary cards for storage, memory and CPU
+  (all read in the background while you navigate);
+- a **storage array** table with coloured health, remaining-life gauges and
+  temperatures, plus a detail strip for the selected device;
+- a per-device **dashboard**: VITALS (verdict, life / temperature / endurance
+  gauges, power-on time, life estimate, alerts) next to the scrollable
+  TELEMETRY LOG (the full text report);
+- memory (usage/swap gauges, DIMM slot map, ECC) and processor (load /
+  temperature / clock gauges, thread grid) dashboards.
+
+Colour: **neon truecolor** (cyan / magenta / amber on blue-black) when the
+terminal sets `COLORTERM=truecolor`, otherwise the terminal's **ANSI palette**
+(Linux console, older terminals). Force either with `DCHECK_COLOR=truecolor` or
+`DCHECK_COLOR=ansi`. `--light` selects the light variant, `--transparent` (or
+`"transparent": true` / `DCHECK_TRANSPARENT`) keeps your terminal background,
+`NO_COLOR` disables colour, and `--plain` switches every glyph to ASCII for
+fonts without box-drawing/geometric symbols. It only redraws on input or while
+something is loading, so it stays cheap on low-spec devices.
 
 Devices are read from `/sys/block`, so they are listed as soon as they are
 **attached**, mounted or not. Health is read **natively** (ATA `HDIO_DRIVE_CMD`,
@@ -115,7 +130,7 @@ mounted and unmounted partitions, and ignored virtual devices.
 ## Configuration
 
 - `~/.config/dcheck/config.json` (or `$DCHECK_CONFIG`):
-  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false, "transparent": false }`
+  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false, "transparent": false, "splash": true }`
 - `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`):
   `{ "model substring": TBW_in_TB }`
 - Env: `DCHECK_SYS_ROOT` (alternate fs root), `DCHECK_SMART_JSON` (parse a

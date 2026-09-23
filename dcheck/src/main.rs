@@ -134,15 +134,25 @@ fn run_tui(
     let plain = plain_override.unwrap_or_else(|| {
         config::load().plain || std::env::var_os("DCHECK_PLAIN").is_some()
     });
-    let transparent = transparent_override.unwrap_or_else(|| config::load().transparent);
-    if transparent {
-        std::env::set_var("DCHECK_TRANSPARENT", "1");
-    } else {
-        std::env::remove_var("DCHECK_TRANSPARENT");
+    let transparent = transparent_override.unwrap_or_else(|| {
+        config::load().transparent || std::env::var_os("DCHECK_TRANSPARENT").is_some()
+    });
+    if plain {
+        // Report text (section headers, meters) follows the same glyph set.
+        std::env::set_var("DCHECK_PLAIN", "1");
     }
+    let splash = config::load().splash && std::env::var_os("DCHECK_NO_SPLASH").is_none();
     let demo = force_demo || std::env::var_os("DCHECK_DEMO").is_some();
     let devices = load_devices(force_demo);
-    match tui::run(devices, light, demo, mouse, plain) {
+    let opts = tui::Options {
+        light,
+        demo,
+        mouse,
+        plain,
+        transparent,
+        splash,
+    };
+    match tui::run(devices, opts) {
         Ok(()) => 0,
         Err(err) => {
             eprintln!("dcheck: TUI error: {err}");
