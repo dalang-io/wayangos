@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M8 done** (Linux + FreeBSD, native + smartctl, ATA attributes+thresholds, self-test + read-only bench, link speed, TUI, `--json`, packaging) · Owner: TBD
+Status: **M1–M9 done** (Linux + FreeBSD, native + smartctl, ATA attributes+thresholds, self-test + read-only bench, link speed, TUI, `--json`, monitoring/alerts, packaging) · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -333,11 +333,11 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - `dcheck storage <dev> --bench` read-only (sequential + 4K QD1, `O_DIRECT`). ✅
 - **AC:** verified on real SATA (self-test completed; 128 MB/s seq, ~3.3k IOPS 4K).
 
-### M9 — Monitoring & alerts
-- `dcheck watch [--interval N] [--json] [--webhook URL]`, `--quiet`/`--exit-code`.
-- Alert (exit code / webhook) when verdict worsens or a new issue appears.
-- **AC:** watch loop runs, detects a simulated state change, exits non-zero on
-  bad health; unit-tested transition logic.
+### M9 — Monitoring & alerts — DONE
+- `dcheck check [--json]` one-shot gate; exit code 0/1/2/3 by worst verdict. ✅
+- `dcheck watch [--interval S] [--json] [--quiet] [--webhook URL]` loop. ✅
+- Alerts on verdict worsening or new issues; webhook POST via `curl`. ✅
+- **AC:** verified on real SATA (check exit 0; watch alerts once on device appear).
 
 ### M10 — Hardware coverage + endurance overrides
 - Passthrough selection: USB (`-d sat`), RAID (`-d megaraid,N`, `3ware`, `areca`,

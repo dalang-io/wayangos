@@ -9,6 +9,7 @@ mod enumerate;
 mod health;
 mod json;
 mod model;
+mod monitor;
 mod native;
 mod report;
 mod smartctl;
@@ -41,6 +42,8 @@ fn run(args: &[String]) -> i32 {
             0
         }
         Some("storage") | Some("disk") => storage_cmd(&args[1..], false),
+        Some("check") => check_cmd(&args[1..], false),
+        Some("watch") => watch_cmd(&args[1..], false),
         Some("tui") => run_tui(false),
         Some("demo") => {
             if interactive() {
@@ -85,6 +88,8 @@ USAGE:
     dcheck storage <dev> --bench           Read-only speed benchmark
     dcheck storage <dev> --test short|long Start a SMART self-test
     dcheck tui              Force the terminal UI
+    dcheck check            One-shot health gate (exit code = worst verdict)
+    dcheck watch            Monitor + alert (--interval, --webhook, --json)
     dcheck demo             Run with built-in sample devices (no sysfs needed)
     dcheck ram | cpu        Coming soon
     dcheck --version
@@ -223,6 +228,69 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
     }
 
     prompt_selection(&devices)
+}
+
+/// One-shot health gate: exit code = 0 ok, 1 unknown, 2 monitor, 3 backup/replace.
+fn check_cmd(args: &[String], session_demo: bool) -> i32 {
+    let mut demo = session_demo;
+    let mut json = false;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            "--demo" => demo = true,
+            "-h" | "--help" => {
+                println!("Usage: dcheck check [--json] [--demo]");
+                return 0;
+            }
+            flag if flag.starts_with('-') => {
+                eprintln!("dcheck: unknown option '{flag}'");
+                return 2;
+            }
+            _ => {}
+        }
+    }
+    let devices = load_devices(demo);
+    monitor::check(&devices, json)
+}
+
+/// Watch loop with alerts.
+fn watch_cmd(args: &[String], session_demo: bool) -> i32 {
+    let mut demo = session_demo;
+    let mut json = false;
+    let mut quiet = false;
+    let mut interval: u64 = 60;
+    let mut webhook: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json = true,
+            "--quiet" => quiet = true,
+            "--demo" => demo = true,
+            "--interval" => {
+                i += 1;
+                interval = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(60);
+            }
+            "--webhook" => {
+                i += 1;
+                webhook = args.get(i).cloned();
+            }
+            "-h" | "--help" => {
+                println!(
+                    "Usage: dcheck watch [--interval S] [--json] [--quiet] [--webhook URL] [--demo]"
+                );
+                return 0;
+            }
+            flag if flag.starts_with('-') => {
+                eprintln!("dcheck: unknown option '{flag}'");
+                return 2;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let devices = load_devices(demo);
+    monitor::watch(&devices, interval, json, quiet, webhook.as_deref())
 }
 
 fn run_selftest(dev: &model::Device, kind: native::SelfTest) -> i32 {

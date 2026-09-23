@@ -19,6 +19,8 @@ dcheck storage <dev>    # report for one device (e.g. /dev/nvme0n1)
 dcheck storage <dev> --bench           # read-only speed benchmark
 dcheck storage <dev> --test short|long # start a SMART self-test
 dcheck storage --json   # machine-readable device list
+dcheck check            # one-shot health gate (exit code = worst verdict)
+dcheck watch --interval 60 --webhook http://host/hook   # monitor + alert
 dcheck storage <dev> --json   # full JSON report for one device
 dcheck tui              # force the terminal UI
 dcheck demo             # run with built-in sample devices

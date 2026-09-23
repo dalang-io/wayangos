@@ -290,6 +290,11 @@ fn fmt_years(days: u64) -> String {
     }
 }
 
+/// Read and evaluate health for a device (`None` when SMART is unavailable).
+pub fn health_summary(d: &Device) -> Option<health::Health> {
+    read_smart(d).map(|s| health::evaluate(d, &s))
+}
+
 /// Prefer smartctl when it works; otherwise fall back to the native reader.
 /// `DCHECK_NATIVE=1` forces the native path (used for testing).
 fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
