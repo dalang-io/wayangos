@@ -353,8 +353,8 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 ### M11 — Polish — DONE
 - Config file `~/.config/dcheck/config.json` (`temp_warn_c`, `watch_interval`,
   `theme`). ✅
-- TUI palette adapts to light/dark terminals (`--light`/`--dark`,
-  `DCHECK_THEME`, auto via `COLORFGBG`; `NO_COLOR` disables color). ✅
+- TUI palette uses the terminal's ANSI colours (follows the terminal/OpenCode
+  theme, no hardcoded RGB); default dark, `NO_COLOR` disables colour. ✅
 - TUI UX: background SMART reads with spinner, per-device health in the list,
   contextual report title with position indicator, `?` help overlay, `r` rescan,
   `Home`/`End`/`g`/`G`, `c` copy (OSC52). Text stays selectable (mouse capture

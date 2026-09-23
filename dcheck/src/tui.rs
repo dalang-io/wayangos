@@ -30,17 +30,14 @@ use crate::report;
 const SPINNER: [&str; 4] = ["|", "/", "-", "\\"];
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Colours use the terminal's ANSI palette so dcheck blends with the user's
+/// terminal/OpenCode theme instead of hardcoding RGB that can clash.
 struct Palette {
     accent: Color,
     dim: Color,
-    hl_bg: Color,
-    hl_fg: Color,
-    row_bg: Color,
-    row_fg: Color,
     ok: Color,
     warn: Color,
     bad: Color,
-    mono: bool,
 }
 
 impl Palette {
@@ -49,42 +46,19 @@ impl Palette {
             return Palette {
                 accent: Color::Reset,
                 dim: Color::Reset,
-                hl_bg: Color::Reset,
-                hl_fg: Color::Reset,
-                row_bg: Color::Reset,
-                row_fg: Color::Reset,
                 ok: Color::Reset,
                 warn: Color::Reset,
                 bad: Color::Reset,
-                mono: true,
             };
         }
-        if light {
-            Palette {
-                accent: Color::Rgb(140, 90, 0),
-                dim: Color::Rgb(80, 80, 80),
-                hl_bg: Color::Rgb(230, 200, 120),
-                hl_fg: Color::Black,
-                row_bg: Color::Rgb(243, 234, 214),
-                row_fg: Color::Rgb(120, 80, 0),
-                ok: Color::Rgb(0, 120, 0),
-                warn: Color::Rgb(170, 100, 0),
-                bad: Color::Rgb(170, 0, 0),
-                mono: false,
-            }
-        } else {
-            Palette {
-                accent: Color::Rgb(200, 148, 26),
-                dim: Color::Gray,
-                hl_bg: Color::Rgb(200, 148, 26),
-                hl_fg: Color::Black,
-                row_bg: Color::Rgb(40, 32, 16),
-                row_fg: Color::Rgb(240, 200, 80),
-                ok: Color::Rgb(120, 200, 120),
-                warn: Color::Rgb(230, 180, 60),
-                bad: Color::Rgb(240, 100, 100),
-                mono: false,
-            }
+        // ANSI names are mapped by the terminal theme, so both light and dark
+        // terminals (and OpenCode) stay consistent.
+        Palette {
+            accent: if light { Color::Blue } else { Color::Cyan },
+            dim: Color::DarkGray,
+            ok: Color::Green,
+            warn: Color::Yellow,
+            bad: Color::Red,
         }
     }
 
@@ -722,16 +696,13 @@ fn draw_report(
     );
 }
 
-fn highlight(palette: &Palette, kind: u8) -> Style {
-    if palette.mono {
-        return Style::default().add_modifier(Modifier::REVERSED);
-    }
-    match kind {
-        0 => Style::default()
-            .fg(palette.hl_fg)
-            .bg(palette.hl_bg)
-            .add_modifier(Modifier::BOLD),
-        _ => Style::default().bg(palette.row_bg).fg(palette.row_fg),
+fn highlight(_palette: &Palette, kind: u8) -> Style {
+    // REVERSED inverts the terminal's own colours, so selection stays readable
+    // on any light/dark theme without hardcoded backgrounds.
+    if kind == 0 {
+        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::REVERSED)
     }
 }
 

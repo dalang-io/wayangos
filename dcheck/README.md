@@ -34,9 +34,10 @@ In the UI: `↑`/`↓` move, `Enter` open, `b`/`Esc` back, `PgUp`/`PgDn` and
 `q` quit. Text stays **selectable** by default; mouse-wheel scrolling is opt-in
 with `dcheck tui --mouse` (it disables native selection). SMART reads run in the
 background with a spinner; the list shows per-device health.
-The palette adapts to a **light or dark terminal**. Force it with
-`dcheck tui --light` / `--dark`, `DCHECK_THEME=light`, or `"theme": "light"` in
-the config; otherwise it auto-detects via `COLORFGBG` (`NO_COLOR` disables color).
+Colours use the terminal's **ANSI palette**, so dcheck blends with your
+terminal/OpenCode theme instead of hardcoding RGB. Default is dark (cyan accent);
+`--light` switches to a blue accent, `NO_COLOR` disables colour, and selection
+uses reverse-video. `DCHECK_THEME` / `"theme"` still select the accent.
 
 Devices are read from `/sys/block`, so they are listed as soon as they are
 **attached**, mounted or not. Health is read **natively** (ATA `HDIO_DRIVE_CMD`,
