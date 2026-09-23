@@ -307,6 +307,102 @@ fn fmt_years(days: u64) -> String {
     }
 }
 
+/// RAM report lines.
+pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
+    let mut out = Vec::new();
+    out.push("RAM".to_string());
+    out.push(format!("  Total        : {}", human_size(r.total_bytes)));
+    out.push(format!(
+        "  Used         : {} ({:.0}%)",
+        human_size(r.used_bytes()),
+        r.used_percent()
+    ));
+    out.push(format!("  Available    : {}", human_size(r.available_bytes)));
+    if r.swap_total_bytes > 0 {
+        out.push(format!(
+            "  Swap         : {} used of {}",
+            human_size(r.swap_total_bytes.saturating_sub(r.swap_free_bytes)),
+            human_size(r.swap_total_bytes)
+        ));
+    } else {
+        out.push("  Swap         : none".to_string());
+    }
+    out.push(format!("  Source       : {}", r.source));
+    out.push(String::new());
+    out.push("[ Health ]".to_string());
+    let (label, sev) = r.verdict();
+    out.push(format!("  Verdict      : {label}"));
+    if r.ecc_correctable > 0 || r.ecc_uncorrectable > 0 {
+        out.push(format!(
+            "  ECC          : {} correctable, {} uncorrectable",
+            r.ecc_correctable, r.ecc_uncorrectable
+        ));
+    } else {
+        out.push("  ECC          : no errors reported (or EDAC unavailable)".to_string());
+    }
+    let _ = sev;
+    out
+}
+
+/// CPU report lines.
+pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
+    let mut out = Vec::new();
+    out.push("CPU".to_string());
+    let model = if c.model.is_empty() { "-" } else { &c.model };
+    out.push(format!("  Model        : {model}"));
+    out.push(format!("  Sockets      : {}", c.sockets));
+    out.push(format!("  Cores        : {}", c.cores));
+    out.push(format!("  Threads      : {}", c.threads));
+    if let Some(mhz) = c.mhz {
+        out.push(format!("  Clock        : {:.0} MHz", mhz));
+    }
+    if let Some(t) = c.temp_c {
+        out.push(format!("  Temperature  : {t}°C"));
+    }
+    if let Some(l) = c.load1 {
+        out.push(format!("  Load (1m)    : {l:.2}"));
+    }
+    out.push(format!("  Source       : {}", c.source));
+    out.push(String::new());
+    out.push("[ Health ]".to_string());
+    let (label, _) = c.verdict(crate::config::load().temp_warn_c);
+    out.push(format!("  Verdict      : {label}"));
+    out
+}
+
+/// RAM JSON object.
+pub fn ram_json(r: &crate::ram::RamInfo) -> crate::json::Json {
+    let (verdict, _) = r.verdict();
+    crate::json::object(vec![
+        ("total_bytes", crate::json::num(r.total_bytes as f64)),
+        ("used_bytes", crate::json::num(r.used_bytes() as f64)),
+        ("available_bytes", crate::json::num(r.available_bytes as f64)),
+        ("used_percent", crate::json::num(r.used_percent())),
+        ("swap_total_bytes", crate::json::num(r.swap_total_bytes as f64)),
+        ("swap_free_bytes", crate::json::num(r.swap_free_bytes as f64)),
+        ("ecc_correctable", crate::json::num(r.ecc_correctable as f64)),
+        ("ecc_uncorrectable", crate::json::num(r.ecc_uncorrectable as f64)),
+        ("verdict", crate::json::string(verdict)),
+        ("source", crate::json::string(r.source.clone())),
+    ])
+}
+
+/// CPU JSON object.
+pub fn cpu_json(c: &crate::cpu::CpuInfo) -> crate::json::Json {
+    let (verdict, _) = c.verdict(crate::config::load().temp_warn_c);
+    crate::json::object(vec![
+        ("model", crate::json::string(c.model.clone())),
+        ("sockets", crate::json::num(c.sockets as f64)),
+        ("cores", crate::json::num(c.cores as f64)),
+        ("threads", crate::json::num(c.threads as f64)),
+        ("mhz", opt_num(c.mhz)),
+        ("temp_c", opt_num(c.temp_c.map(|v| v as f64))),
+        ("load1", opt_num(c.load1)),
+        ("verdict", crate::json::string(verdict)),
+        ("source", crate::json::string(c.source.clone())),
+    ])
+}
+
 /// Read and evaluate health for a device (`None` when SMART is unavailable).
 pub fn health_summary(d: &Device) -> Option<health::Health> {
     device_metrics(d).map(|(_, h)| h)

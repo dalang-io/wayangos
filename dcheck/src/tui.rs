@@ -77,7 +77,8 @@ enum Screen {
     Menu,
     Storage,
     Report,
-    Notice(String, String),
+    Ram,
+    Cpu,
     Help,
 }
 
@@ -103,6 +104,10 @@ pub struct App {
     pending: Option<Pending>,
     mouse: bool,
     status: Option<String>,
+    ram_lines: Vec<String>,
+    ram_rx: Option<Receiver<Vec<String>>>,
+    cpu_lines: Vec<String>,
+    cpu_rx: Option<Receiver<Vec<String>>>,
 }
 
 impl App {
@@ -130,6 +135,10 @@ impl App {
             view_height: 1,
             health_rx: None,
             pending: None,
+            ram_lines: Vec::new(),
+            ram_rx: None,
+            cpu_lines: Vec::new(),
+            cpu_rx: None,
         };
         app.spawn_health();
         app
@@ -169,6 +178,28 @@ impl App {
         self.screen = Screen::Report;
     }
 
+    fn start_ram(&mut self) {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(report::ram_report_lines(&crate::ram::read()));
+        });
+        self.ram_lines.clear();
+        self.scroll = 0;
+        self.ram_rx = Some(rx);
+        self.screen = Screen::Ram;
+    }
+
+    fn start_cpu(&mut self) {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(report::cpu_report_lines(&crate::cpu::read()));
+        });
+        self.cpu_lines.clear();
+        self.scroll = 0;
+        self.cpu_rx = Some(rx);
+        self.screen = Screen::Cpu;
+    }
+
     fn rescan(&mut self) {
         self.devices = reload_devices(self.demo);
         self.table = TableState::default();
@@ -201,23 +232,35 @@ impl App {
     }
 
     fn max_scroll(&self) -> u16 {
-        let visible = self.view_height.saturating_sub(2).max(1) as usize;
-        self.report_lines.len().saturating_sub(visible) as u16
+        max_scroll_for(self.report_lines.len(), self.view_height)
     }
 }
 
-/// Copy the current report to the clipboard via OSC 52.
-fn copy_report(app: &mut App) {
-    if app.report_lines.is_empty() {
+fn max_scroll_for(lines: usize, view_height: u16) -> u16 {
+    let visible = view_height.saturating_sub(2).max(1) as usize;
+    lines.saturating_sub(visible) as u16
+}
+
+/// Copy the current screen's content to the clipboard via OSC 52.
+fn copy_current(app: &mut App) {
+    let text = match &app.screen {
+        Screen::Report => app.report_lines.join("\n"),
+        Screen::Ram => app.ram_lines.join("\n"),
+        Screen::Cpu => app.cpu_lines.join("\n"),
+        _ => {
+            app.status = Some("nothing to copy".to_string());
+            return;
+        }
+    };
+    if text.trim().is_empty() {
         app.status = Some("nothing to copy yet".to_string());
         return;
     }
-    let text = app.report_lines.join("\n");
     let seq = format!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
     let mut out = io::stdout();
     let _ = out.write_all(seq.as_bytes());
     let _ = out.flush();
-    app.status = Some("report copied via OSC52 (terminal must support it)".to_string());
+    app.status = Some("copied via OSC52 (terminal must support it)".to_string());
 }
 
 /// Minimal base64 encoder for the OSC 52 clipboard sequence.
@@ -312,10 +355,33 @@ fn event_loop(
         if let Some(pending) = &mut app.pending {
             pending.tick = pending.tick.wrapping_add(1);
         }
+        if let Some(rx) = &app.ram_rx {
+            match rx.try_recv() {
+                Ok(lines) => {
+                    app.ram_lines = lines;
+                    app.ram_rx = None;
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => app.ram_rx = None,
+            }
+        }
+        if let Some(rx) = &app.cpu_rx {
+            match rx.try_recv() {
+                Ok(lines) => {
+                    app.cpu_lines = lines;
+                    app.cpu_rx = None;
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => app.cpu_rx = None,
+            }
+        }
 
         terminal.draw(|f| draw(f, &mut app))?;
 
-        let busy = app.pending.is_some() || app.health_rx.is_some();
+        let busy = app.pending.is_some()
+            || app.health_rx.is_some()
+            || app.ram_rx.is_some()
+            || app.cpu_rx.is_some();
         let timeout = if busy {
             Duration::from_millis(120)
         } else {
@@ -352,14 +418,6 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         app.close_help();
         return false;
     }
-    if matches!(&app.screen, Screen::Notice(_, _)) {
-        if code == KeyCode::Char('q') {
-            return true;
-        }
-        app.screen = Screen::Menu;
-        return false;
-    }
-
     match app.screen.clone() {
         Screen::Menu => match code {
             KeyCode::Char('q') | KeyCode::Esc => return true,
@@ -376,8 +434,8 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             KeyCode::End => app.menu.select(Some(3)),
             KeyCode::Enter => match app.menu.selected().unwrap_or(0) {
                 0 => app.screen = Screen::Storage,
-                1 => app.screen = Screen::Notice("RAM".into(), "coming soon".into()),
-                2 => app.screen = Screen::Notice("CPU".into(), "coming soon".into()),
+                1 => app.start_ram(),
+                2 => app.start_cpu(),
                 _ => return true,
             },
             _ => {}
@@ -412,7 +470,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             KeyCode::Char('q') => return true,
             KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') => app.screen = Screen::Storage,
             KeyCode::Char('?') => app.open_help(),
-            KeyCode::Char('c') => copy_report(app),
+            KeyCode::Char('c') => copy_current(app),
             KeyCode::Down | KeyCode::Char('j') => app.scroll = app.scroll.saturating_add(1),
             KeyCode::Up | KeyCode::Char('k') => app.scroll = app.scroll.saturating_sub(1),
             KeyCode::PageDown => app.scroll = app.scroll.saturating_add(10),
@@ -421,7 +479,42 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             KeyCode::Char('G') | KeyCode::End => app.scroll = app.max_scroll(),
             _ => {}
         },
-        Screen::Help | Screen::Notice(_, _) => {}
+        Screen::Ram => {
+            if handle_simple(app, code, true) {
+                return true;
+            }
+        }
+        Screen::Cpu => {
+            if handle_simple(app, code, false) {
+                return true;
+            }
+        }
+        Screen::Help => {}
+    }
+    false
+}
+
+/// Shared key handling for the RAM/CPU screens (scroll + copy + back).
+fn handle_simple(app: &mut App, code: KeyCode, is_ram: bool) -> bool {
+    match code {
+        KeyCode::Char('q') => return true,
+        KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') => app.screen = Screen::Menu,
+        KeyCode::Char('?') => app.open_help(),
+        KeyCode::Char('c') => copy_current(app),
+        KeyCode::Down | KeyCode::Char('j') => app.scroll = app.scroll.saturating_add(1),
+        KeyCode::Up | KeyCode::Char('k') => app.scroll = app.scroll.saturating_sub(1),
+        KeyCode::PageDown => app.scroll = app.scroll.saturating_add(10),
+        KeyCode::PageUp => app.scroll = app.scroll.saturating_sub(10),
+        KeyCode::Char('g') | KeyCode::Home => app.scroll = 0,
+        KeyCode::Char('G') | KeyCode::End => {
+            let len = if is_ram {
+                app.ram_lines.len()
+            } else {
+                app.cpu_lines.len()
+            };
+            app.scroll = max_scroll_for(len, app.view_height);
+        }
+        _ => {}
     }
     false
 }
@@ -429,7 +522,9 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
 fn handle_mouse(app: &mut App, kind: MouseEventKind) {
     match kind {
         MouseEventKind::ScrollUp => match app.screen {
-            Screen::Report => app.scroll = app.scroll.saturating_sub(3),
+            Screen::Report | Screen::Ram | Screen::Cpu => {
+                app.scroll = app.scroll.saturating_sub(3)
+            }
             Screen::Storage => {
                 let i = app.table.selected().unwrap_or(0);
                 app.table.select(Some(i.saturating_sub(1)));
@@ -437,9 +532,13 @@ fn handle_mouse(app: &mut App, kind: MouseEventKind) {
             _ => {}
         },
         MouseEventKind::ScrollDown => match app.screen {
-            Screen::Report => {
-                let m = app.max_scroll();
-                app.scroll = (app.scroll + 3).min(m);
+            Screen::Report | Screen::Ram | Screen::Cpu => {
+                let len = match app.screen {
+                    Screen::Ram => app.ram_lines.len(),
+                    Screen::Cpu => app.cpu_lines.len(),
+                    _ => app.report_lines.len(),
+                };
+                app.scroll = (app.scroll + 3).min(max_scroll_for(len, app.view_height));
             }
             Screen::Storage => {
                 let i = app.table.selected().unwrap_or(0);
@@ -478,15 +577,10 @@ fn draw(f: &mut Frame, app: &mut App) {
     let screen = app.screen.clone();
     match screen {
         Screen::Menu => {
-            let items: Vec<ListItem> = [
-                "Storage",
-                "RAM            (coming soon)",
-                "CPU            (coming soon)",
-                "Quit",
-            ]
-            .iter()
-            .map(|s| ListItem::new(*s))
-            .collect();
+            let items: Vec<ListItem> = ["Storage", "RAM", "CPU", "Quit"]
+                .iter()
+                .map(|s| ListItem::new(*s))
+                .collect();
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title(" Menu "))
                 .highlight_style(highlight(&palette, 0))
@@ -501,28 +595,8 @@ fn draw(f: &mut Frame, app: &mut App) {
         }
         Screen::Storage => draw_storage(f, app, chunks[1], &palette, chunks[2]),
         Screen::Report => draw_report(f, app, chunks[1], &palette, chunks[2]),
-        Screen::Notice(title, msg) => {
-            let text = Text::from(vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    title.clone(),
-                    Style::default()
-                        .fg(palette.accent)
-                        .add_modifier(Modifier::BOLD),
-                )),
-                Line::from(msg.clone()),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "press any key to go back",
-                    Style::default().fg(palette.dim),
-                )),
-            ]);
-            let p = Paragraph::new(text)
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL).title(" Info "));
-            f.render_widget(p, chunks[1]);
-            hint(f, chunks[2], palette.dim, "any key back   q quit");
-        }
+        Screen::Ram => draw_simple(f, app, chunks[1], chunks[2], &palette, "RAM", true),
+        Screen::Cpu => draw_simple(f, app, chunks[1], chunks[2], &palette, "CPU", false),
         Screen::Help => {
             let lines: Vec<Line> = [
                 "Navigation",
@@ -693,6 +767,54 @@ fn draw_report(
         hint_area,
         palette.dim,
         "↑/↓ PgUp/PgDn Home/End scroll   b/Esc back   ? help   q quit",
+    );
+}
+
+fn draw_simple(
+    f: &mut Frame,
+    app: &mut App,
+    area: Rect,
+    hint_area: Rect,
+    palette: &Palette,
+    name: &str,
+    is_ram: bool,
+) {
+    app.view_height = area.height;
+    let loading = if is_ram {
+        app.ram_rx.is_some()
+    } else {
+        app.cpu_rx.is_some()
+    };
+    let lines: &[String] = if is_ram { &app.ram_lines } else { &app.cpu_lines };
+    let title = if loading {
+        format!(" {name}   loading… ")
+    } else {
+        format!(
+            " {name}   [{}/{}] ",
+            (app.scroll as usize + 1).min(lines.len().max(1)),
+            lines.len()
+        )
+    };
+    let body = if loading {
+        Text::from(Span::styled(
+            format!("  Reading {name}…"),
+            Style::default().fg(palette.accent),
+        ))
+    } else if lines.is_empty() {
+        Text::from("  no data")
+    } else {
+        Text::from(lines.iter().cloned().map(Line::from).collect::<Vec<_>>())
+    };
+    let para = Paragraph::new(body)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .wrap(Wrap { trim: false })
+        .scroll((app.scroll, 0));
+    f.render_widget(para, area);
+    hint(
+        f,
+        hint_area,
+        palette.dim,
+        "↑/↓ PgUp/PgDn scroll   c copy   b/Esc back   ? help   q quit",
     );
 }
 

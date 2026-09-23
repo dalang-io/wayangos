@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M11 done** (Linux + FreeBSD + macOS; native + smartctl; ATA attributes+thresholds; self-test + bench; link speed; TUI; `--json`; monitoring/alerts; TBW overrides; passthrough probing; NVMe extras; config; Prometheus; man page) · Owner: TBD
+Status: **M1–M12 done** (Linux + FreeBSD + macOS; storage native + smartctl; RAM + ECC; CPU; TUI; `--json`; monitoring/alerts; TBW overrides; passthrough; NVMe extras; config; Prometheus; man page) · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -362,6 +362,17 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - `dcheck prometheus` metrics. ✅
 - Man page `dcheck/dcheck.1`. ✅
 - Release artifacts: tarballs + `SHA256SUMS`, optional GPG signing via `GPG_KEY`. ✅
+
+### M12 — RAM & CPU — DONE
+- RAM: total/used/available/swap; ECC correctable/uncorrectable from Linux EDAC
+  (verdict MONITOR/REPLACE). Linux `/proc/meminfo`; macOS `sysctl`+`vm_stat`;
+  FreeBSD `sysctl`.
+- CPU: model, sockets, cores, threads, clock, temperature (Linux hwmon), 1m load;
+  verdict MONITOR when temperature ≥ `temp_warn_c`.
+- CLI `dcheck ram|cpu [--json]`; TUI screens (menu → RAM / CPU) with background
+  loading + spinner.
+- **AC:** verified on real hardware — Fedora (Xeon, 87°C → MONITOR), Dell R630
+  (dual Xeon, 80 threads, 51°C → OK), Apple M2.
 
 ## 17. Risks
 

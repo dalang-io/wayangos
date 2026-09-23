@@ -6,12 +6,14 @@
 
 mod bench;
 mod config;
+mod cpu;
 mod enumerate;
 mod health;
 mod json;
 mod model;
 mod monitor;
 mod native;
+mod ram;
 mod report;
 mod smartctl;
 mod tui;
@@ -62,8 +64,8 @@ fn run(args: &[String]) -> i32 {
                 interactive_menu(true)
             }
         }
-        Some("ram") => coming_soon("RAM"),
-        Some("cpu") => coming_soon("CPU"),
+        Some("ram") => ram_cmd(&args[1..]),
+        Some("cpu") => cpu_cmd(&args[1..]),
         Some(other) => {
             eprintln!("dcheck: unknown command '{other}'\n");
             print_help();
@@ -141,7 +143,7 @@ USAGE:
     dcheck watch            Monitor + alert (--interval, --webhook, --json)
     dcheck prometheus       Prometheus metrics for scrapers
     dcheck demo             Run with built-in sample devices (no sysfs needed)
-    dcheck ram | cpu        Coming soon
+    dcheck ram | cpu        Memory / CPU report (--json)
     dcheck --version
 
 On hosts without /sys (e.g. macOS) dcheck automatically falls back to demo data.
@@ -166,10 +168,10 @@ fn interactive_menu(force_demo: bool) -> i32 {
                     storage_cmd(&[], force_demo);
                 }
                 "2" | "ram" | "r" => {
-                    coming_soon("RAM");
+                    ram_cmd(&[]);
                 }
                 "3" | "cpu" | "c" => {
-                    coming_soon("CPU");
+                    cpu_cmd(&[]);
                 }
                 "q" | "quit" | "exit" | "" => return 0,
                 other => eprintln!("Unknown choice '{other}'."),
@@ -459,8 +461,27 @@ fn prompt_selection(devices: &[model::Device]) -> i32 {
     }
 }
 
-fn coming_soon(feature: &str) -> i32 {
-    println!("{feature} check is coming soon. Storage is the current focus.");
+fn ram_cmd(args: &[String]) -> i32 {
+    if args.iter().any(|a| a == "--json") {
+        let info = ram::read();
+        println!("{}", report::ram_json(&info).to_string());
+    } else {
+        for line in report::ram_report_lines(&ram::read()) {
+            println!("{line}");
+        }
+    }
+    0
+}
+
+fn cpu_cmd(args: &[String]) -> i32 {
+    if args.iter().any(|a| a == "--json") {
+        let info = cpu::read();
+        println!("{}", report::cpu_json(&info).to_string());
+    } else {
+        for line in report::cpu_report_lines(&cpu::read()) {
+            println!("{line}");
+        }
+    }
     0
 }
 

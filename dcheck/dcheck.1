@@ -38,6 +38,12 @@ One-shot health gate. Exit code reflects the worst verdict.
 .BR watch " [" \-\-interval " S] [" \-\-json "] [" \-\-quiet "] [" \-\-webhook " URL]"
 Poll and alert when a device worsens or a new issue appears.
 .TP
+.BR ram " [" \-\-json ]
+Memory report: total/used/available, swap, and ECC errors (Linux EDAC).
+.TP
+.BR cpu " [" \-\-json ]
+CPU report: model, topology, clock, temperature (Linux), 1-minute load.
+.TP
 .BR prometheus
 Print Prometheus metrics.
 .TP
@@ -46,8 +52,8 @@ Terminal UI. Auto-detects a light/dark terminal (via
 .BR COLORFGBG )
 unless forced.
 .TP
-.BR demo ", " ram ", " cpu ", " --version ", " --help
-See above; `ram`/`cpu` are placeholders.
+.BR demo ", " \-\-version ", " \-\-help
+See above.
 .SH KEYS (TUI)
 ↑/↓ or j/k move; Enter open; Esc/b back; PgUp/PgDn page; Home/End or g/G jump;
 r rescan; c copy report (OSC52); ? help; q quit.
