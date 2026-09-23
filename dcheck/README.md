@@ -6,7 +6,8 @@ external tools.
 
 > Status: **M1–M13** — storage (enumeration; native SMART ATA/NVMe/SCSI; ATA
 > attributes+thresholds; self-test + read-only bench; link speed), RAM (usage,
-> ECC, and SMBIOS modules: vendor/type DDR4/DDR5/speed/slots; DDR5 temperature),
+> ECC, and SMBIOS modules via `dmidecode` → raw `/sys/firmware/dmi` → `lshw`:
+> vendor/type DDR4/DDR5/speed/slots; DDR5 temperature),
 > CPU (vendor/model/topology/clock/cache/temp/load), terminal UI, `--json`,
 > `prometheus`, monitoring/alerts, `smartctl` enrichment, TBW overrides, and a
 > FreeBSD/macOS backend.

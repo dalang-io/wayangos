@@ -184,6 +184,184 @@ fn parse_mts(v: &str) -> Option<u32> {
     v.split_whitespace().next()?.parse().ok()
 }
 
+/// Optional fallback: parse `lshw -class memory -json`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn parse_lshw_memory(text: &str) -> (Vec<RamModule>, u32) {
+    let mut modules = Vec::new();
+    let mut slots = 0u32;
+    let Some(crate::json::Json::Obj(root)) = crate::json::Json::parse(text) else {
+        return (modules, slots);
+    };
+    // lshw nests memory devices under "children"; walk recursively.
+    fn walk(node: &crate::json::Json, modules: &mut Vec<RamModule>, slots: &mut u32) {
+        if node.get("id").and_then(|v| v.as_str()) == Some("memory")
+            || node.get("class").and_then(|v| v.as_str()) == Some("memory")
+        {
+            *slots += 1;
+            let get = |k: &str| node.get(k).and_then(|v| v.as_str()).map(str::to_string);
+            let size = node
+                .get("size")
+                .and_then(|v| v.as_f64())
+                .map(|b| b as u64)
+                .unwrap_or(0);
+            if size > 0 {
+                let part = get("product");
+                let mf = get("vendor");
+                modules.push(RamModule {
+                    locator: get("slot").or_else(|| get("physid")).unwrap_or_default(),
+                    size_bytes: size,
+                    kind: get("description").unwrap_or_default(),
+                    speed_mts: None,
+                    configured_mts: None,
+                    manufacturer: mf.map(|m| infer_vendor(&m, part.as_deref())),
+                    part_number: part,
+                    serial: get("serial"),
+                    rank: None,
+                });
+            }
+        }
+        if let Some(crate::json::Json::Arr(children)) = node.get("children") {
+            for c in children {
+                walk(c, modules, slots);
+            }
+        }
+    }
+    walk(&crate::json::Json::Obj(root), &mut modules, &mut slots);
+    (modules, slots)
+}
+
+/// Parse one SMBIOS type-17 (Memory Device) structure from its raw bytes.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn parse_smbios17(bytes: &[u8]) -> Option<RamModule> {
+    if bytes.len() < 0x15 || bytes[0] != 17 {
+        return None;
+    }
+    let len = bytes[1] as usize;
+    if len < 0x15 || len > bytes.len() {
+        return None;
+    }
+    let fmt = &bytes[..len];
+    let strings = &bytes[len..];
+    let u8_at = |o: usize| -> u8 {
+        if o < len {
+            fmt[o]
+        } else {
+            0
+        }
+    };
+    let u16_at = |o: usize| -> u16 {
+        if o + 2 <= len {
+            u16::from_le_bytes([fmt[o], fmt[o + 1]])
+        } else {
+            0
+        }
+    };
+    let str_at = |idx: u8| -> Option<String> {
+        if idx == 0 {
+            return None;
+        }
+        let mut n = 1u8;
+        let mut i = 0usize;
+        while i < strings.len() {
+            let end = strings[i..].iter().position(|&b| b == 0)?;
+            if n == idx {
+                return nonempty(&String::from_utf8_lossy(&strings[i..i + end]));
+            }
+            n += 1;
+            i += end + 1;
+        }
+        None
+    };
+
+    let raw_size = u16_at(0x0C);
+    let size_bytes: u64 = if raw_size == 0 {
+        return None; // no module installed
+    } else if raw_size == 0x7FFF {
+        // Extended size in MB (offset 0x1C).
+        if len >= 0x20 {
+            let ext = u32::from_le_bytes([fmt[0x1C], fmt[0x1D], fmt[0x1E], fmt[0x1F]]);
+            ext as u64 * 1024 * 1024
+        } else {
+            return None;
+        }
+    } else if raw_size & 0x8000 != 0 {
+        (raw_size & 0x7FFF) as u64 * 1024 // KB
+    } else {
+        raw_size as u64 * 1024 * 1024 // MB
+    };
+
+    let kind = memory_type_name(u8_at(0x12));
+    let speed_mts = {
+        let s = u16_at(0x15);
+        if s == 0 || s == 0xFFFF {
+            None
+        } else {
+            Some(s as u32)
+        }
+    };
+    let configured_mts = if len >= 0x22 {
+        let c = u16_at(0x20);
+        if c == 0 || c == 0xFFFF {
+            None
+        } else {
+            Some(c as u32)
+        }
+    } else {
+        None
+    };
+    let rank = if len >= 0x1C {
+        let r = (u8_at(0x1B) & 0x0F) as u32;
+        if r > 0 {
+            Some(r)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let part = str_at(u8_at(0x1A));
+    let manufacturer = str_at(u8_at(0x17)).map(|m| infer_vendor(&m, part.as_deref()));
+
+    Some(RamModule {
+        locator: str_at(u8_at(0x10)).unwrap_or_default(),
+        size_bytes,
+        kind,
+        speed_mts,
+        configured_mts,
+        manufacturer,
+        part_number: part,
+        serial: str_at(u8_at(0x18)),
+        rank,
+    })
+}
+
+fn memory_type_name(code: u8) -> String {
+    let name = match code {
+        0x0F => "SMD",
+        0x12 => "SDRAM",
+        0x13 => "SGRAM",
+        0x15 => "DDR",
+        0x16 => "DDR2",
+        0x17 => "DDR2 FB-DIMM",
+        0x18 => "DDR3",
+        0x19 => "FBD2",
+        0x1A => "DDR4",
+        0x1B => "LPDDR",
+        0x1C => "LPDDR2",
+        0x1D => "LPDDR3",
+        0x1E => "LPDDR4",
+        0x1F => "Logical non-volatile",
+        0x20 => "HBM",
+        0x21 => "HBM2",
+        0x22 => "DDR5",
+        0x23 => "LPDDR5",
+        0x24 => "HBM3",
+        _ => return "Unknown".to_string(),
+    };
+    name.to_string()
+}
+
 fn nonempty(v: &str) -> Option<String> {
     let t = v.trim();
     if t.is_empty() || t == "Unknown" || t == "Not Specified" || t == "[Empty]" {
@@ -246,15 +424,65 @@ mod linux {
         info.ecc_uncorrectable = ue;
         info.ram_temp_c = ram_temp(Path::new("/sys/class/hwmon"));
 
-        if let Ok(out) = Command::new("dmidecode").arg("-t").arg("17").output() {
-            if out.status.success() {
-                let (modules, slots) =
-                    parse_dmidecode17(&String::from_utf8_lossy(&out.stdout));
+        // 1) dmidecode (richest).
+        if std::env::var_os("DCHECK_NO_DMIDECODE").is_none() {
+            if let Ok(out) = Command::new("dmidecode").arg("-t").arg("17").output() {
+                if out.status.success() {
+                    let (modules, slots) = parse_dmidecode17(&String::from_utf8_lossy(&out.stdout));
+                    info.modules = modules;
+                    info.slots_total = slots;
+                }
+            }
+        }
+
+        // 2) Raw SMBIOS from sysfs (no external tools).
+        if info.modules.is_empty() {
+            let (modules, slots) = sysfs_dmi17();
+            if !modules.is_empty() {
                 info.modules = modules;
                 info.slots_total = slots;
             }
         }
+
+        // 3) lshw, when installed.
+        if info.modules.is_empty() {
+            if let Ok(out) = Command::new("lshw").args(["-class", "memory", "-json"]).output() {
+                if out.status.success() {
+                    let (modules, slots) =
+                        super::parse_lshw_memory(&String::from_utf8_lossy(&out.stdout));
+                    if !modules.is_empty() {
+                        info.modules = modules;
+                        info.slots_total = slots;
+                    }
+                }
+            }
+        }
         info
+    }
+
+    /// Read SMBIOS type-17 structures straight from `/sys/firmware/dmi/entries`.
+    fn sysfs_dmi17() -> (Vec<super::RamModule>, u32) {
+        let base = Path::new("/sys/firmware/dmi/entries");
+        let mut modules = Vec::new();
+        let mut slots = 0u32;
+        let Ok(entries) = std::fs::read_dir(base) else {
+            return (modules, slots);
+        };
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .filter(|n| n.starts_with("17-"))
+            .collect();
+        names.sort();
+        for name in names {
+            slots += 1;
+            if let Ok(bytes) = std::fs::read(base.join(&name).join("raw")) {
+                if let Some(m) = super::parse_smbios17(&bytes) {
+                    modules.push(m);
+                }
+            }
+        }
+        (modules, slots)
     }
 
     /// Sum `ce_count`/`ue_count` under the EDAC memory-controller tree.
@@ -491,6 +719,38 @@ mod tests {
         assert_eq!(parse_dmi_size("32 GB"), Some(32 * 1024 * 1024 * 1024));
         assert_eq!(parse_dmi_size("512 MB"), Some(512 * 1024 * 1024));
         assert_eq!(parse_dmi_size("No Module Installed"), None);
+    }
+
+    #[test]
+    fn parses_raw_smbios17() {
+        let mut b = vec![0u8; 0x22];
+        b[0] = 17;
+        b[1] = 0x22;
+        b[0x0C] = 0xFF;
+        b[0x0D] = 0x7F; // size = 0x7FFF -> use extended size
+        b[0x1C] = 0x00;
+        b[0x1D] = 0x80;
+        b[0x1E] = 0x00;
+        b[0x1F] = 0x00; // extended size 32768 MB = 32 GiB
+        b[0x12] = 0x1A; // DDR4
+        b[0x15] = 0x80;
+        b[0x16] = 0x0C; // 3200 MT/s
+        b[0x1B] = 0x02; // rank 2
+        b[0x20] = 0x80;
+        b[0x21] = 0x0C; // configured 3200
+        b[0x10] = 1; // locator
+        b[0x17] = 2; // manufacturer
+        b[0x18] = 3; // serial
+        b[0x1A] = 4; // part number
+        b.extend_from_slice(b"A1\0Samsung\0SN1\0M378A1K43\0\0");
+        let m = parse_smbios17(&b).unwrap();
+        assert_eq!(m.size_bytes, 32 * 1024 * 1024 * 1024);
+        assert_eq!(m.kind, "DDR4");
+        assert_eq!(m.speed_mts, Some(3200));
+        assert_eq!(m.locator, "A1");
+        assert_eq!(m.manufacturer.as_deref(), Some("Samsung"));
+        assert_eq!(m.part_number.as_deref(), Some("M378A1K43"));
+        assert_eq!(m.rank, Some(2));
     }
 
     #[test]

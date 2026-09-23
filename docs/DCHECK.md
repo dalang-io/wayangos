@@ -375,15 +375,17 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
   (dual Xeon, 80 threads, 51°C → OK), Apple M2.
 
 ### M13 — RAM & hardware detail — DONE
-- RAM modules from SMBIOS (`dmidecode -t 17`, Linux; root): vendor, part number,
-  type (DDR4/DDR5), speed/configured speed, rank, locator, slots used/total.
+- RAM modules from SMBIOS with a fallback chain: `dmidecode -t 17` → raw
+  `/sys/firmware/dmi/entries/17-*` (no external tool) → `lshw -class memory`.
   Vendor inferred from JEDEC hex code / part-number prefix.
+- `DCHECK_NO_DMIDECODE=1` skips dmidecode to exercise the sysfs fallback.
 - On-DIMM temperature (DDR5 `spd5118` / `jc42` hwmon).
 - CPU vendor (`GenuineIntel`/`AuthenticAMD`/Apple), max clock (`cpuinfo_max_freq`
   / `hw.cpufrequency_max`), cache size.
 - macOS: memory modules via `system_profiler SPMemoryDataType` (Intel only).
 - **AC:** verified — Dell R630 shows DDR4 2133 MT/s SK Hynix HMA84GL7…, 1/24
-  slots; CPU GenuineIntel, 80 threads, cache 50 MB.
+  slots; CPU GenuineIntel, 80 threads, cache 50 MB. sysfs fallback verified on
+  both Fedora and R630.
 
 ## 17. Risks
 
