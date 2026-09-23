@@ -61,6 +61,19 @@ pub struct SmartData {
     /// SAS phy error counters summed over ports: invalid dword, running
     /// disparity, loss of dword sync, phy reset problems.
     pub phy_errors: Option<[u64; 4]>,
+    /// Lifetime power-on resets (ATA device statistics).
+    pub power_on_resets: Option<u64>,
+    /// Lifetime temperature range and the rated maximum operating temperature.
+    pub temp_min_c: Option<i64>,
+    pub temp_max_c: Option<i64>,
+    pub temp_rated_max_c: Option<i64>,
+    /// ATA: hardware resets seen by the drive.
+    pub hardware_resets: Option<u64>,
+    /// Entries in the drive's SMART error log.
+    pub error_log_count: Option<u64>,
+    /// Feature state: TRIM supported, volatile write cache enabled.
+    pub trim: Option<bool>,
+    pub write_cache: Option<bool>,
     /// Non-fatal error reported by smartctl (e.g. permission denied).
     pub error: Option<String>,
 }
@@ -68,6 +81,12 @@ pub struct SmartData {
 impl SmartData {
     pub fn block_size(&self) -> u64 {
         self.logical_block_size.unwrap_or(512)
+    }
+
+    /// The drive speaks ATA (SATA), even when a RAID/SAS controller presents
+    /// it as a SCSI disk.
+    pub fn is_ata(&self) -> bool {
+        self.sata_version.is_some() || !self.attributes.is_empty() || self.power_on_resets.is_some()
     }
 
     /// Fill every field still unknown here from `other` (another source for
@@ -86,6 +105,8 @@ impl SmartData {
             media_errors, available_spare, available_spare_threshold, warning_temp_time,
             critical_temp_time, nvme_errors, manufactured, rated_start_stop, load_unload,
             rated_load_unload, non_medium_errors, trip_temp_c, last_self_test, phy_errors,
+            power_on_resets, temp_min_c, temp_max_c, temp_rated_max_c, hardware_resets,
+            error_log_count, trim, write_cache,
         );
         if self.attributes.is_empty() {
             self.attributes = other.attributes.clone();
@@ -428,7 +449,113 @@ fn parse_smart(j: &Json) -> SmartData {
         }
     }
 
+    // Last, so the standardized statistics win over vendor attributes.
+    parse_ata_extras(j, &mut s);
     s
+}
+
+/// Apply one ATA Device Statistics entry (log 0x04; page, byte offset, value).
+/// Shared by the smartctl JSON parser and the native SMART READ LOG path.
+///
+/// Page 1 general: 0x08 power-on resets, 0x10 power-on hours, 0x18 / 0x28
+/// logical sectors written / read. Page 4: 0x08 reported uncorrectable errors.
+/// Page 5 temperature (signed °C): 0x08 current, 0x20 highest, 0x28 lowest,
+/// 0x58 specified maximum operating. Page 6: 0x08 hardware resets, 0x18
+/// interface CRC errors. Page 7 SSD: 0x08 percentage used endurance indicator.
+pub fn apply_device_stat(s: &mut SmartData, page: u8, offset: u16, value: u64) {
+    let temp = || (value as u8) as i8 as i64;
+    match (page, offset) {
+        (1, 0x08) => s.power_on_resets = Some(value),
+        (1, 0x10) => {
+            s.power_on_hours.get_or_insert(value);
+        }
+        // Standard units (logical sectors) — preferred over vendor attributes.
+        (1, 0x18) => s.lba_written = Some(value),
+        (1, 0x28) => s.lba_read = Some(value),
+        (4, 0x08) => {
+            s.uncorrectable.get_or_insert(value);
+        }
+        (5, 0x08) => {
+            s.temperature_c.get_or_insert(temp());
+        }
+        (5, 0x20) => s.temp_max_c = Some(temp()),
+        (5, 0x28) => s.temp_min_c = Some(temp()),
+        (5, 0x58) => s.temp_rated_max_c = Some(temp()),
+        (6, 0x08) => s.hardware_resets = Some(value),
+        (6, 0x18) => {
+            s.crc_errors.get_or_insert(value);
+        }
+        // ACS "Percentage Used Endurance Indicator" (0 = new, may exceed 100).
+        (7, 0x08) => s.life_percent = Some(100u64.saturating_sub(value)),
+        _ => {}
+    }
+}
+
+/// ATA extras of `smartctl -x -j`: device statistics, SCT temperatures,
+/// error / self-test logs, TRIM and write cache.
+fn parse_ata_extras(j: &Json, s: &mut SmartData) {
+    if let Some(pages) = j
+        .get("ata_device_statistics")
+        .and_then(|v| v.get("pages"))
+        .and_then(Json::as_array)
+    {
+        for page in pages {
+            let Some(num) = page.get("number").and_then(Json::as_u64) else { continue };
+            let Some(table) = page.get("table").and_then(Json::as_array) else { continue };
+            for e in table {
+                let valid = e
+                    .get("flags")
+                    .and_then(|f| f.get("valid"))
+                    .and_then(Json::as_bool)
+                    .unwrap_or(false);
+                let off = e.get("offset").and_then(Json::as_u64);
+                // smartctl prints signed temperatures as negative numbers.
+                let val = e
+                    .get("value")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| if v < 0.0 { (v as i64 as u8) as u64 } else { v as u64 });
+                if let (true, Some(off), Some(val)) = (valid, off, val) {
+                    apply_device_stat(s, num as u8, off as u16, val);
+                }
+            }
+        }
+    }
+    if let Some(t) = j.get("ata_sct_status").and_then(|v| v.get("temperature")) {
+        if s.temp_min_c.is_none() {
+            s.temp_min_c = t.get("lifetime_min").and_then(Json::as_i64);
+        }
+        if s.temp_max_c.is_none() {
+            s.temp_max_c = t.get("lifetime_max").and_then(Json::as_i64);
+        }
+        if s.temp_rated_max_c.is_none() {
+            s.temp_rated_max_c = t.get("op_limit_max").and_then(Json::as_i64).filter(|v| *v > 0);
+        }
+    }
+    if let Some(log) = j.get("ata_smart_error_log") {
+        s.error_log_count = ["extended", "summary"]
+            .iter()
+            .find_map(|k| log.get(k).and_then(|v| v.get("count")).and_then(Json::as_u64));
+    }
+    if let Some(log) = j.get("ata_smart_self_test_log") {
+        let latest = ["standard", "extended"].iter().find_map(|k| {
+            log.get(k)
+                .and_then(|v| v.get("table"))
+                .and_then(Json::as_array)
+                .and_then(|t| t.first())
+        });
+        if let Some(t) = latest {
+            let kind = str_at(t, &["type", "string"]).unwrap_or_else(|| "Self-test".into());
+            let status = str_at(t, &["status", "string"]).unwrap_or_else(|| "unknown".into());
+            let at = t
+                .get("lifetime_hours")
+                .and_then(Json::as_u64)
+                .map(|h| format!(" (at {h} h)"))
+                .unwrap_or_default();
+            s.last_self_test = Some(format!("{kind}: {}{at}", status.to_ascii_lowercase()));
+        }
+    }
+    s.trim = j.get("trim").and_then(|v| v.get("supported")).and_then(Json::as_bool);
+    s.write_cache = j.get("write_cache").and_then(|v| v.get("enabled")).and_then(Json::as_bool);
 }
 
 /// SCSI/SAS sections of `smartctl -x -j`.
@@ -534,6 +661,30 @@ fn str_at(j: &Json, path: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_sata_ssd_device_statistics() {
+        let text = include_str!("../testdata/smart-sata-sm863a.json");
+        let s = parse_smart(&Json::parse(text).unwrap());
+        assert_eq!(s.manufactured, None, "SATA has no manufacture date");
+        assert_eq!(s.power_on_hours, Some(2785));
+        assert_eq!(s.power_on_resets, Some(32));
+        // Device statistics: 4,016,839,893 sectors written, ~2.06 TB.
+        assert_eq!(s.bytes_written().map(|b| b / 1_000_000_000), Some(2056));
+        assert_eq!(s.life_percent, Some(98), "standard 2% used wins over attr 233 (1%)");
+        assert_eq!((s.temp_min_c, s.temp_max_c, s.temp_rated_max_c), (Some(22), Some(39), Some(70)));
+        assert_eq!(s.hardware_resets, Some(7));
+        assert_eq!(s.crc_errors, Some(0));
+        assert_eq!(s.error_log_count, Some(0));
+        assert_eq!((s.trim, s.write_cache), (Some(true), Some(true)));
+    }
+
+    #[test]
+    fn device_stat_temperatures_are_signed() {
+        let mut s = SmartData::default();
+        apply_device_stat(&mut s, 5, 0x28, 0xF6); // -10 °C
+        assert_eq!(s.temp_min_c, Some(-10));
+    }
 
     #[test]
     fn parses_sas_hdd_from_smartctl_x() {

@@ -51,6 +51,7 @@ fn run(args: &[String]) -> i32 {
         Some("watch") => watch_cmd(&args[1..], false),
         Some("prometheus") => prometheus_cmd(&args[1..], false),
         Some("update") | Some("self-update") => update::cmd(&args[1..]),
+        Some("snapshot") => snapshot_cmd(&args[1..]),
         Some("tui") => run_tui(
             false,
             tui_theme_arg(&args[1..]),
@@ -201,6 +202,7 @@ USAGE:
     dcheck watch            Monitor + alert (--interval, --webhook, --json)
     dcheck prometheus       Prometheus metrics for scrapers
     dcheck update           Update to the latest release (--check, --force)
+    dcheck snapshot DIR     Render every TUI screen to SVG (docs/screenshots)
     dcheck demo             Run with built-in sample devices (no sysfs needed)
     dcheck ram | cpu        Memory / CPU report (--json)
     dcheck --version
@@ -236,6 +238,78 @@ fn interactive_menu(force_demo: bool) -> i32 {
                 other => eprintln!("Unknown choice '{other}'."),
             },
             None => return 0, // EOF
+        }
+    }
+}
+
+fn snapshot_cmd(args: &[String]) -> i32 {
+    let usage = "Usage: dcheck snapshot DIR [--demo] [--light] [--host NAME] [--mask-serials] \
+                 [--size 120x34] [--report DEV]...";
+    let mut dir = None;
+    let mut opts = tui::snapshot::Options {
+        demo: false,
+        light: false,
+        host: None,
+        mask_serials: false,
+        width: 120,
+        height: 34,
+        reports: Vec::new(),
+    };
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--demo" => opts.demo = true,
+            "--light" => opts.light = true,
+            "--mask-serials" => opts.mask_serials = true,
+            "--host" => {
+                i += 1;
+                opts.host = args.get(i).cloned();
+            }
+            "--report" => {
+                i += 1;
+                opts.reports.extend(args.get(i).cloned());
+            }
+            "--size" => {
+                i += 1;
+                let parsed = args.get(i).and_then(|s| {
+                    let (w, h) = s.split_once('x')?;
+                    Some((w.parse().ok()?, h.parse().ok()?))
+                });
+                match parsed {
+                    Some((w, h)) if w >= 40 && h >= 12 => (opts.width, opts.height) = (w, h),
+                    _ => {
+                        eprintln!("{usage}");
+                        return 2;
+                    }
+                }
+            }
+            "-h" | "--help" => {
+                println!("{usage}");
+                return 0;
+            }
+            other if !other.starts_with('-') && dir.is_none() => dir = Some(other.to_string()),
+            _ => {
+                eprintln!("{usage}");
+                return 2;
+            }
+        }
+        i += 1;
+    }
+    let Some(dir) = dir else {
+        eprintln!("{usage}");
+        return 2;
+    };
+    let devices = load_devices(opts.demo);
+    match tui::snapshot::run(std::path::Path::new(&dir), devices, &opts) {
+        Ok(files) => {
+            for f in files {
+                println!("{}", f.display());
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("dcheck: snapshot failed: {e}");
+            1
         }
     }
 }

@@ -394,9 +394,25 @@ fn text(s: impl Into<String>, p: &Palette) -> Vec<Span<'static>> {
 }
 
 fn temp_gauge(t: i64, warn: i64, cells: usize, p: &Palette, ui: Ui) -> Line<'static> {
+    temp_gauge_range(t, None, warn, cells, p, ui)
+}
+
+/// Temperature gauge; `range` = lifetime (min, max) shown next to the value.
+fn temp_gauge_range(
+    t: i64,
+    range: Option<(i64, i64)>,
+    warn: i64,
+    cells: usize,
+    p: &Palette,
+    ui: Ui,
+) -> Line<'static> {
     let pct = t as f64 / (warn + 20).max(1) as f64 * 100.0;
     let color = p.level(t as f64, (warn - 10) as f64, warn as f64);
-    w::gauge("TEMP", LW, pct, cells, color, &format!("{t}{}", ui.degrees()), p, ui)
+    let value = match range {
+        Some((lo, hi)) => format!("{t}{} ({lo}–{hi})", ui.degrees()),
+        None => format!("{t}{}", ui.degrees()),
+    };
+    w::gauge("TEMP", LW, pct, cells, color, &value, p, ui)
 }
 
 fn ram_vitals(r: &RamInfo, p: &Palette, ui: Ui, width: u16) -> Vec<Line<'static>> {
@@ -601,18 +617,34 @@ fn report_vitals(app: &App, width: u16) -> Vec<Line<'static>> {
     if !po.is_empty() {
         lines.push(w::field("POWER-ON", LW, text(po.join(&format!(" {} ", ui.dot())), p), p));
     }
-    if let Some((y, wk)) = s.manufactured {
-        let age = crate::report::age_years(y, wk)
-            .map(|a| format!(" {} {a:.1} y old", ui.dot()))
-            .unwrap_or_default();
-        lines.push(w::field("MADE", LW, text(format!("{y} week {wk}{age}"), p), p));
+    match s.manufactured {
+        Some((y, wk)) => {
+            let age = crate::report::age_years(y, wk)
+                .map(|a| format!(" {} {a:.1} y old", ui.dot()))
+                .unwrap_or_default();
+            lines.push(w::field("MADE", LW, text(format!("{y} week {wk}{age}"), p), p));
+        }
+        None => lines.push(w::field(
+            "MADE",
+            LW,
+            vec![Span::styled("not stored by the drive", p.fg(p.dim))],
+            p,
+        )),
+    }
+    if let Some(poh) = s.power_on_hours {
+        lines.push(w::field(
+            "IN SERVICE",
+            LW,
+            text(format!("{:.1} y powered on @24/7", poh as f64 / (365.0 * 24.0)), p),
+            p,
+        ));
     }
     let mut cycles = Vec::new();
     if let (Some(a), Some(r)) = (s.power_cycles, s.rated_start_stop) {
-        cycles.push(format!("start {a}/{r}"));
+        cycles.push(format!("start {}/{}", compact(a), compact(r)));
     }
     if let (Some(a), Some(r)) = (s.load_unload, s.rated_load_unload) {
-        cycles.push(format!("load {a}/{r}"));
+        cycles.push(format!("load {}/{}", compact(a), compact(r)));
     }
     if !cycles.is_empty() {
         lines.push(w::field("CYCLES", LW, text(cycles.join(&format!(" {} ", ui.dot())), p), p));
@@ -629,9 +661,15 @@ fn report_vitals(app: &App, width: u16) -> Vec<Line<'static>> {
         ));
         lines.push(w::field("", LW, vec![Span::styled(format!("{used}% used ({what})"), p.fg(p.dim))], p));
     }
-    let est = match crate::report::life_left(h) {
-        Some(t) => vec![Span::styled(t.replace("  |  ", &format!(" {} ", ui.dot())), p.fg(p.fg))],
-        None => vec![Span::styled("unknown", p.fg(p.dim))],
+    let est = match (h.remaining_poh, h.overdue_poh) {
+        (Some(0), Some(over)) => vec![Span::styled(
+            format!("0 {} {:.1}y past rated life", ui.dot(), over as f64 / (365.0 * 24.0)),
+            p.bold(p.warn),
+        )],
+        _ => match crate::report::life_left(h) {
+            Some(t) => vec![Span::styled(t.replace("  |  ", &format!(" {} ", ui.dot())), p.fg(p.fg))],
+            None => vec![Span::styled("unknown", p.fg(p.dim))],
+        },
     };
     lines.push(w::field("EST. LIFE", LW, est, p));
     if h.design_hours.is_none() {
@@ -661,6 +699,21 @@ fn report_vitals(app: &App, width: u16) -> Vec<Line<'static>> {
     lines
 }
 
+/// 8664 -> "8664", 50000 -> "50k", 1500000 -> "1.5M".
+fn compact(n: u64) -> String {
+    match n {
+        0..=9_999 => n.to_string(),
+        10_000..=999_999 => {
+            if n.is_multiple_of(1000) {
+                format!("{}k", n / 1000)
+            } else {
+                format!("{:.1}k", n as f64 / 1000.0)
+            }
+        }
+        _ => format!("{:.1}M", n as f64 / 1_000_000.0),
+    }
+}
+
 fn life_gauges(
     lines: &mut Vec<Line<'static>>,
     s: &SmartData,
@@ -685,7 +738,8 @@ fn life_gauges(
         None => lines.push(w::field("LIFE", LW, vec![Span::styled("n/a", p.fg(p.dim))], p)),
     }
     if let Some(t) = s.temperature_c {
-        lines.push(temp_gauge(t, warn, cells, p, ui));
+        let range = s.temp_min_c.zip(s.temp_max_c);
+        lines.push(temp_gauge_range(t, range, warn, cells, p, ui));
     }
     match (h.tbw_bytes, h.rated_tbw_bytes) {
         (Some(tbw), Some(rated)) if rated > 0 => {

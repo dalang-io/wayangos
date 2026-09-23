@@ -448,6 +448,27 @@ fn parse_sas_port(data: &[u8]) -> Option<(Option<String>, [u64; 4])> {
     Some((rate, errs))
 }
 
+/// Entries of the ATA Device Statistics log (0x04): `(page, offset, value)`
+/// for every statistic flagged supported + valid. Each 512-byte page starts
+/// with a header qword (byte 2 = page number); statistics are little-endian
+/// qwords with bit 63 = supported, bit 62 = valid, value in bits 0-47.
+pub fn parse_device_stats(log: &[u8]) -> Vec<(u8, u16, u64)> {
+    let mut out = Vec::new();
+    for page in log.as_chunks::<512>().0 {
+        let num = page[2];
+        if num == 0 || page.iter().all(|b| *b == 0) {
+            continue; // page 0 lists supported pages; empty = unsupported
+        }
+        for off in (8..512).step_by(8) {
+            let q = u64::from_le_bytes(page[off..off + 8].try_into().unwrap());
+            if q >> 63 & 1 == 1 && q >> 62 & 1 == 1 {
+                out.push((num, off as u16, q & 0xFFFF_FFFF_FFFF));
+            }
+        }
+    }
+    out
+}
+
 /// Effective user id is root (SMART ioctls need it).
 pub fn is_root() -> bool {
     #[cfg(unix)]
@@ -469,8 +490,10 @@ mod linux {
     use std::os::unix::io::AsRawFd;
     use std::path::Path;
 
+    use crate::smartctl::apply_device_stat;
+
     use super::{
-        apply_scsi_log, log_sense_cdb, read_defect_cdb, nonempty, parse_ata_smart, parse_nvme_health,
+        apply_scsi_log, parse_device_stats, log_sense_cdb, read_defect_cdb, nonempty, parse_ata_smart, parse_nvme_health,
         parse_supported_pages, IdInfo, SelfTest, SmartData, LOG_PC_CUMULATIVE,
     };
     use crate::model::{Bus, Device, MediaKind};
@@ -543,6 +566,20 @@ mod linux {
         cdw15: u32,
         timeout_ms: u32,
         result: u32,
+    }
+
+    const SMART_READ_LOG: u8 = 0xD5;
+
+    /// SMART READ LOG through HDIO_DRIVE_CMD: libata maps args[1] to LBA low
+    /// (the log address) and args[3] to the sector count for WIN_SMART.
+    fn smart_read_log(fd: CInt, address: u8, sectors: u8) -> Option<Vec<u8>> {
+        let mut buf = vec![0u8; 4 + 512 * sectors as usize];
+        buf[0] = WIN_SMART;
+        buf[1] = address;
+        buf[2] = SMART_READ_LOG;
+        buf[3] = sectors;
+        let rc = unsafe { ioctl(fd, HDIO_DRIVE_CMD, buf.as_mut_ptr()) };
+        (rc == 0 && buf[4..].iter().any(|b| *b != 0)).then(|| buf.split_off(4))
     }
 
     fn hdio_cmd(fd: CInt, command: u8, feature: u8, count: u8, buf: &mut [u8; 516]) -> CInt {
@@ -795,6 +832,13 @@ mod linux {
                 smart.passed = Some(ata_status & 0x01 == 0);
             }
         }
+        // Device Statistics (log 0x04, up to 8 pages): standardized writes,
+        // endurance used, temperature history, resets.
+        if let Some(log) = smart_read_log(fd, 0x04, 8).or_else(|| smart_read_log(fd, 0x04, 1)) {
+            for (page, off, value) in parse_device_stats(&log) {
+                apply_device_stat(&mut smart, page, off, value);
+            }
+        }
         Some(smart)
     }
 
@@ -888,6 +932,22 @@ mod linux {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_ata_device_statistics_log() {
+        let mut log = vec![0u8; 512 * 2];
+        // page 1 (general): header + power-on resets = 32, sectors written.
+        log[2] = 1;
+        let valid = |v: u64| (v | (0b11 << 62)).to_le_bytes();
+        log[8..16].copy_from_slice(&valid(32));
+        log[24..32].copy_from_slice(&valid(4_016_839_893));
+        log[32..40].copy_from_slice(&(7u64 | (1 << 63)).to_le_bytes()); // supported, not valid
+        // page 7 (SSD): percentage used = 2.
+        log[512 + 2] = 7;
+        log[512 + 8..512 + 16].copy_from_slice(&valid(2));
+        let stats = parse_device_stats(&log);
+        assert_eq!(stats, vec![(1, 0x08, 32), (1, 0x18, 4_016_839_893), (7, 0x08, 2)]);
+    }
 
     #[test]
     fn applies_start_stop_self_test_and_non_medium_pages() {

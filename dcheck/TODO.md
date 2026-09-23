@@ -132,3 +132,175 @@ Tugas:
 - [x] JSON: `design_life_hours` + `design_life_assumed: true`
 - [x] Bisa di-override lewat config (`hdd_design_years`) untuk drive dengan
       rating berbeda (mis. consumer / NAS)
+
+## F. Detail storage SSD: tanggal produksi & umur
+
+Pertanyaan: kenapa SSD (Samsung SM863a, SATA, 10.0.0.177) tidak menampilkan
+tanggal produksi dan umur?
+
+Temuan (`smartctl -x -j`, fixture `testdata/smart-sata-sm863a.json`):
+- **Tanggal produksi tidak disimpan** di SSD/HDD SATA maupun NVMe — ATA dan
+  NVMe tidak punya field-nya. Hanya SCSI/SAS yang punya (log page 0x0E), karena
+  itu HDD Toshiba bisa menampilkan "2012 week 12". Tidak bisa dibaca oleh tool
+  apa pun; yang bisa ditampilkan adalah umur **pakai** dari power-on hours.
+- Laporan sebelumnya diam saja soal ini (baris "Manufactured" tidak muncul),
+  sehingga terlihat seperti data yang hilang.
+- Banyak data SATA yang tersedia tapi belum dipakai — **ATA Device Statistics**
+  (GP/SMART log 0x04):
+  - p1: power-on resets, logical sectors written/read (SM863a ~2 TB ditulis,
+    sebelumnya "Written" tidak muncul sama sekali)
+  - p4: reported uncorrectable errors
+  - p5: suhu seumur hidup min/max (22–39°C) + rating max operasi (70°C)
+  - p6: hardware resets, interface CRC errors
+  - p7: **Percentage Used Endurance Indicator** (standar ACS) = 2%, lebih
+    tepat dari atribut vendor 233 (1%)
+  - juga: jumlah entri SMART error log, TRIM, write cache
+
+Tugas:
+- [x] Baris umur untuk semua drive: "In service" dari power-on hours (tahun
+      @24/7 + power-on resets); bila tanggal produksi ada → umur kalender +
+      persentase waktu menyala
+- [x] "Manufactured: not reported" + alasannya untuk SATA/NVMe (report & TUI)
+- [x] Parser Device Statistics (smartctl `ata_device_statistics`) dan native
+      (SMART READ LOG 0x04 via HDIO_DRIVE_CMD) → written/read, wear standar,
+      suhu min/max/rating, resets, CRC, uncorrectable
+- [x] Error log count, self-test terakhir (ATA), TRIM, write cache
+- [x] Tampilkan di report, JSON, TUI VITALS; verifikasi di 10.0.0.177
+- [x] SATA di belakang RAID/SAS controller (bus terlihat SCSI) dikenali sebagai
+      ATA dari data SMART-nya → pesan & label yang benar
+- [ ] Native SATA di belakang MegaRAID: HDIO tidak menembus controller, jadi
+      tanpa smartctl hanya suhu yang terbaca. Perlu ATA PASS-THROUGH (SAT,
+      SG_IO ATA 16) untuk SMART READ DATA / READ LOG — cek apakah megaraid_sas
+      JBOD meneruskannya
+
+## G. Riset: disk palsu / kloningan, RAM health, CPU health (belum dikerjakan)
+
+Pertanyaan: bisakah dcheck menunjukkan disk palsu atau "sampah" kloningan
+unbranded, dan apakah ada cek kesehatan RAM dan CPU?
+
+Probe read-only di 10.0.0.251 dan 10.0.0.177 (Dell R630, Xeon Broadwell):
+- EDAC aktif (`sb_edac`, mc0–mc3), `ce_count`/`ue_count` = 0 di keduanya.
+- `/proc/meminfo HardwareCorrupted` = 0 kB.
+- Intel `thermal_throttle/{core,package}_throttle_count` tersedia (0).
+- `/sys/devices/system/cpu/vulnerabilities/*` ada 17 entri; microcode 0xb000040.
+- Tidak ada driver SPD EEPROM (ee1004/spd5118) yang ter-load.
+- Tidak ada rasdaemon/mcelog. Kernel log bersih (hanya init EDAC).
+- 10.0.0.177 punya `ipmitool`. Sensor ECC Corr/Uncorr ada, dan **SEL berisi
+  event nyata**: "Power Supply AC lost — Asserted" (2026-06-09 dan
+  2026-06-18), chassis intrusion, dan drive bay dicabut (07-06/07-07).
+  Informasi seperti ini penting untuk teknisi, tapi sekarang tidak terlihat
+  di dcheck.
+
+### 1. Disk palsu / kloningan / unbranded
+
+Tidak ada satu tanda yang membuktikan palsu. Yang realistis adalah skor
+"authenticity" dari beberapa sinyal, tiap sinyal disertai alasannya, dan
+bahasanya "mencurigakan", bukan "palsu":
+
+- **Identitas generik**: model seperti `SSD 512GB` / `NVMe SSD` / `Generic`,
+  vendor kosong, serial kosong / nol / pola placeholder
+  (`0123456789ABCDEF`, `AA000000000000000001`), firmware dari controller
+  generik (mis. string SBFM / T0909A0 / SN…).
+- **WWN / OUI tidak cocok**: ATA `wwn` (NAA 5 + IEEE OUI) dan SCSI LU WWN
+  menyandi pabrikan, mis. Samsung = `002538` (SM863a: `5 002538 e10249cb0`).
+  Brand di nama model yang tidak cocok dengan OUI → rebrand/klon. WWN kosong
+  pada SSD "bermerek" juga mencurigakan.
+- **NVMe PCI vendor ID vs model**: mis. "Samsung 980" dengan VID controller
+  Maxio/Phison/Realtek (`/sys/class/nvme/*/device/vendor`, subsystem VID,
+  IEEE OUI di Identify Controller).
+- **Kapasitas palsu** (flash drive / SSD murah): kapasitas yang dilaporkan >
+  flash fisik; firmware memutar (wrap) alamat tulis. Tidak bisa dibuktikan
+  read-only. Perlu tes tulis-baca-verifikasi seperti f3/H2testw:
+  - disk kosong/tak ter-mount: probe destruktif opsional
+    `dcheck storage <dev> --verify-capacity` (butuh konfirmasi eksplisit)
+  - disk ter-mount: tulis file uji di free space lalu verifikasi (aman
+    untuk data)
+  - heuristik ringan: kapasitas bukan ukuran standar, rasio harga/merek
+    tidak bisa dicek
+- **SMART tidak masuk akal**: tidak ada di database smartctl
+  (`in_smartctl_database: false` — SM863a pun false, jadi sinyal lemah),
+  semua atribut 0, POH 0 padahal data tertulis besar, wear 0% setelah
+  ratusan TB, suhu konstan persis, atribut hilang untuk kelasnya.
+- **HDD "baru" yang sebenarnya bekas / SMART di-reset**: Seagate FARM log
+  (`seagate_farm_log`, smartctl ≥ 7.4) menyimpan jam sebenarnya. Selisih
+  POH FARM vs SMART = SMART di-reset (kasus drive "recertified" dijual
+  sebagai baru). Juga: tanggal produksi SAS jauh lebih tua dari yang dijual,
+  load-unload / start-stop tinggi pada disk "baru".
+
+Tugas:
+- [ ] Modul `authenticity`: sinyal + alasan + tingkat (ok / suspicious /
+      likely counterfeit), tampil di report, TUI (panel/badge) dan JSON
+- [ ] Tabel OUI → pabrikan (Samsung, Seagate, WD/HGST, Toshiba, Micron/
+      Crucial, Kingston, SK hynix, Intel/Solidigm, SanDisk, Kioxia, …) dan
+      NVMe PCI VID → controller
+- [ ] Baca WWN native (ATA IDENTIFY word 108–111, SCSI VPD 0x83)
+- [ ] Seagate FARM: bandingkan POH FARM vs SMART
+- [ ] `--verify-capacity` (non-destruktif di free space; destruktif hanya
+      dengan flag + konfirmasi, tidak pernah default)
+
+### 2. RAM health
+
+Sudah ada: usage, swap, ECC total dari EDAC, modul SMBIOS, suhu DDR5.
+
+Bisa ditambah (read-only):
+- **Per-DIMM ECC** (`edac/mc*/dimm*/dimm_{ce,ue}_count`, label slot) →
+  tunjuk DIMM mana yang bermasalah, bukan cuma total.
+- **`HardwareCorrupted`** di `/proc/meminfo` (halaman memori yang di-poison
+  oleh kernel) → > 0 = REPLACE.
+- **Riwayat error**: rasdaemon DB (`/var/lib/rasdaemon/ras-mc_ctx.db`),
+  mcelog, kernel log (`EDAC ... CE/UE`, `Hardware Error`). Counter EDAC
+  hilang saat reboot, riwayat tidak.
+- **IPMI / iDRAC SEL**: event memori (ECC, "Correctable memory error
+  logging disabled", DIMM failed), juga PSU/kipas/suhu → bagian "Platform".
+- **Konfigurasi**: kecepatan terkonfigurasi < rating modul, campuran part
+  number / rank / ukuran, populasi channel tidak seimbang, modul non-ECC di
+  server → catatan (bukan error).
+- **SPD EEPROM** (driver `ee1004`/`spd5118`, perlu modprobe): pabrikan,
+  **tanggal produksi modul**, part number → juga deteksi RAM rebrand
+  (SPD ≠ SMBIOS/label).
+- **Tes aktif opsional**: `dcheck ram --test SIZE` (pola tulis/baca di
+  memori bebas, seperti memtester; tidak bisa menguji memori yang dipakai
+  kernel). Tes penuh butuh boot memtest86+ — kandidat menu WayangOS.
+
+Tugas:
+- [ ] Per-DIMM ECC + slot label, `HardwareCorrupted`, riwayat
+      rasdaemon/kernel log
+- [ ] Deteksi konfigurasi (speed / mixed / channel balance / non-ECC)
+- [ ] SPD (opsional, bila driver ada) + tanggal produksi DIMM
+- [ ] IPMI SEL / sensor (bila `ipmitool` atau `/dev/ipmi0` ada)
+- [ ] `dcheck ram --test` (opsional, eksplisit)
+
+### 3. CPU health
+
+Sudah ada: model, topologi, clock, cache, suhu (hwmon), load 1m.
+
+Bisa ditambah (read-only):
+- **Machine Check Exceptions**: kernel log `mce: [Hardware Error]`,
+  rasdaemon/mcelog, `/sys/devices/system/machinecheck` → CPU/cache/bus
+  error → MONITOR/REPLACE.
+- **Thermal throttling**: `thermal_throttle/{core,package}_throttle_count`
+  (+ `_max_time_ms`) per core → pendingin/pasta/kipas bermasalah.
+- **Suhu vs batas**: `coretemp` `temp*_crit` (Tjmax), selisih antar-core
+  dan antar-socket.
+- **Core offline / hilang**: `present` vs `online`, jumlah core tidak sesuai
+  model.
+- **Clock**: frekuensi sekarang vs max (governor powersave / throttling
+  platform), BIOS power profile.
+- **Microcode & kerentanan**: versi microcode, isi `vulnerabilities/*`
+  ("Vulnerable" → catatan keamanan).
+- **IPMI**: sensor Processor (IERR, thermal trip, config error) dan SEL.
+- **Stress test singkat opsional** (`dcheck cpu --stress 60s`): lihat suhu
+  puncak + throttle + stabilitas.
+
+Tugas:
+- [ ] MCE (kernel log / rasdaemon), throttle counter, Tjmax, core offline
+- [ ] Microcode + vulnerabilities (catatan keamanan)
+- [ ] IPMI sensor Processor
+- [ ] `--stress` opsional
+
+### Temuan kecil lain (dari pengambilan screenshot)
+- [ ] `dcheck storage` (daftar teks) menampilkan HEALTH "?" untuk semua
+      disk. Daftar tidak membaca SMART; TUI dan `check` sudah benar.
+      Seharusnya daftar ikut membaca health (atau diberi keterangan).
+- [ ] `dcheck prometheus` belum mengekspor metrik baru (design life, overdue,
+      grown defects, uncorrected, phy errors, suhu lifetime).

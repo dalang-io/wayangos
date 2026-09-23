@@ -20,7 +20,7 @@ pub fn run(path: &str, device_bytes: u64) -> Option<String> {
         .open(path)
         .ok()?;
 
-    let seq_len: u64 = device_bytes.min(256 << 20).max(8 << 20);
+    let seq_len: u64 = device_bytes.clamp(8 << 20, 256 << 20);
     let block: usize = 1 << 20;
 
     // Aligned buffer for O_DIRECT.

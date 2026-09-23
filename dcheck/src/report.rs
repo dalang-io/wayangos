@@ -200,7 +200,7 @@ pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>)
             match p.mountpoint.as_deref() {
                 Some(mp) => match crate::mount::usage(mp) {
                     Some(u) => out.push(format!(
-                        "    {:<16} {:>10}  {:<8} {:<12} {} {:>3.0}%  {}/{} used",
+                        "    {:<16} {:>10}  {:<8} {:<12} {} {:>3.0}%  {}/{} used, {} free",
                         p.path,
                         human_size(p.size_bytes),
                         fs,
@@ -208,7 +208,8 @@ pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>)
                         bar(u.percent, 16),
                         u.percent,
                         human_size(u.used),
-                        human_size(u.total)
+                        human_size(u.total),
+                        human_size(u.avail)
                     )),
                     None => out.push(format!(
                         "    {:<16} {:>10}  {:<8} {}",
@@ -305,16 +306,32 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
         out.push("  SMART        : device reports SMART as unavailable".into());
     }
     if let Some(t) = s.temperature_c {
-        match s.trip_temp_c {
-            Some(trip) => out.push(format!("  Temperature  : {t}°C (trips at {trip}°C)")),
-            None => out.push(format!("  Temperature  : {t}°C")),
+        let mut extra = Vec::new();
+        if let (Some(lo), Some(hi)) = (s.temp_min_c, s.temp_max_c) {
+            extra.push(format!("lifetime {lo}–{hi}°C"));
+        }
+        if let Some(max) = s.temp_rated_max_c {
+            extra.push(format!("rated max {max}°C"));
+        }
+        if let Some(trip) = s.trip_temp_c {
+            extra.push(format!("trips at {trip}°C"));
+        }
+        if extra.is_empty() {
+            out.push(format!("  Temperature  : {t}°C"));
+        } else {
+            out.push(format!("  Temperature  : {t}°C ({})", extra.join(", ")));
         }
     }
-    if let Some((y, w)) = s.manufactured {
-        let age = age_years(y, w)
-            .map(|a| format!(" — {a:.1} years old"))
-            .unwrap_or_default();
-        out.push(format!("  Manufactured : {y} week {w}{age}"));
+    let age = s.manufactured.and_then(|(y, w)| age_years(y, w));
+    match s.manufactured {
+        Some((y, w)) => {
+            let old = age.map(|a| format!(" — {a:.1} years old")).unwrap_or_default();
+            out.push(format!("  Manufactured : {y} week {w}{old}"));
+        }
+        None => out.push(format!("  Manufactured : {}", manufacture_unknown(d, s))),
+    }
+    if let Some(line) = in_service(s, age) {
+        out.push(format!("  In service   : {line}"));
     }
     if let Some(poh) = s.power_on_hours {
         let cycles = s
@@ -341,7 +358,7 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
     if let Some(used) = h.wear_used_percent {
         out.push(format!("  Wear         : {used}% used"));
     }
-    if d.bus == crate::model::Bus::Scsi || s.rated_start_stop.is_some() {
+    if (d.bus == crate::model::Bus::Scsi || s.rated_start_stop.is_some()) && !s.is_ata() {
         if let Some(g) = s.reallocated {
             out.push(format!("  Grown defects: {g}"));
         }
@@ -354,6 +371,22 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
     }
     if let Some(t) = &s.last_self_test {
         out.push(format!("  Self-test    : {t}"));
+    }
+    if let Some(n) = s.error_log_count {
+        out.push(format!("  Error log    : {n} entries"));
+    }
+    if let Some(r) = s.hardware_resets {
+        out.push(format!("  HW resets    : {r}"));
+    }
+    let mut features = Vec::new();
+    if let Some(t) = s.trim {
+        features.push(if t { "TRIM" } else { "no TRIM" });
+    }
+    if let Some(w) = s.write_cache {
+        features.push(if w { "write cache on" } else { "write cache off" });
+    }
+    if !features.is_empty() {
+        out.push(format!("  Features     : {}", features.join(", ")));
     }
     if let Some([inv, disp, sync, reset]) = s.phy_errors {
         out.push(format!(
@@ -436,6 +469,32 @@ pub fn life_left(h: &health::Health) -> Option<String> {
     }
     let (d247, d87) = (h.days_247?, h.days_87?);
     Some(format!("{} @24/7  |  {} @8h/day", fmt(d247), fmt(d87)))
+}
+
+/// Why no manufacture date is shown. Only SCSI/SAS drives carry one (log
+/// page 0x0E); ATA and NVMe have no such field.
+pub fn manufacture_unknown(d: &Device, s: &smartctl::SmartData) -> &'static str {
+    if d.bus == crate::model::Bus::Scsi && !s.is_ata() {
+        "not reported by the drive"
+    } else {
+        "not reported (SATA/NVMe drives do not store a manufacture date)"
+    }
+}
+
+/// "2785 h powered on ≈ 0.3 y @24/7, 32 power-on resets[, on 20% of the
+/// time since manufacture]".
+pub fn in_service(s: &smartctl::SmartData, age_years: Option<f64>) -> Option<String> {
+    let poh = s.power_on_hours?;
+    let years = poh as f64 / (365.0 * 24.0);
+    let mut out = format!("{poh} h powered on ≈ {years:.1} y @24/7");
+    if let Some(r) = s.power_on_resets {
+        out.push_str(&format!(", {r} power-on resets"));
+    }
+    if let Some(age) = age_years.filter(|a| *a > 0.0) {
+        let duty = (years / age * 100.0).min(100.0);
+        out.push_str(&format!(", on {duty:.0}% of the time since manufacture"));
+    }
+    Some(out)
 }
 
 /// Years since a (year, ISO week) manufacture date.
@@ -839,6 +898,14 @@ pub fn device_json(d: &Device) -> crate::json::Json {
             ("load_unload_cycles", opt_num(s.load_unload.map(|v| v as f64))),
             ("load_unload_cycles_rated", opt_num(s.rated_load_unload.map(|v| v as f64))),
             ("trip_temperature_c", opt_num(s.trip_temp_c.map(|v| v as f64))),
+            ("temperature_min_c", opt_num(s.temp_min_c.map(|v| v as f64))),
+            ("temperature_max_c", opt_num(s.temp_max_c.map(|v| v as f64))),
+            ("temperature_rated_max_c", opt_num(s.temp_rated_max_c.map(|v| v as f64))),
+            ("power_on_resets", opt_num(s.power_on_resets.map(|v| v as f64))),
+            ("hardware_resets", opt_num(s.hardware_resets.map(|v| v as f64))),
+            ("error_log_entries", opt_num(s.error_log_count.map(|v| v as f64))),
+            ("trim", opt_bool(s.trim)),
+            ("write_cache", opt_bool(s.write_cache)),
             ("last_self_test", opt_json(&s.last_self_test)),
             (
                 "sas_phy_errors",
@@ -946,6 +1013,30 @@ fn opt_bool(v: Option<bool>) -> crate::json::Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn in_service_and_manufacture_lines() {
+        let s = crate::smartctl::SmartData {
+            power_on_hours: Some(25_660),
+            power_on_resets: Some(40),
+            ..Default::default()
+        };
+        let line = in_service(&s, Some(14.5)).unwrap();
+        assert!(line.starts_with("25660 h powered on ≈ 2.9 y @24/7, 40 power-on resets"), "{line}");
+        assert!(line.ends_with("on 20% of the time since manufacture"), "{line}");
+        let d = crate::enumerate::demo_devices().remove(1); // SATA
+        assert!(manufacture_unknown(&d, &s).contains("SATA/NVMe"));
+        // A SATA SSD behind a SAS/RAID controller shows up on the SCSI bus.
+        let mut behind_raid = d.clone();
+        behind_raid.bus = crate::model::Bus::Scsi;
+        let ata = crate::smartctl::SmartData {
+            sata_version: Some("SATA 3.2".into()),
+            ..Default::default()
+        };
+        assert!(manufacture_unknown(&behind_raid, &ata).contains("SATA/NVMe"));
+        let sas = crate::smartctl::SmartData::default();
+        assert_eq!(manufacture_unknown(&behind_raid, &sas), "not reported by the drive");
+    }
 
     #[test]
     fn life_left_is_capped_and_handles_zero() {

@@ -58,6 +58,12 @@ Download the latest release from
 verify its SHA-256 checksum and replace the running binary. Needs write access
 to the binary's directory (use sudo for /usr/local/bin). Linux x86_64/aarch64.
 .TP
+.BR snapshot " \fIdir\fP [" \-\-demo "] [" \-\-mask\-serials "] [" "\-\-host \fIname\fP" "] [" "\-\-size \fIWxH\fP" ]
+Render every TUI screen to SVG files in
+.I dir
+from live data (or demo data), for documentation. Serial numbers can be
+masked and the host name replaced before publishing.
+.TP
 .BR tui " [" \-\-light | \-\-dark "] [" \-\-mouse "] [" \-\-plain "] [" \-\-transparent ]
 Terminal UI: a sci-fi HUD with a command deck, storage array, per-device
 vitals dashboard and memory/processor dashboards. Uses neon truecolor when the

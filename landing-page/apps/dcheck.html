@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="dcheck &mdash; storage health for server technicians. Native SMART for SAS, SATA and NVMe (Dell PERC / MegaRAID included), remaining-life estimates, health gate, Prometheus and webhook alerts. One static Linux binary.">
+    <meta property="og:title" content="dcheck &mdash; Storage Health for Server Technicians">
+    <meta property="og:description" content="Native SMART for SAS, SATA and NVMe, life estimates, health gate, Prometheus and alerts. One static binary: curl | sh.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://wayang.dalang.io/apps/dcheck.html">
+    <meta property="og:image" content="https://wayang.dalang.io/assets/og-dcheck.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="dcheck &#8212; Storage Health for Server Technicians">
+    <meta name="twitter:description" content="Native SMART for SAS, SATA and NVMe, life estimates, health gate, Prometheus and alerts.">
+    <meta name="twitter:image" content="https://wayang.dalang.io/assets/og-dcheck.png">
+    <link rel="canonical" href="https://wayang.dalang.io/apps/dcheck.html">
+    <link rel="alternate" hreflang="en" href="https://wayang.dalang.io/apps/dcheck.html">
+    <link rel="alternate" hreflang="id" href="https://wayang.dalang.io/apps/dcheck.html">
+    <link rel="alternate" hreflang="x-default" href="https://wayang.dalang.io/apps/dcheck.html">
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "dcheck",
+      "operatingSystem": "Linux (x86_64, aarch64), WayangOS",
+      "applicationCategory": "UtilitiesApplication",
+      "description": "Device health check for storage (SAS, SATA, NVMe), RAM and CPU with remaining-life estimates.",
+      "downloadUrl": "https://wayang.dalang.io/dcheck/install.sh",
+      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "IDR"}
+    }
+    </script>
+    <title>dcheck &#8212; Storage Health for Server Technicians</title>
+    <link rel="stylesheet" href="/assets/lightbox.css?v=b01b14e">
+    <link rel="stylesheet" href="/assets/tailwind.css?v=b01b14e">
+    <link rel="stylesheet" href="/assets/style.css?v=b01b14e">
+    <style>
+        /* dcheck page components (palette from tailwind.config.js). */
+        .dc-mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; }
+        .dc-term {
+            border: 1px solid #1c4a5c; border-radius: 12px; overflow: hidden;
+            background: #0a0e14; box-shadow: 0 0 60px #00e5ff14;
+        }
+        .dc-term-bar {
+            display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+            background: #121a26; border-bottom: 1px solid #1c4a5c;
+            color: #70849a; font-size: 12px;
+        }
+        .dc-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .dc-term img { display: block; width: 100%; height: auto; image-rendering: auto; }
+        .dc-code {
+            position: relative; background: #0d0a07; border: 1px solid #2e2318;
+            border-radius: 10px; padding: 14px 16px; overflow-x: auto;
+            font-size: 13.5px; line-height: 1.6; color: #f0e8d8; white-space: pre;
+        }
+        .dc-code .c { color: #5a4a30; }
+        .dc-code .p { color: #c8941a; user-select: none; }
+        .dc-code .ok { color: #7ec87e; }
+        .dc-code .warn { color: #f0b830; }
+        .dc-code .bad { color: #ff6b6b; }
+        .dc-code .dim { color: #a09070; }
+        .dc-copy {
+            position: absolute; top: 8px; right: 8px; font-size: 12px;
+            background: #1a1410; color: #a09070; border: 1px solid #2e2318;
+            border-radius: 6px; padding: 3px 10px; cursor: pointer;
+        }
+        .dc-copy:hover { color: #c8941a; border-color: #c8941a; }
+        .dc-install {
+            display: flex; align-items: center; gap: 12px; max-width: 720px; margin: 0 auto;
+            background: #0d0a07; border: 1px solid #c8941a66; border-radius: 12px;
+            padding: 14px 16px; text-align: left;
+        }
+        .dc-install code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; color: #f0b830; font-size: 15px; }
+        .dc-code, .dc-table { max-width: 100%; }
+        .dc-table td.dc-mono { word-break: break-all; }
+        @media (max-width: 640px) {
+            .dc-install code { font-size: 12.5px; }
+            .dc-code { font-size: 12px; }
+            .dc-table { font-size: 13px; }
+            .dc-table th, .dc-table td { padding: 8px 6px; }
+        }
+        .dc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .dc-table th, .dc-table td { border-bottom: 1px solid #2e2318; padding: 10px 12px; text-align: left; vertical-align: top; }
+        .dc-table th { color: #c8941a; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+        .dc-badge { display: inline-block; padding: 2px 10px; border-radius: 6px; font-weight: 700; font-size: 12px; color: #0a0e14; white-space: nowrap; }
+        .dc-steps { counter-reset: s; }
+        .dc-steps > li { counter-increment: s; position: relative; padding-left: 44px; margin-bottom: 18px; list-style: none; }
+        .dc-steps > li::before {
+            content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px;
+            border-radius: 50%; background: #c8941a22; border: 1px solid #c8941a66; color: #f0b830;
+            display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;
+        }
+        .gallery-item img { background: #0a0e14; }
+    </style>
+</head>
+<body class="bg-w-bg text-w-text font-['Inter',system-ui,sans-serif] leading-relaxed overflow-x-hidden w-full">
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 w-full max-w-[100vw] py-4 bg-w-bg border-b border-w-border-g z-[100]">
+        <div class="max-w-[1200px] mx-auto px-6 relative z-[1] flex justify-between items-center">
+            <a href="../index.html" class="text-xl font-bold text-w-gold no-underline tracking-tight flex items-center gap-2">
+                <span class="text-lg opacity-70 text-w-gold-b">ꦮꦪꦁ</span>
+                Wayang<span class="text-w-text">OS</span>
+            </a>
+            <div class="flex items-center gap-2">
+                <div class="lang-switch-mobile hidden gap-1 items-center">
+                    <button onclick="setLang('en')" class="px-2 py-0.5 rounded text-xs font-semibold bg-transparent text-w-text2 border border-w-border cursor-pointer">EN</button>
+                    <button onclick="setLang('id')" class="px-2 py-0.5 rounded text-xs font-semibold bg-w-gold text-black border border-w-gold cursor-pointer">ID</button>
+                </div>
+                <button class="nav-toggle hidden bg-transparent border-none text-w-gold text-2xl cursor-pointer p-1" aria-label="Menu">☰</button>
+            </div>
+            <ul class="nav-links flex gap-8 list-none">
+                <li><a href="../index.html" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">Home</a></li>
+                <li><a href="../index.html#features" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">Features</a></li>
+                <li><a href="../download.html" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">Download</a></li>
+                <li><a href="../apps.html" class="text-w-gold no-underline text-sm">Apps</a></li>
+                <li><a href="../about.html" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">About</a></li>
+                <li><a href="https://github.com/mashanz/wayangos" target="_blank" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">GitHub</a></li>
+                <li><div class="lang-switch flex gap-1 items-center ml-2">
+                    <button onclick="setLang('en')" id="btn-en" class="px-2 py-0.5 rounded text-xs font-semibold bg-transparent text-w-text2 border border-w-border cursor-pointer">EN</button>
+                    <span class="text-gray-600 text-xs">|</span>
+                    <button onclick="setLang('id')" id="btn-id" class="px-2 py-0.5 rounded text-xs font-semibold bg-w-gold text-black border border-w-gold cursor-pointer">ID</button>
+                </div></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Breadcrumb -->
+    <div class="max-w-[1200px] mx-auto px-6 pt-24 pb-2">
+        <nav class="text-sm text-w-dim">
+            <a href="../index.html" class="text-w-text2 hover:text-w-gold no-underline">Home</a>
+            <span class="mx-2">/</span>
+            <a href="../apps.html" class="text-w-text2 hover:text-w-gold no-underline">Apps</a>
+            <span class="mx-2">/</span>
+            <span class="text-w-gold">dcheck</span>
+        </nav>
+    </div>
+
+    <!-- Hero -->
+    <section class="hero-glow-sm text-center pt-8 pb-16 px-6 relative">
+        <div class="text-6xl mb-6 relative z-[1]">&#128421;</div>
+        <h1 class="text-[clamp(2.5rem,6vw,4rem)] font-extrabold tracking-tighter mb-4 relative z-[1]">
+            d<span class="text-w-gold">check</span>
+        </h1>
+        <p class="text-[clamp(0.95rem,2vw,1.1rem)] text-w-text2 max-w-[700px] mx-auto mb-4 relative z-[1]"><span data-en="Storage health for server technicians &mdash; know which disk is dying before it takes the RAID with it." data-id="Kesehatan storage untuk teknisi server &mdash; tahu disk mana yang sekarat sebelum ikut menjatuhkan RAID." data-i18n-html>Storage health for server technicians &mdash; know which disk is dying before it takes the RAID with it.</span></p>
+        <p class="text-w-dim max-w-3xl mx-auto mb-8 relative z-[1]" data-en="SAS, SATA and NVMe SMART read natively (Dell PERC / LSI MegaRAID included), remaining-life estimates, a health gate for scripts, Prometheus metrics and webhook alerts &mdash; plus RAM and CPU. One static Linux binary, no dependencies." data-id="SMART SAS, SATA dan NVMe dibaca secara native (termasuk Dell PERC / LSI MegaRAID), estimasi sisa umur, health gate untuk script, metrik Prometheus dan alert webhook &mdash; plus RAM dan CPU. Satu binary Linux statis, tanpa dependensi." data-i18n-html>SAS, SATA and NVMe SMART read natively (Dell PERC / LSI MegaRAID included), remaining-life estimates, a health gate for scripts, Prometheus metrics and webhook alerts &mdash; plus RAM and CPU. One static Linux binary, no dependencies.</p>
+        <div class="relative z-[1] mb-6">
+            <div class="dc-install dc-mono">
+                <span class="text-w-dim">$</span>
+                <code id="install-cmd">curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</code>
+                <button class="dc-copy" style="position:static" data-copy="#install-cmd">copy</button>
+            </div>
+            <p class="text-w-dim text-xs mt-3"><span data-en="Linux x86_64 / aarch64 &middot; latest release" data-id="Linux x86_64 / aarch64 &middot; rilis terbaru" data-i18n-html>Linux x86_64 / aarch64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.2.4</span></p>
+        </div>
+        <div class="flex flex-wrap justify-center gap-4 relative z-[1]">
+            <a href="#install" class="bg-w-gold text-w-bg px-6 py-3 rounded-lg font-bold no-underline hover:bg-w-gold-b transition-all"><span data-en="Install guide" data-id="Panduan instalasi">Install guide</span></a>
+            <a href="#technicians" class="border border-w-border text-w-text2 px-6 py-3 rounded-lg font-semibold hover:border-w-gold hover:text-w-gold transition no-underline"><span data-en="For technicians" data-id="Untuk teknisi">For technicians</span></a>
+            <a href="https://github.com/mashanz/wayangos/tree/master/dcheck" target="_blank" rel="noopener" class="border border-w-border text-w-text2 px-6 py-3 rounded-lg font-semibold hover:border-w-gold hover:text-w-gold transition no-underline">GitHub</a>
+        </div>
+    </section>
+
+    <!-- Hero Screenshot -->
+    <div class="max-w-[1200px] mx-auto px-6 mb-16">
+        <div class="dc-term">
+            <div class="dc-term-bar dc-mono">
+                <span class="dc-dot" style="background:#ff5f57"></span>
+                <span class="dc-dot" style="background:#febc2e"></span>
+                <span class="dc-dot" style="background:#28c840"></span>
+                <span class="ml-2">root@dell-r630 &mdash; sudo dcheck</span>
+            </div>
+            <img src="../assets/screenshots/dcheck-04-report-overdue-hdd.svg" alt="dcheck device report: a 10-year-old Toshiba SAS HDD flagged MONITOR, past its design life" loading="eager">
+        </div>
+        <p class="text-center text-w-dim text-sm mt-3" data-en="Real output from a Dell PowerEdge R630: a Toshiba SAS drive with 92,000 power-on hours is flagged before it fails." data-id="Output asli dari Dell PowerEdge R630: disk SAS Toshiba dengan 92.000 jam menyala ditandai sebelum rusak.">Real output from a Dell PowerEdge R630: a Toshiba SAS drive with 92,000 power-on hours is flagged before it fails.</p>
+    </div>
+
+    <!-- Features -->
+    <section class="max-w-[1200px] mx-auto px-6 py-16" id="features">
+        <div class="text-center mb-12">
+            <h2 class="text-2xl font-bold mb-3"><span data-en="What it checks" data-id="Apa yang dicek">What it checks</span></h2>
+            <p class="text-w-dim" data-en="Everything a technician needs to decide: keep, watch, back up, or replace." data-id="Semua yang dibutuhkan teknisi untuk memutuskan: biarkan, pantau, backup, atau ganti.">Everything a technician needs to decide: keep, watch, back up, or replace.</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#128190;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Native SMART, no smartctl" data-id="SMART native, tanpa smartctl">Native SMART, no smartctl</h3>
+                <p class="text-w-dim text-sm" data-en="Reads ATA, SCSI/SAS and NVMe health straight from the kernel (HDIO, SG_IO, NVMe admin). Works in a minimal rescue system. If smartmontools is installed, both sources are merged." data-id="Membaca kesehatan ATA, SCSI/SAS dan NVMe langsung dari kernel (HDIO, SG_IO, NVMe admin). Jalan di sistem rescue minimal. Kalau smartmontools terpasang, kedua sumber digabung.">Reads ATA, SCSI/SAS and NVMe health straight from the kernel (HDIO, SG_IO, NVMe admin). Works in a minimal rescue system. If smartmontools is installed, both sources are merged.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#128421;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Built for server RAID controllers" data-id="Dibuat untuk RAID controller server">Built for server RAID controllers</h3>
+                <p class="text-w-dim text-sm" data-en="Tested on Dell PERC H330/H730 (LSI MegaRAID 3008/3108): SAS health status, grown defects, error counters, SAS link rate and phy errors, SATA SSDs behind the controller." data-id="Diuji di Dell PERC H330/H730 (LSI MegaRAID 3008/3108): status health SAS, grown defects, error counter, link rate dan phy error SAS, SSD SATA di belakang controller.">Tested on Dell PERC H330/H730 (LSI MegaRAID 3008/3108): SAS health status, grown defects, error counters, SAS link rate and phy errors, SATA SSDs behind the controller.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#9203;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Remaining-life estimates" data-id="Estimasi sisa umur">Remaining-life estimates</h3>
+                <p class="text-w-dim text-sm" data-en="SSD: vendor / ACS wear indicator or host writes vs rated TBW. HDD: power-on hours vs design life and the drive's rated start-stop / load-unload cycles. Shown for 24/7 and 8h/day, with a confidence level." data-id="SSD: indikator wear vendor / ACS atau data tertulis vs TBW rating. HDD: jam menyala vs design life dan rating siklus start-stop / load-unload dari drive. Ditampilkan untuk 24/7 dan 8 jam/hari, dengan tingkat keyakinan.">SSD: vendor / ACS wear indicator or host writes vs rated TBW. HDD: power-on hours vs design life and the drive's rated start-stop / load-unload cycles. Shown for 24/7 and 8h/day, with a confidence level.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#128680;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Health gate &amp; alerts" data-id="Health gate &amp; alert" data-i18n-html>Health gate &amp; alerts</h3>
+                <p class="text-w-dim text-sm" data-en="dcheck check exits 0/1/2/3 by the worst verdict &mdash; drop it into cron, systemd or CI. dcheck watch alerts on any change for the worse and can POST a webhook." data-id="dcheck check keluar dengan kode 0/1/2/3 sesuai verdict terburuk &mdash; pakai di cron, systemd atau CI. dcheck watch memberi alert saat kondisi memburuk dan bisa POST ke webhook." data-i18n-html>dcheck check exits 0/1/2/3 by the worst verdict &mdash; drop it into cron, systemd or CI. dcheck watch alerts on any change for the worse and can POST a webhook.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#128202;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Prometheus &amp; JSON" data-id="Prometheus &amp; JSON" data-i18n-html>Prometheus &amp; JSON</h3>
+                <p class="text-w-dim text-sm" data-en="dcheck prometheus prints health severity, temperature, power-on hours, bytes written and more for your scraper. Every report is also available as stable JSON." data-id="dcheck prometheus mencetak severity health, suhu, jam menyala, data tertulis dan lainnya untuk scraper. Setiap report juga tersedia sebagai JSON yang stabil.">dcheck prometheus prints health severity, temperature, power-on hours, bytes written and more for your scraper. Every report is also available as stable JSON.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#129504;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="RAM &amp; CPU too" data-id="RAM &amp; CPU juga" data-i18n-html>RAM &amp; CPU too</h3>
+                <p class="text-w-dim text-sm" data-en="Memory usage, ECC errors (EDAC), DIMM slot map with vendor / type / speed from SMBIOS, DDR5 temperature. CPU model, topology, clock, cache, temperature and load." data-id="Pemakaian memori, error ECC (EDAC), peta slot DIMM dengan vendor / tipe / kecepatan dari SMBIOS, suhu DDR5. Model CPU, topologi, clock, cache, suhu dan load.">Memory usage, ECC errors (EDAC), DIMM slot map with vendor / type / speed from SMBIOS, DDR5 temperature. CPU model, topology, clock, cache, temperature and load.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#128223;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="A terminal UI that works anywhere" data-id="Terminal UI yang jalan di mana saja">A terminal UI that works anywhere</h3>
+                <p class="text-w-dim text-sm" data-en="Neon truecolor in modern terminals, the ANSI palette on a Linux console or iDRAC/iLO virtual console, --plain for ASCII-only fonts, NO_COLOR respected, text stays selectable." data-id="Neon truecolor di terminal modern, palet ANSI di console Linux atau virtual console iDRAC/iLO, --plain untuk font ASCII saja, NO_COLOR dihormati, teks tetap bisa diseleksi.">Neon truecolor in modern terminals, the ANSI palette on a Linux console or iDRAC/iLO virtual console, --plain for ASCII-only fonts, NO_COLOR respected, text stays selectable.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#128274;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Read-only and safe" data-id="Read-only dan aman">Read-only and safe</h3>
+                <p class="text-w-dim text-sm" data-en="Never writes to a disk. Self-tests and the read benchmark only run when you ask. Ceph RBD, DRBD, device-mapper and loop devices are skipped automatically." data-id="Tidak pernah menulis ke disk. Self-test dan benchmark baca hanya jalan kalau diminta. Ceph RBD, DRBD, device-mapper dan loop device otomatis dilewati.">Never writes to a disk. Self-tests and the read benchmark only run when you ask. Ceph RBD, DRBD, device-mapper and loop devices are skipped automatically.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#128260;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="One binary, self-updating" data-id="Satu binary, bisa update sendiri">One binary, self-updating</h3>
+                <p class="text-w-dim text-sm" data-en="~1 MB static musl binary for x86_64 and aarch64. dcheck update downloads the latest release, verifies its SHA-256 checksum and replaces itself atomically." data-id="Binary musl statis ~1 MB untuk x86_64 dan aarch64. dcheck update mengunduh rilis terbaru, memverifikasi checksum SHA-256 dan mengganti dirinya secara atomik.">~1 MB static musl binary for x86_64 and aarch64. dcheck update downloads the latest release, verifies its SHA-256 checksum and replaces itself atomically.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Screenshot Gallery -->
+    <section class="max-w-[1200px] mx-auto px-6 py-16">
+        <div class="text-center mb-12">
+            <h2 class="text-2xl font-bold mb-3"><span data-en="Every screen" data-id="Semua layar">Every screen</span></h2>
+            <p class="text-w-dim" data-en="Captured on two Dell PowerEdge R630 servers (serial numbers masked). Click to enlarge; arrow keys to navigate." data-id="Diambil di dua server Dell PowerEdge R630 (serial number disamarkan). Klik untuk memperbesar; tombol panah untuk navigasi.">Captured on two Dell PowerEdge R630 servers (serial numbers masked). Click to enlarge; arrow keys to navigate.</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 screenshot-gallery">
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-02-command-deck.svg" alt="Command deck with live storage, memory and processor cards" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Command deck &mdash; live summary of every module" data-id="Command deck &mdash; ringkasan langsung semua modul" data-i18n-html>Command deck &mdash; live summary of every module</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-03-storage-array.svg" alt="Storage array: SATA SSD and four SAS HDDs behind a PERC controller" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Storage array &mdash; SSD + 4 SAS HDDs behind a PERC H730" data-id="Storage array &mdash; SSD + 4 HDD SAS di belakang PERC H730" data-i18n-html>Storage array &mdash; SSD + 4 SAS HDDs behind a PERC H730</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-07-storage-alerts.svg" alt="Storage array with two drives flagged MONITOR" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Alerts at a glance &mdash; two drives past their design life" data-id="Alert sekilas &mdash; dua disk melewati design life" data-i18n-html>Alerts at a glance &mdash; two drives past their design life</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-04-report-overdue-hdd.svg" alt="Report of an HDD 5.5 years past its design life" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="HDD report &mdash; 5.5 years past its design life" data-id="Report HDD &mdash; lewat design life 5,5 tahun">HDD report &mdash; 5.5 years past its design life</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-05-report-sas-hdd.svg" alt="SAS HDD report with manufacture date, cycles and design life" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="SAS HDD &mdash; manufacture date, rated cycles, design life" data-id="HDD SAS &mdash; tanggal produksi, rating siklus, design life" data-i18n-html>SAS HDD &mdash; manufacture date, rated cycles, design life</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-06-report-sata-ssd.svg" alt="SATA SSD report with wear, lifetime temperatures and device statistics" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="SATA SSD &mdash; wear, lifetime temperatures, device statistics" data-id="SSD SATA &mdash; wear, suhu seumur hidup, device statistics" data-i18n-html>SATA SSD &mdash; wear, lifetime temperatures, device statistics</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-08-memory.svg" alt="Memory bank with usage, swap, DIMM slot map and ECC" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Memory &mdash; usage, DIMM slot map, ECC" data-id="Memori &mdash; pemakaian, peta slot DIMM, ECC" data-i18n-html>Memory &mdash; usage, DIMM slot map, ECC</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-09-processor.svg" alt="Processor dashboard with load, temperature and an 80-thread grid" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Processor &mdash; load, temperature, 80-thread grid" data-id="Prosesor &mdash; load, suhu, grid 80 thread" data-i18n-html>Processor &mdash; load, temperature, 80-thread grid</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-10-help.svg" alt="Command reference overlay" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Command reference overlay" data-id="Overlay referensi perintah">Command reference overlay</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-01-splash.svg" alt="Boot splash" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Boot splash (0.5 s, any key skips)" data-id="Splash boot (0,5 dtk, tombol apa pun melewati)">Boot splash (0.5 s, any key skips)</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Install -->
+    <section class="max-w-[1000px] mx-auto px-6 py-16" id="install">
+        <div class="text-center mb-10">
+            <h2 class="text-2xl font-bold mb-3"><span data-en="Install" data-id="Instalasi">Install</span></h2>
+            <p class="text-w-dim" data-en="Any Linux distribution on x86_64 or aarch64 &mdash; the binary is static, nothing else is required." data-id="Distribusi Linux apa pun di x86_64 atau aarch64 &mdash; binary-nya statis, tidak butuh apa-apa lagi." data-i18n-html>Any Linux distribution on x86_64 or aarch64 &mdash; the binary is static, nothing else is required.</p>
+        </div>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="1. One-line install" data-id="1. Instal satu baris">1. One-line install</h3>
+        <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</div>
+        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.4 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.4 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.4 (pin a version).</p>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="2. Run it" data-id="2. Jalankan">2. Run it</h3>
+        <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>sudo dcheck                     <span class="c"># terminal UI (SMART needs root)</span>
+<span class="p">$ </span>sudo dcheck check               <span class="c"># one line per disk, exit code = worst verdict</span>
+<span class="p">$ </span>sudo dcheck storage /dev/sdb    <span class="c"># full report for one disk</span>
+<span class="p">$ </span>dcheck ram &amp;&amp; dcheck cpu        <span class="c"># memory / processor</span></div>
+        <p class="text-w-dim text-sm mb-8" data-en="Offline or air-gapped server? Download the tarball for your architecture from the release directory below, copy it over, and run tar xzf + install." data-id="Server offline / air-gapped? Unduh tarball sesuai arsitektur dari direktori rilis di bawah, salin ke server, lalu jalankan tar xzf + install.">Offline or air-gapped server? Download the tarball for your architecture from the release directory below, copy it over, and run tar xzf + install.</p>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="3. Keep it current" data-id="3. Tetap terbaru">3. Keep it current</h3>
+        <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>dcheck update --check    <span class="c"># is there a newer release?</span>
+<span class="p">$ </span>sudo dcheck update       <span class="c"># download, verify SHA-256, replace in place</span></div>
+
+        <h3 class="text-lg font-bold mb-3 mt-8 text-w-text" data-en="Manual download" data-id="Unduh manual">Manual download</h3>
+        <div class="overflow-x-auto">
+        <table class="dc-table mb-2">
+            <thead><tr><th data-en="Platform" data-id="Platform">Platform</th><th data-en="File" data-id="File">File</th></tr></thead>
+            <tbody>
+                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.2.4/dcheck-0.2.4-x86_64-unknown-linux-musl.tar.gz">dcheck-0.2.4-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.2.4/dcheck-0.2.4-aarch64-unknown-linux-musl.tar.gz">dcheck-0.2.4-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.2.4/SHA256SUMS">SHA256SUMS</a></td></tr>
+            </tbody>
+        </table>
+        </div>
+        <p class="text-w-dim text-xs" data-en="Releases are immutable: a published version never changes. Older versions stay available under /dcheck/v&lt;version&gt;/." data-id="Rilis bersifat immutable: versi yang sudah terbit tidak pernah berubah. Versi lama tetap tersedia di /dcheck/v&lt;versi&gt;/.">Releases are immutable: a published version never changes. Older versions stay available under /dcheck/v&lt;version&gt;/.</p>
+    </section>
+
+    <!-- For technicians -->
+    <section class="max-w-[1000px] mx-auto px-6 py-16" id="technicians">
+        <div class="text-center mb-10">
+            <h2 class="text-2xl font-bold mb-3"><span data-en="For server technicians" data-id="Untuk teknisi server">For server technicians</span></h2>
+            <p class="text-w-dim" data-en="From a one-off check during a site visit to continuous monitoring of a whole fleet." data-id="Dari pengecekan sekali saat kunjungan ke lokasi sampai pemantauan terus-menerus satu armada server.">From a one-off check during a site visit to continuous monitoring of a whole fleet.</p>
+        </div>
+
+        <h3 class="text-lg font-bold mb-4 text-w-text" data-en="Triage in five minutes" data-id="Triase dalam lima menit">Triage in five minutes</h3>
+        <ol class="dc-steps mb-10 text-w-text2 text-sm">
+            <li data-en="Install and run &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;sudo dcheck check&lt;/code&gt; &mdash; one line per disk with its verdict and the reason." data-id="Instal lalu jalankan &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;sudo dcheck check&lt;/code&gt; &mdash; satu baris per disk dengan verdict dan alasannya." data-i18n-html>Install and run <code class="dc-mono text-w-gold">sudo dcheck check</code> &mdash; one line per disk with its verdict and the reason.</li>
+            <li data-en="Open &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;sudo dcheck&lt;/code&gt; &rarr; Storage. The array table shows health, remaining life and temperature for every drive, even behind a PERC / MegaRAID controller." data-id="Buka &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;sudo dcheck&lt;/code&gt; &rarr; Storage. Tabel array menampilkan health, sisa umur dan suhu setiap disk, termasuk yang di belakang controller PERC / MegaRAID." data-i18n-html>Open <code class="dc-mono text-w-gold">sudo dcheck</code> &rarr; Storage. The array table shows health, remaining life and temperature for every drive, even behind a PERC / MegaRAID controller.</li>
+            <li data-en="Enter on a flagged drive: VITALS explains why (defects, pending sectors, wear, age, cycles) and the telemetry log has every counter. Press &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;c&lt;/code&gt; to copy the report into a ticket." data-id="Enter pada disk yang ditandai: VITALS menjelaskan alasannya (defect, pending sector, wear, umur, siklus) dan telemetry log berisi semua counter. Tekan &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;c&lt;/code&gt; untuk menyalin report ke tiket." data-i18n-html>Enter on a flagged drive: VITALS explains why (defects, pending sectors, wear, age, cycles) and the telemetry log has every counter. Press <code class="dc-mono text-w-gold">c</code> to copy the report into a ticket.</li>
+            <li data-en="Match the drive to a bay with the model and the last four serial digits, then plan the swap by verdict (table below)." data-id="Cocokkan disk dengan bay lewat model dan empat digit terakhir serial, lalu rencanakan penggantian sesuai verdict (tabel di bawah)." >Match the drive to a bay with the model and the last four serial digits, then plan the swap by verdict (table below).</li>
+            <li data-en="Leave monitoring behind: a timer with &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;dcheck check&lt;/code&gt;, a Prometheus scrape, or &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;dcheck watch --webhook&lt;/code&gt;." data-id="Tinggalkan pemantauan: timer dengan &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;dcheck check&lt;/code&gt;, scrape Prometheus, atau &lt;code class=&quot;dc-mono text-w-gold&quot;&gt;dcheck watch --webhook&lt;/code&gt;." data-i18n-html>Leave monitoring behind: a timer with <code class="dc-mono text-w-gold">dcheck check</code>, a Prometheus scrape, or <code class="dc-mono text-w-gold">dcheck watch --webhook</code>.</li>
+        </ol>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="What the verdicts mean" data-id="Arti verdict">What the verdicts mean</h3>
+        <div class="overflow-x-auto mb-10">
+        <table class="dc-table">
+            <thead><tr><th>Verdict</th><th data-en="Means" data-id="Artinya">Means</th><th data-en="Do" data-id="Tindakan">Do</th><th>exit</th></tr></thead>
+            <tbody>
+                <tr><td><span class="dc-badge" style="background:#39ff88">✔ OK</span></td><td data-en="No failure signs." data-id="Tidak ada tanda kerusakan.">No failure signs.</td><td data-en="Nothing. Re-check periodically." data-id="Tidak ada. Cek ulang berkala.">Nothing. Re-check periodically.</td><td class="dc-mono">0</td></tr>
+                <tr><td><span class="dc-badge" style="background:#70849a">? UNKNOWN</span></td><td data-en="No SMART data (not root, USB bridge, SD card)." data-id="Tidak ada data SMART (bukan root, USB bridge, kartu SD)." >No SMART data (not root, USB bridge, SD card).</td><td data-en="Run with sudo; the report says why." data-id="Jalankan dengan sudo; report menjelaskan alasannya.">Run with sudo; the report says why.</td><td class="dc-mono">1</td></tr>
+                <tr><td><span class="dc-badge" style="background:#ffb000">▲ MONITOR</span></td><td data-en="Early warning: reallocated sectors, CRC errors, high temperature, past design life." data-id="Peringatan awal: reallocated sector, CRC error, suhu tinggi, lewat design life.">Early warning: reallocated sectors, CRC errors, high temperature, past design life.</td><td data-en="Watch the trend, check cables and cooling, order a spare." data-id="Pantau trennya, cek kabel dan pendingin, siapkan cadangan.">Watch the trend, check cables and cooling, order a spare.</td><td class="dc-mono">2</td></tr>
+                <tr><td><span class="dc-badge" style="background:#ff3b3b">✖ BACK UP NOW</span></td><td data-en="Pending / uncorrectable sectors, media errors, attribute at threshold, wear ≥ 90%." data-id="Pending / uncorrectable sector, media error, atribut di threshold, wear ≥ 90%.">Pending / uncorrectable sectors, media errors, attribute at threshold, wear ≥ 90%.</td><td data-en="Back up immediately, schedule the swap." data-id="Backup segera, jadwalkan penggantian.">Back up immediately, schedule the swap.</td><td class="dc-mono">3</td></tr>
+                <tr><td><span class="dc-badge" style="background:#ff3b3b">✖ REPLACE</span></td><td data-en="The drive itself reports SMART failure." data-id="Drive sendiri melaporkan SMART gagal.">The drive itself reports SMART failure.</td><td data-en="Replace now." data-id="Ganti sekarang.">Replace now.</td><td class="dc-mono">3</td></tr>
+            </tbody>
+        </table>
+        </div>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Real output &mdash; Dell R630, PERC H330" data-id="Output asli &mdash; Dell R630, PERC H330" data-i18n-html>Real output &mdash; Dell R630, PERC H330</h3>
+        <div class="dc-code dc-mono mb-3"><span class="p">$ </span>sudo dcheck check; echo "exit=$?"
+/dev/sda       <span class="ok">OK</span>
+/dev/sdb       <span class="warn">MONITOR</span>      past its design life (power-on hours at 210% of rating) — plan a replacement
+/dev/sdc       <span class="warn">MONITOR</span>      past its design life (power-on hours at 176% of rating) — plan a replacement
+exit=2</div>
+        <div class="dc-code dc-mono mb-10"><span class="p">$ </span>sudo dcheck storage /dev/sdb
+<span class="dim">…</span>
+<span class="warn">▐ HEALTH</span>
+  <span class="dim">Verdict      :</span> <span class="warn">MONITOR</span>
+  <span class="dim">SMART status :</span> <span class="ok">passed</span>
+  <span class="dim">Temperature  :</span> 39°C
+  <span class="dim">Manufactured :</span> 2014 week 48 — 11.8 years old
+  <span class="dim">In service   :</span> 91992 h powered on ≈ 10.5 y @24/7, on 89% of the time since manufacture
+  <span class="dim">Start-stop   :</span> 104 of 50000 rated
+  <span class="dim">Load-unload  :</span> 8664 of 200000 rated
+  <span class="dim">Written      :</span> 84.6 TB (host)
+  <span class="dim">Read         :</span> 4.3 PB
+  <span class="dim">Grown defects:</span> 0
+  <span class="dim">Uncorrected  :</span> 0 errors
+  <span class="dim">Design life  :</span> 43800 h (5.0 y @24/7, assumed — drives do not report it)
+  <span class="dim">Life used    :</span> <span class="warn">210% (limited by power-on hours)</span>
+  <span class="dim">Life left    :</span> <span class="warn">0 — past its rated life by ~5.5y @24/7</span></div>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Daily check with a systemd timer" data-id="Cek harian dengan systemd timer">Daily check with a systemd timer</h3>
+        <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="c"># /etc/systemd/system/dcheck.service</span>
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dcheck check
+
+<span class="c"># /etc/systemd/system/dcheck.timer</span>
+[Timer]
+OnCalendar=daily
+Persistent=true
+[Install]
+WantedBy=timers.target</div>
+        <p class="text-w-dim text-sm mb-10" data-en="systemctl enable --now dcheck.timer. A non-zero exit marks the unit failed, so any existing alerting on failed units (or OnFailure=) picks it up." data-id="systemctl enable --now dcheck.timer. Exit non-zero membuat unit berstatus failed, jadi alerting untuk unit gagal yang sudah ada (atau OnFailure=) langsung menangkapnya.">systemctl enable --now dcheck.timer. A non-zero exit marks the unit failed, so any existing alerting on failed units (or OnFailure=) picks it up.</p>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Prometheus (node_exporter textfile)" data-id="Prometheus (textfile node_exporter)">Prometheus (node_exporter textfile)</h3>
+        <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="c"># cron: every 15 minutes</span>
+*/15 * * * * root dcheck prometheus &gt; /var/lib/node_exporter/dcheck.prom.tmp &amp;&amp; mv /var/lib/node_exporter/dcheck.prom.tmp /var/lib/node_exporter/dcheck.prom
+
+<span class="c"># alert rule</span>
+- alert: DiskHealthDegraded
+  expr: dcheck_health_severity &gt;= 2
+  for: 1h
+  annotations:
+    summary: "{{ $labels.device }} on {{ $labels.instance }} is {{ $labels.verdict }}"</div>
+        <div class="dc-code dc-mono mb-10"><span class="c"># sample (Dell R630)</span>
+dcheck_health_severity{device="/dev/sda",verdict="OK"} 0
+dcheck_health_severity{device="/dev/sdb",verdict="MONITOR"} 2
+dcheck_temperature_celsius{device="/dev/sdb"} 39
+dcheck_power_on_hours{device="/dev/sdb"} 91992
+dcheck_written_bytes{device="/dev/sdb"} 84573621806592</div>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Webhook alerts (Slack, Discord, n8n, your API)" data-id="Alert webhook (Slack, Discord, n8n, API Anda)">Webhook alerts (Slack, Discord, n8n, your API)</h3>
+        <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>sudo dcheck watch --interval 3600 --webhook https://hooks.example.com/dcheck</div>
+        <p class="text-w-dim text-sm mb-3" data-en="Posts only when something gets worse (a new issue or a worse verdict):" data-id="Hanya mengirim saat kondisi memburuk (issue baru atau verdict lebih buruk):">Posts only when something gets worse (a new issue or a worse verdict):</p>
+        <div class="dc-code dc-mono mb-10">{"event":"dcheck.alert",
+ "alerts":["/dev/sdb worsened: OK -&gt; MONITOR"],
+ "devices":[{"device":"/dev/sdb","verdict":"MONITOR","severity":2,
+             "issues":["past its design life (power-on hours at 210% of rating) — plan a replacement"],
+             "notes":[]}]}</div>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="JSON for inventory and scripts" data-id="JSON untuk inventaris dan script">JSON for inventory and scripts</h3>
+        <div class="dc-code dc-mono mb-10"><span class="p">$ </span>sudo dcheck storage /dev/sdb --json | jq .health
+{
+  "verdict": "MONITOR",
+  "temperature_c": 39,
+  "power_on_hours": 91992,
+  "manufactured": "2014-W48",
+  "design_life_hours": 43800,
+  "design_life_used_percent": 210,
+  "remaining_hours": 0,
+  "issues": ["past its design life (power-on hours at 210% of rating) — plan a replacement"],
+  <span class="dim">…</span>
+}</div>
+    </section>
+
+    <!-- Keyboard shortcuts -->
+    <section class="max-w-[1000px] mx-auto px-6 py-16">
+        <div class="text-center mb-10">
+            <h2 class="text-2xl font-bold mb-3"><span data-en="Keyboard" data-id="Keyboard">Keyboard</span></h2>
+        </div>
+        <div class="overflow-x-auto">
+        <table class="dc-table">
+            <tbody>
+                <tr><td class="dc-mono text-w-gold">↑ ↓ / j k</td><td data-en="Move / scroll" data-id="Pindah / scroll">Move / scroll</td><td class="dc-mono text-w-gold">Enter</td><td data-en="Open" data-id="Buka">Open</td></tr>
+                <tr><td class="dc-mono text-w-gold">Esc / b</td><td data-en="Back" data-id="Kembali">Back</td><td class="dc-mono text-w-gold">1 2 3</td><td data-en="Storage / memory / processor" data-id="Storage / memori / prosesor">Storage / memory / processor</td></tr>
+                <tr><td class="dc-mono text-w-gold">PgUp PgDn g G</td><td data-en="Page / top / bottom" data-id="Halaman / atas / bawah">Page / top / bottom</td><td class="dc-mono text-w-gold">r</td><td data-en="Rescan / refresh" data-id="Scan ulang / refresh">Rescan / refresh</td></tr>
+                <tr><td class="dc-mono text-w-gold">c</td><td data-en="Copy the log (OSC 52)" data-id="Salin log (OSC 52)">Copy the log (OSC 52)</td><td class="dc-mono text-w-gold">? / q</td><td data-en="Help / quit" data-id="Bantuan / keluar">Help / quit</td></tr>
+            </tbody>
+        </table>
+        </div>
+        <p class="text-w-dim text-xs mt-4" data-en="Flags: --plain (ASCII), --light, --transparent, --mouse. Env: DCHECK_COLOR=truecolor|ansi, NO_COLOR, DCHECK_NO_SPLASH. Config: ~/.config/dcheck/config.json (temp_warn_c, hdd_design_years, …)." data-id="Flag: --plain (ASCII), --light, --transparent, --mouse. Env: DCHECK_COLOR=truecolor|ansi, NO_COLOR, DCHECK_NO_SPLASH. Config: ~/.config/dcheck/config.json (temp_warn_c, hdd_design_years, …).">Flags: --plain (ASCII), --light, --transparent, --mouse. Env: DCHECK_COLOR=truecolor|ansi, NO_COLOR, DCHECK_NO_SPLASH. Config: ~/.config/dcheck/config.json (temp_warn_c, hdd_design_years, …).</p>
+    </section>
+
+    <!-- Trust Bar -->
+    <div class="border-t border-b border-w-border-g bg-w-bg2 py-4">
+        <div class="max-w-[1200px] mx-auto px-6 flex flex-wrap justify-center gap-6 md:gap-10 text-xs text-w-text2">
+            <span>&#127470;&#127465; Made in Indonesia</span>
+            <span>&#128190; Free &middot; MIT</span>
+            <span>&#128274; Read-only &mdash; Never writes to disks</span>
+            <span>&#128222; +62 895-4032-00032</span>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="py-12 border-t border-w-border-g text-center">
+        <div class="max-w-[1200px] mx-auto px-6 relative z-[1]">
+            <p class="text-w-dim text-sm mb-2">Tel: +62 895-4032-00032 | Email: <a href="mailto:sales@dalang.io" class="text-w-gold no-underline hover:underline">sales@dalang.io</a></p>
+            <p class="text-w-dim text-sm mb-2"><strong>WayangOS</strong> &#8212; The Shadow that Powers the Machine</p>
+            <p class="text-w-text2 text-sm italic mb-2">Ancient Art. Bare Metal.</p>
+            <p class="text-w-dim text-sm">
+                &copy; 2026 Dalang Pte Ltd &#183;
+                <a href="https://github.com/mashanz/wayangos" target="_blank" class="text-w-gold no-underline hover:underline">WayangOS</a> &#183;
+                <a href="../apps.html" class="text-w-gold no-underline hover:underline">Apps</a> &#183;
+                GPLv2 (kernel) &#183; MIT (userspace)
+            </p>
+        </div>
+    </footer>
+
+    <!-- Lightbox -->
+    <div id="lightbox" class="lightbox">
+        <span class="lb-close">&times;</span>
+        <span class="lb-prev">&#10094;</span>
+        <span class="lb-next">&#10095;</span>
+        <img id="lb-img" class="lb-img" src="" alt="Screenshot preview" style="image-rendering:auto">
+        <div class="lb-counter" id="lb-counter"></div>
+    </div>
+
+    <!-- WhatsApp Floating Button -->
+    <a href="https://wa.me/62895403200032?text=Halo%2C%20saya%20tertarik%20dengan%20dcheck%20(WayangOS)" target="_blank" rel="noopener" class="whatsapp-float" aria-label="WhatsApp">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+    </a>
+
+    <script src="/assets/lightbox.js?v=b01b14e"></script>
+    <script src="/assets/i18n.js?v=b01b14e"></script>
+    <script src="/assets/main.js?v=b01b14e"></script>
+    <script>
+    // Copy buttons: copy the target (data-copy selector) or the enclosing
+    // code block, without prompts / comments.
+    document.querySelectorAll('.dc-copy').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var sel = btn.getAttribute('data-copy');
+            var el = sel ? document.querySelector(sel) : btn.parentElement;
+            var clone = el.cloneNode(true);
+            clone.querySelectorAll('.dc-copy, .p, .c').forEach(function (n) { n.remove(); });
+            var text = clone.textContent.replace(/[ \t]+$/gm, '').trim();
+            var done = function () { btn.textContent = 'copied'; setTimeout(function () { btn.textContent = 'copy'; }, 1500); };
+            if (navigator.clipboard) { navigator.clipboard.writeText(text).then(done, function () {}); }
+        });
+    });
+    // Show the current release (LATEST) in the version label and download links.
+    fetch('/dcheck/LATEST', { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : null; }).then(function (v) {
+        v = (v || '').trim();
+        if (!/^\d+\.\d+\.\d+$/.test(v)) { return; }
+        document.querySelectorAll('.dc-latest').forEach(function (n) { n.textContent = 'v' + v; });
+        document.querySelectorAll('.dc-dl').forEach(function (a) {
+            var arch = a.getAttribute('data-arch');
+            var file = arch ? 'dcheck-' + v + '-' + arch + '.tar.gz' : 'SHA256SUMS';
+            a.href = '/dcheck/v' + v + '/' + file;
+            a.textContent = file;
+        });
+    }).catch(function () {});
+    </script>
+</body>
+</html>

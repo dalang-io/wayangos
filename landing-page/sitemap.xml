@@ -11,6 +11,7 @@
   <url><loc>https://wayang.dalang.io/apps/zeroclient.html</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>https://wayang.dalang.io/apps/explorer.html</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>https://wayang.dalang.io/apps/top.html</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://wayang.dalang.io/apps/dcheck.html</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://wayang.dalang.io/apps/viewer.html</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>https://wayang.dalang.io/apps/mediaplayer.html</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
 </urlset>

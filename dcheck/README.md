@@ -16,6 +16,9 @@ external tools.
 
 ## Install
 
+Landing page with screenshots and a technician guide:
+<https://wayang.dalang.io/apps/dcheck.html>
+
 Linux x86_64 / aarch64 (static binary, checksum-verified):
 
 ```bash
@@ -43,6 +46,7 @@ dcheck tui              # force the terminal UI
 dcheck demo             # run with built-in sample devices
 dcheck ram | cpu        # memory / CPU report (or --json)
 dcheck update           # self-update from wayang.dalang.io (--check, --force)
+dcheck snapshot DIR     # every TUI screen as SVG (--demo, --mask-serials, --host)
 dcheck --version
 ```
 

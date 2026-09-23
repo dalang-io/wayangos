@@ -9,6 +9,7 @@
 //! All hardware reads run on background threads; the UI only redraws on input,
 //! while something is loading, or during the (≤0.5 s, skippable) splash.
 
+pub mod snapshot;
 mod theme;
 mod views;
 mod widgets;
