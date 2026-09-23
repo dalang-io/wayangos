@@ -16,6 +16,9 @@ external tools.
 
 ## Install
 
+> Maintainers: start with [`HANDOVER.md`](HANDOVER.md) (status, release
+> process, pitfalls, open work) and [`TODO.md`](TODO.md).
+
 Landing page with screenshots and a technician guide:
 <https://wayang.dalang.io/apps/dcheck.html>
 
