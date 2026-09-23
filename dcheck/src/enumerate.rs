@@ -64,7 +64,7 @@ pub fn find_device(devices: &[Device], needle: &str) -> Option<Device> {
 }
 
 fn is_ignored(name: &str) -> bool {
-    const PREFIXES: [&str; 6] = ["loop", "ram", "zram", "dm-", "md", "sr"];
+    const PREFIXES: [&str; 8] = ["loop", "ram", "zram", "dm-", "md", "sr", "nbd", "zd"];
     PREFIXES.iter().any(|p| name.starts_with(p))
 }
 
@@ -83,6 +83,11 @@ fn build_device(root: &Path, name: &str, mounts: &Mounts) -> Option<Device> {
 
     let device_link = base.join("device");
     let resolved = fs::canonicalize(&device_link).unwrap_or(device_link);
+
+    // Skip pure virtual block devices (nbd, zram/zswap, dm, ...).
+    if resolved.to_string_lossy().contains("/virtual/") {
+        return None;
+    }
 
     let bus = classify_bus(name, &resolved);
     let kind = classify_kind(name, rotational);
@@ -129,7 +134,10 @@ fn classify_bus(name: &str, resolved: &Path) -> Bus {
         Bus::Mmc
     } else if path.contains("/virtio") {
         Bus::Virtio
-    } else if path.contains("/scsi") {
+    } else if path.contains("/sas") || path.contains("/scsi") {
+        Bus::Scsi
+    } else if path.contains("/host") || path.contains("/target") {
+        // SAS/SCSI HBAs (e.g. mpt3sas) expose hostN/targetN paths without "sas".
         Bus::Scsi
     } else {
         Bus::Unknown
@@ -421,6 +429,31 @@ mod tests {
     fn octal_escapes_are_decoded() {
         assert_eq!(decode_octal("/mnt/My\\040Disk"), "/mnt/My Disk");
         assert_eq!(decode_octal("/plain"), "/plain");
+    }
+
+    #[test]
+    fn classifies_buses() {
+        assert_eq!(
+            classify_bus(
+                "sda",
+                Path::new("/sys/devices/pci0000:00/0000:02:00.0/host0/target0:0:0/0:0:0:0")
+            ),
+            Bus::Scsi
+        );
+        assert_eq!(
+            classify_bus(
+                "sda",
+                Path::new("/sys/devices/pci0000:00/ata1/host0/target0:0:0/0:0:0:0")
+            ),
+            Bus::Sata
+        );
+        assert_eq!(
+            classify_bus(
+                "nvme0n1",
+                Path::new("/sys/devices/pci0000:00/nvme/nvme0/nvme0n1")
+            ),
+            Bus::Nvme
+        );
     }
 
     #[test]

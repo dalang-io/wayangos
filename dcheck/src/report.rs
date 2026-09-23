@@ -172,15 +172,19 @@ pub fn print_report(d: &Device) {
             println!("  PCIe link    : (link speed available in M4)");
         }
         Some(_) => println!("  SATA link    : (link speed available in M4)"),
-        None => println!("  Link speed   : (install smartmontools or use native SMART in M3)"),
+        None => println!("  Link speed   : unavailable"),
     }
 
     println!("\n[ Health ]");
     match smart {
         Some(s) => print_health(d, &s),
         None => {
-            println!("  SMART        : unavailable (smartctl not found; native SMART lands in M3)");
-            println!("  Note         : run as root for raw-device SMART access");
+            println!("  SMART        : unavailable (run as root, or install smartmontools)");
+            if d.bus == crate::model::Bus::Scsi {
+                println!("  Note         : native SCSI/SAS health is not implemented yet");
+            } else {
+                println!("  Note         : run as root for raw-device SMART access");
+            }
         }
     }
 
