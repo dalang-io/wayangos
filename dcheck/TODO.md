@@ -304,3 +304,32 @@ Tugas:
       Seharusnya daftar ikut membaca health (atau diberi keterangan).
 - [ ] `dcheck prometheus` belum mengekspor metrik baru (design life, overdue,
       grown defects, uncorrected, phy errors, suhu lifetime).
+
+## H. CPU "MONITOR" tanpa alasan (10.0.0.177)
+
+Laporan: di Dell (10.0.0.177) status CPU "MONITOR" tapi tidak dijelaskan
+kenapa.
+
+Temuan:
+- `CpuInfo::verdict` membandingkan suhu CPU dengan `temp_warn_c` = 60°C —
+  itu batas suhu **disk**. CPU server 64°C normal. Sensor `coretemp` sendiri
+  melaporkan batasnya: di E5-2682 v4 (10.0.0.177) high 77°C, crit 87°C; di
+  E5-2673 v4 (10.0.0.251) high 93°C, crit 103°C.
+- Hanya sensor pertama yang dibaca (socket 0 = 64°C). Socket 1 = **73°C**,
+  4°C di bawah batas high dan 9°C lebih panas dari socket 0 — ini yang
+  sebenarnya layak diperhatikan (pendingin/kipas sisi socket 1), tapi tidak
+  terlihat.
+- Alasan verdict tidak ditampilkan di report, TUI, maupun JSON.
+
+Tugas:
+- [x] Baca semua sensor package (per socket); pakai yang terpanas
+- [x] Batas dari sensor: MONITOR ≥ `temp*_max` (high), REPLACE-level
+      catatan ≥ `temp*_crit`; tanpa batas dari sensor → 85°C; config
+      `cpu_temp_warn_c` untuk override (terpisah dari `temp_warn_c` disk)
+- [x] Catatan bila ≤ 5°C dari batas high, dan bila selisih antar-socket
+      ≥ 10°C
+- [x] Alasan ditampilkan: report ("Issues"/"Notes"), TUI (ALERTS di panel
+      PROCESSOR), JSON
+- [x] Verifikasi: 10.0.0.177 → OK + catatan "Package id 1 at 73°C, only 4°C
+      below its 77°C limit"; 10.0.0.251 → OK + catatan "Package id 0 runs 16°C
+      hotter than Package id 1"

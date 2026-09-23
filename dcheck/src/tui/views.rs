@@ -368,7 +368,7 @@ fn cpu_card(f: &mut Frame, app: &App, area: Rect) {
     let (p, ui) = (&app.pal, app.ui);
     let inner = w::panel(f, area, "PROCESSOR", None, p, ui);
     let mut lines = match &app.cpu {
-        Some(c) => cpu_vitals(c, app.temp_warn, p, ui, inner.width, 2),
+        Some(c) => cpu_vitals(c, p, ui, inner.width, 2),
         None => vec![scanning_line(app, "READING PROCESSOR")],
     };
     lines.push(Line::from(""));
@@ -501,14 +501,20 @@ fn ram_vitals(r: &RamInfo, p: &Palette, ui: Ui, width: u16) -> Vec<Line<'static>
 
 fn cpu_vitals(
     c: &CpuInfo,
-    warn: i64,
     p: &Palette,
     ui: Ui,
     width: u16,
     grid_rows: usize,
 ) -> Vec<Line<'static>> {
     let cells = w::gauge_cells_for(width, LW, VW);
-    let (label, sev) = c.verdict(warn);
+    let health = c.health();
+    let (label, sev) = (health.label, health.severity);
+    // Gauge scale: the hottest sensor's own limit (not the disk threshold).
+    let hottest = c.sensors.iter().max_by_key(|s| s.temp_c);
+    let warn = crate::config::load()
+        .cpu_temp_warn_c
+        .or_else(|| hottest.and_then(|s| s.high_c.or(s.crit_c.map(|c| c - 10))))
+        .unwrap_or(crate::cpu::DEFAULT_CPU_WARN_C);
     let mut lines = vec![w::field("STATUS", LW - 1, vec![w::badge(sev, label, p, ui)], p)];
     let model = if c.model.is_empty() { "-" } else { &c.model };
     let room = (width as usize).saturating_sub(LW);
@@ -533,7 +539,12 @@ fn cpu_vitals(
         lines.push(w::gauge("LOAD", LW, pct, cells, p.level(pct, 70.0, 90.0), &format!("{l:.2} (1m)"), p, ui));
     }
     if let Some(t) = c.temp_c {
-        lines.push(temp_gauge(t, warn, cells, p, ui));
+        let mut g = temp_gauge(t, warn, cells, p, ui);
+        if let Some(s) = hottest.filter(|_| c.sensors.len() > 1) {
+            let short = s.label.replace("Package id ", "socket ");
+            g.spans.push(Span::styled(format!(" {short}"), p.fg(p.dim)));
+        }
+        lines.push(g);
     }
     match (c.mhz, c.max_mhz) {
         (Some(cur), Some(max)) if max > 0.0 => lines.push(w::gauge(
@@ -574,6 +585,13 @@ fn cpu_vitals(
             }
             lines.push(w::field(if row == 0 { "THREADS" } else { "" }, LW, spans, p));
         }
+    }
+    let issue_color = if sev >= 3 { p.bad } else { p.warn };
+    for i in &health.issues {
+        lines.push(Line::from(Span::styled(format!("{} {i}", ui.sym(sev.max(2))), p.fg(issue_color))));
+    }
+    for n in &health.notes {
+        lines.push(Line::from(Span::styled(format!("{} {n}", ui.bullet()), p.fg(p.dim))));
     }
     lines
 }
@@ -1062,7 +1080,7 @@ fn cpu_view(f: &mut Frame, app: &mut App, area: Rect) {
     let (p, ui) = (app.pal.clone(), app.ui);
     let loading = app.cpu_rx.is_some();
     let lines = match &app.cpu {
-        Some(c) => cpu_vitals(c, app.temp_warn, &p, ui, area.width.saturating_sub(2), 4),
+        Some(c) => cpu_vitals(c, &p, ui, area.width.saturating_sub(2), 4),
         None => vec![scanning_line(app, "READING PROCESSOR")],
     };
     let (top, bottom) = dashboard_split(area, lines.len());

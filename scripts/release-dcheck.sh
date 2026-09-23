@@ -12,6 +12,10 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DCHECK_DIR="$REPO_DIR/dcheck"
 OUT_DIR="${OUT_DIR:-$REPO_DIR/dist}"
 TARGETS="${TARGETS:-x86_64-unknown-linux-musl aarch64-unknown-linux-musl}"
+# macOS binaries can only be linked on a Mac.
+if [ "$(uname -s)" = "Darwin" ] && [ -z "${NO_MACOS:-}" ]; then
+    TARGETS="$TARGETS aarch64-apple-darwin x86_64-apple-darwin"
+fi
 
 VERSION="$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$DCHECK_DIR/Cargo.toml" | head -1)"
 [ -n "$VERSION" ] || { echo "ERROR: could not read version from Cargo.toml" >&2; exit 1; }

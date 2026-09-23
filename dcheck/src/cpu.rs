@@ -10,20 +10,119 @@ pub struct CpuInfo {
     pub mhz: Option<f64>,
     pub max_mhz: Option<f64>,
     pub cache_kb: Option<u64>,
+    /// Hottest CPU sensor (°C).
     pub temp_c: Option<i64>,
+    /// Per-socket (package) temperature sensors with their own limits.
+    pub sensors: Vec<CpuSensor>,
     pub load1: Option<f64>,
     pub source: String,
 }
 
+/// One CPU temperature sensor, e.g. coretemp "Package id 1".
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct CpuSensor {
+    pub label: String,
+    pub temp_c: i64,
+    /// "High" (max) and critical limits reported by the sensor, if any.
+    pub high_c: Option<i64>,
+    pub crit_c: Option<i64>,
+}
+
+/// Default CPU warning temperature when the sensor reports no limit.
+pub const DEFAULT_CPU_WARN_C: i64 = 85;
+
+/// Verdict for the CPU with the reasons behind it.
+#[derive(Debug, Clone)]
+pub struct CpuHealth {
+    pub label: &'static str,
+    pub severity: u8,
+    pub issues: Vec<String>,
+    pub notes: Vec<String>,
+}
+
 impl CpuInfo {
-    /// (verdict label, severity) — 0 ok, 2 monitor.
-    pub fn verdict(&self, temp_warn_c: i64) -> (&'static str, u8) {
-        match self.temp_c {
-            Some(t) if t >= temp_warn_c => ("MONITOR", 2),
-            Some(_) => ("OK", 0),
-            None if self.model.is_empty() => ("UNKNOWN", 1),
-            None => ("OK", 0),
+    /// (verdict label, severity) — 0 ok, 2 monitor, 3 critical.
+    pub fn verdict(&self) -> (&'static str, u8) {
+        let h = self.health();
+        (h.label, h.severity)
+    }
+
+    /// Temperatures are judged against each sensor's own limits (Intel
+    /// coretemp / AMD k10temp report them), not the disk threshold:
+    /// ≥ critical → CRITICAL, ≥ high (or `cpu_temp_warn_c`, or 85°C) →
+    /// MONITOR; close to the limit and uneven sockets are notes.
+    pub fn health(&self) -> CpuHealth {
+        self.health_with(crate::config::load().cpu_temp_warn_c)
+    }
+
+    pub fn health_with(&self, warn_override: Option<i64>) -> CpuHealth {
+        let mut issues = Vec::new();
+        let mut notes = Vec::new();
+        let mut severity = 0u8;
+
+        let sensors: Vec<CpuSensor> = if self.sensors.is_empty() {
+            self.temp_c
+                .map(|t| CpuSensor {
+                    label: "CPU".into(),
+                    temp_c: t,
+                    ..Default::default()
+                })
+                .into_iter()
+                .collect()
+        } else {
+            self.sensors.clone()
+        };
+
+        for s in &sensors {
+            let (limit, source) = match (warn_override, s.high_c, s.crit_c) {
+                (Some(w), _, _) => (w, "config cpu_temp_warn_c"),
+                (None, Some(h), _) if h > 0 => (h, "sensor high limit"),
+                (None, None, Some(c)) if c > 10 => (c - 10, "10°C below the sensor's critical limit"),
+                _ => (DEFAULT_CPU_WARN_C, "default"),
+            };
+            if let Some(crit) = s.crit_c.filter(|c| *c > 0 && s.temp_c >= *c) {
+                issues.push(format!(
+                    "{} at {}°C — at/over its critical limit {crit}°C (the CPU throttles or shuts down); check cooling now",
+                    s.label, s.temp_c
+                ));
+                severity = severity.max(3);
+            } else if s.temp_c >= limit {
+                issues.push(format!(
+                    "{} at {}°C ≥ {limit}°C ({source}) — check cooling: fans, heatsink, airflow, dust",
+                    s.label, s.temp_c
+                ));
+                severity = severity.max(2);
+            } else if limit - s.temp_c <= 5 {
+                notes.push(format!(
+                    "{} at {}°C, only {}°C below its {limit}°C limit",
+                    s.label,
+                    s.temp_c,
+                    limit - s.temp_c
+                ));
+            }
         }
+
+        if sensors.len() >= 2 {
+            let hot = sensors.iter().max_by_key(|s| s.temp_c).unwrap();
+            let cold = sensors.iter().min_by_key(|s| s.temp_c).unwrap();
+            let spread = hot.temp_c - cold.temp_c;
+            if spread >= 10 {
+                notes.push(format!(
+                    "{} runs {spread}°C hotter than {} — check that socket's heatsink and fans",
+                    hot.label, cold.label
+                ));
+            }
+        }
+
+        let label = match severity {
+            0 if sensors.is_empty() && self.model.is_empty() => {
+                return CpuHealth { label: "UNKNOWN", severity: 1, issues, notes };
+            }
+            0 => "OK",
+            2 => "MONITOR",
+            _ => "CRITICAL",
+        };
+        CpuHealth { label, severity, issues, notes }
     }
 }
 
@@ -112,9 +211,9 @@ pub fn parse_load(text: &str) -> Option<f64> {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::{parse_cpuinfo, parse_load, CpuInfo};
+    use super::{parse_cpuinfo, parse_load, CpuInfo, CpuSensor};
 
     pub fn read() -> CpuInfo {
         let mut info = std::fs::read_to_string("/proc/cpuinfo")
@@ -134,50 +233,91 @@ mod linux {
         info.load1 = std::fs::read_to_string("/proc/loadavg")
             .ok()
             .and_then(|t| parse_load(&t));
-        info.temp_c = cpu_temp(Path::new("/sys/class/hwmon"));
+        info.sensors = cpu_sensors(Path::new("/sys/class/hwmon"));
+        info.temp_c = info.sensors.iter().map(|s| s.temp_c).max();
         info
     }
 
-    /// Temperature from the first CPU-related hwmon sensor.
-    fn cpu_temp(hwmon: &Path) -> Option<i64> {
+    /// CPU temperature sensors from hwmon: one per package/socket where the
+    /// driver exposes it (coretemp "Package id N", k10temp "Tctl"/"Tdie"),
+    /// each with its own high / critical limits. Falls back to the first
+    /// temperature of any sensor.
+    pub fn cpu_sensors(hwmon: &Path) -> Vec<CpuSensor> {
         const CPU_SENSORS: [&str; 4] = ["coretemp", "k10temp", "zenpower", "cpu_thermal"];
+        let milli = |p: &Path| -> Option<i64> {
+            std::fs::read_to_string(p).ok()?.trim().parse::<i64>().ok().map(|m| m / 1000)
+        };
+        let mut dirs: Vec<_> = match std::fs::read_dir(hwmon) {
+            Ok(d) => d.flatten().map(|e| e.path()).collect(),
+            Err(_) => return Vec::new(),
+        };
+        dirs.sort();
+        let mut out = Vec::new();
         let mut fallback = None;
-        for entry in std::fs::read_dir(hwmon).ok()?.flatten() {
-            let dir = entry.path();
-            let name = std::fs::read_to_string(dir.join("name"))
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            // temp1_input or the first tempN_input present.
-            let mut temp = std::fs::read_to_string(dir.join("temp1_input"))
-                .ok()
-                .and_then(|s| s.trim().parse::<i64>().ok())
-                .map(|milli| milli / 1000);
-            if temp.is_none() {
-                if let Ok(files) = std::fs::read_dir(&dir) {
-                    for f in files.flatten() {
-                        let n = f.file_name();
-                        let n = n.to_string_lossy();
-                        if n.starts_with("temp") && n.ends_with("_input") {
-                            temp = std::fs::read_to_string(f.path())
-                                .ok()
-                                .and_then(|s| s.trim().parse::<i64>().ok())
-                                .map(|milli| milli / 1000);
-                            if temp.is_some() {
-                                break;
-                            }
-                        }
+        for dir in dirs {
+            let name = std::fs::read_to_string(dir.join("name")).unwrap_or_default().trim().to_string();
+            let mut inputs: Vec<(u32, PathBuf)> = std::fs::read_dir(&dir)
+                .map(|d| {
+                    d.flatten()
+                        .filter_map(|f| {
+                            let n = f.file_name().to_string_lossy().to_string();
+                            let idx = n.strip_prefix("temp")?.strip_suffix("_input")?.parse().ok()?;
+                            Some((idx, f.path()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            inputs.sort();
+            let sensor = |idx: u32, path: &Path, label: String| -> Option<CpuSensor> {
+                Some(CpuSensor {
+                    label,
+                    temp_c: milli(path)?,
+                    high_c: milli(&dir.join(format!("temp{idx}_max"))).filter(|v| *v > 0),
+                    crit_c: milli(&dir.join(format!("temp{idx}_crit"))).filter(|v| *v > 0),
+                })
+            };
+            if !CPU_SENSORS.contains(&name.as_str()) {
+                if fallback.is_none() {
+                    if let Some((idx, path)) = inputs.first() {
+                        fallback = sensor(*idx, path, name.clone());
                     }
                 }
+                continue;
             }
-            if let Some(t) = temp {
-                if CPU_SENSORS.contains(&name.as_str()) {
-                    return Some(t);
+            let labelled: Vec<(u32, &PathBuf, String)> = inputs
+                .iter()
+                .map(|(idx, path)| {
+                    let label = std::fs::read_to_string(dir.join(format!("temp{idx}_label")))
+                        .map(|l| l.trim().to_string())
+                        .unwrap_or_default();
+                    (*idx, path, label)
+                })
+                .collect();
+            // Package-level readings; per-core readings only as a fallback.
+            let wanted: Vec<_> = labelled
+                .iter()
+                .filter(|(_, _, l)| l.starts_with("Package") || l == "Tdie" || l == "Tctl")
+                .collect();
+            // k10temp exposes both Tctl (offset) and Tdie; prefer Tdie.
+            let has_tdie = wanted.iter().any(|(_, _, l)| l == "Tdie");
+            let before = out.len();
+            for (idx, path, label) in wanted {
+                if has_tdie && label == "Tctl" {
+                    continue;
                 }
-                fallback.get_or_insert(t);
+                out.extend(sensor(*idx, path, label.clone()));
+            }
+            if out.len() == before {
+                if let Some((idx, path, label)) = labelled.first() {
+                    let label = if label.is_empty() { name.clone() } else { label.clone() };
+                    out.extend(sensor(*idx, path, label));
+                }
             }
         }
-        fallback
+        if out.is_empty() {
+            out.extend(fallback);
+        }
+        out
     }
 }
 
@@ -227,6 +367,7 @@ mod macos {
             max_mhz,
             cache_kb: None,
             temp_c: None, // not exposed on macOS
+            sensors: Vec::new(),
             load1,
             source: "sysctl".to_string(),
         }
@@ -261,6 +402,7 @@ mod freebsd {
             max_mhz: None,
             cache_kb: None,
             temp_c,
+            sensors: Vec::new(),
             load1,
             source: "sysctl".to_string(),
         }
@@ -288,14 +430,66 @@ mod tests {
         assert_eq!(parse_load("{ 1.23 4.56 7.89 }"), Some(1.23));
     }
 
+    fn pkg(label: &str, t: i64, high: Option<i64>, crit: Option<i64>) -> CpuSensor {
+        CpuSensor { label: label.into(), temp_c: t, high_c: high, crit_c: crit }
+    }
+
     #[test]
-    fn temp_drives_verdict() {
-        let mut c = CpuInfo {
-            model: "x".into(),
-            ..CpuInfo::default()
+    fn server_cpu_at_64c_is_ok_not_monitor() {
+        // 10.0.0.177: E5-2682 v4, sockets at 64 / 73°C, high 77, crit 87.
+        let c = CpuInfo {
+            model: "Xeon".into(),
+            sensors: vec![
+                pkg("Package id 0", 64, Some(77), Some(87)),
+                pkg("Package id 1", 73, Some(77), Some(87)),
+            ],
+            ..Default::default()
         };
-        assert_eq!(c.verdict(60).0, "OK");
-        c.temp_c = Some(75);
-        assert_eq!(c.verdict(60).0, "MONITOR");
+        let h = c.health_with(None);
+        assert_eq!((h.label, h.severity), ("OK", 0));
+        assert!(h.issues.is_empty());
+        assert!(h.notes.iter().any(|n| n.contains("Package id 1 at 73°C, only 4°C below")), "{:?}", h.notes);
+        // 9°C apart: below the 10°C spread note.
+        assert!(!h.notes.iter().any(|n| n.contains("hotter")), "{:?}", h.notes);
+    }
+
+    #[test]
+    fn cpu_limits_come_from_the_sensor() {
+        let hot = |t| CpuInfo {
+            model: "x".into(),
+            sensors: vec![pkg("Package id 0", t, Some(77), Some(87)), pkg("Package id 1", 50, Some(77), Some(87))],
+            ..Default::default()
+        };
+        let h = hot(80).health_with(None);
+        assert_eq!(h.label, "MONITOR");
+        assert!(h.issues[0].contains("≥ 77°C (sensor high limit)"), "{:?}", h.issues);
+        assert!(h.notes.iter().any(|n| n.contains("30°C hotter")));
+        assert_eq!(hot(90).health_with(None).label, "CRITICAL");
+        // Override from config.
+        assert_eq!(hot(70).health_with(Some(65)).label, "MONITOR");
+        // No limits reported: default 85°C.
+        let bare = CpuInfo { model: "x".into(), temp_c: Some(80), ..Default::default() };
+        assert_eq!(bare.health_with(None).label, "OK");
+        let bare = CpuInfo { model: "x".into(), temp_c: Some(86), ..Default::default() };
+        assert_eq!(bare.health_with(None).label, "MONITOR");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reads_package_sensors_with_limits() {
+        let root = std::env::temp_dir().join(format!("dcheck-hwmon-{}", std::process::id()));
+        let d = root.join("hwmon1");
+        std::fs::create_dir_all(&d).unwrap();
+        for (f, v) in [
+            ("name", "coretemp"),
+            ("temp1_label", "Package id 0"), ("temp1_input", "64000"), ("temp1_max", "77000"), ("temp1_crit", "87000"),
+            ("temp2_label", "Core 0"), ("temp2_input", "60000"),
+            ("temp3_label", "Package id 1"), ("temp3_input", "73000"), ("temp3_max", "77000"), ("temp3_crit", "87000"),
+        ] {
+            std::fs::write(d.join(f), v).unwrap();
+        }
+        let s = linux::cpu_sensors(&root);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(s, vec![pkg("Package id 0", 64, Some(77), Some(87)), pkg("Package id 1", 73, Some(77), Some(87))]);
     }
 }

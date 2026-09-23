@@ -9,8 +9,11 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Temperature (°C) at/above which health flags a warning.
+    /// Disk temperature (°C) at/above which health flags a warning.
     pub temp_warn_c: i64,
+    /// CPU warning temperature override (°C). Default: each sensor's own
+    /// high limit (coretemp/k10temp), else 85°C.
+    pub cpu_temp_warn_c: Option<i64>,
     /// Default `watch` interval in seconds.
     pub watch_interval: u64,
     /// UI theme: "dark" (default) or "light".
@@ -31,6 +34,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             temp_warn_c: 60,
+            cpu_temp_warn_c: None,
             watch_interval: 60,
             theme: None,
             mouse: false,
@@ -95,6 +99,9 @@ pub fn parse(text: &str) -> Config {
     if let Some(crate::json::Json::Obj(map)) = crate::json::Json::parse(text) {
         if let Some(v) = map.get("temp_warn_c").and_then(|v| v.as_i64()) {
             cfg.temp_warn_c = v;
+        }
+        if let Some(v) = map.get("cpu_temp_warn_c").and_then(|v| v.as_i64()) {
+            cfg.cpu_temp_warn_c = Some(v);
         }
         if let Some(v) = map.get("watch_interval").and_then(|v| v.as_u64()) {
             if v > 0 {

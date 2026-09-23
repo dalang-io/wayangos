@@ -303,7 +303,7 @@ impl App {
     fn cpu_sev(&self) -> (&'static str, u8) {
         self.cpu
             .as_ref()
-            .map(|c| c.verdict(self.temp_warn))
+            .map(|c| c.verdict())
             .unwrap_or(("UNKNOWN", 1))
     }
 

@@ -22,8 +22,9 @@ command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found in PATH" >&2;
 
 echo "=== Building dcheck ($TARGET) ==="
 
-# Ensure the rust std for the target is installed.
-if ! rustup target list --installed 2>/dev/null | grep -qx "$TARGET"; then
+# Ensure the rust std for the target is installed (for the toolchain pinned
+# in dcheck/rust-toolchain.toml, hence the cd).
+if ! (cd "$DCHECK_DIR" && rustup target list --installed 2>/dev/null) | grep -qx "$TARGET"; then
     echo "ERROR: rust target '$TARGET' not installed. Run:" >&2
     echo "  rustup target add $TARGET" >&2
     exit 1

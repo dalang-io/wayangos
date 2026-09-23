@@ -34,7 +34,9 @@ if [ -z "${SKIP_DCHECK:-}" ]; then
         OUT_DIR="$RELEASE_DIR" "$REPO_DIR/scripts/release-dcheck.sh"
     fi
     # Never publish a LATEST that some platform cannot download.
-    for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+    required="x86_64-unknown-linux-musl aarch64-unknown-linux-musl"
+    [ "$(uname -s)" = "Darwin" ] && required="$required aarch64-apple-darwin x86_64-apple-darwin"
+    for target in $required; do
         pkg="$RELEASE_DIR/dcheck-$VERSION-$target.tar.gz"
         [ -f "$pkg" ] || { echo "ERROR: missing $pkg — not publishing" >&2; exit 1; }
     done

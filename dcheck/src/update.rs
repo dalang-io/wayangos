@@ -25,6 +25,10 @@ fn release_target() -> Option<&'static str> {
         Some("x86_64-unknown-linux-musl")
     } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
         Some("aarch64-unknown-linux-musl")
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some("aarch64-apple-darwin")
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Some("x86_64-apple-darwin")
     } else {
         None
     }
@@ -178,7 +182,7 @@ fn run(base: &str, check_only: bool, force: bool) -> Result<i32, String> {
 
     let Some(target) = release_target() else {
         return Err(
-            "no prebuilt release for this platform (Linux x86_64/aarch64 only); build from source"
+            "no prebuilt release for this platform (Linux / macOS, x86_64 / aarch64); build from source"
                 .into(),
         );
     };

@@ -150,7 +150,7 @@
                 <code id="install-cmd">curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</code>
                 <button class="dc-copy" style="position:static" data-copy="#install-cmd">copy</button>
             </div>
-            <p class="text-w-dim text-xs mt-3"><span data-en="Linux x86_64 / aarch64 &middot; latest release" data-id="Linux x86_64 / aarch64 &middot; rilis terbaru" data-i18n-html>Linux x86_64 / aarch64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.2.4</span></p>
+            <p class="text-w-dim text-xs mt-3"><span data-en="Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release" data-id="Linux &amp; macOS &middot; x86_64 / arm64 &middot; rilis terbaru" data-i18n-html>Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.2.5</span></p>
         </div>
         <div class="flex flex-wrap justify-center gap-4 relative z-[1]">
             <a href="#install" class="bg-w-gold text-w-bg px-6 py-3 rounded-lg font-bold no-underline hover:bg-w-gold-b transition-all"><span data-en="Install guide" data-id="Panduan instalasi">Install guide</span></a>
@@ -208,7 +208,7 @@
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#129504;</div>
                 <h3 class="text-lg font-bold text-w-text mb-2" data-en="RAM &amp; CPU too" data-id="RAM &amp; CPU juga" data-i18n-html>RAM &amp; CPU too</h3>
-                <p class="text-w-dim text-sm" data-en="Memory usage, ECC errors (EDAC), DIMM slot map with vendor / type / speed from SMBIOS, DDR5 temperature. CPU model, topology, clock, cache, temperature and load." data-id="Pemakaian memori, error ECC (EDAC), peta slot DIMM dengan vendor / tipe / kecepatan dari SMBIOS, suhu DDR5. Model CPU, topologi, clock, cache, suhu dan load.">Memory usage, ECC errors (EDAC), DIMM slot map with vendor / type / speed from SMBIOS, DDR5 temperature. CPU model, topology, clock, cache, temperature and load.</p>
+                <p class="text-w-dim text-sm" data-en="Memory usage, ECC errors (EDAC), DIMM slot map with vendor / type / speed from SMBIOS, DDR5 temperature. CPU model, topology, clock, cache, load, and per-socket temperatures judged against each CPU's own limits." data-id="Pemakaian memori, error ECC (EDAC), peta slot DIMM dengan vendor / tipe / kecepatan dari SMBIOS, suhu DDR5. Model CPU, topologi, clock, cache, load, dan suhu per socket dibandingkan dengan batas CPU itu sendiri.">Memory usage, ECC errors (EDAC), DIMM slot map with vendor / type / speed from SMBIOS, DDR5 temperature. CPU model, topology, clock, cache, load, and per-socket temperatures judged against each CPU's own limits.</p>
             </div>
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#128223;</div>
@@ -223,7 +223,7 @@
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#128260;</div>
                 <h3 class="text-lg font-bold text-w-text mb-2" data-en="One binary, self-updating" data-id="Satu binary, bisa update sendiri">One binary, self-updating</h3>
-                <p class="text-w-dim text-sm" data-en="~1 MB static musl binary for x86_64 and aarch64. dcheck update downloads the latest release, verifies its SHA-256 checksum and replaces itself atomically." data-id="Binary musl statis ~1 MB untuk x86_64 dan aarch64. dcheck update mengunduh rilis terbaru, memverifikasi checksum SHA-256 dan mengganti dirinya secara atomik.">~1 MB static musl binary for x86_64 and aarch64. dcheck update downloads the latest release, verifies its SHA-256 checksum and replaces itself atomically.</p>
+                <p class="text-w-dim text-sm" data-en="~1 MB binary for Linux (static musl) and macOS, x86_64 and arm64. dcheck update downloads the latest release, verifies its SHA-256 checksum and replaces itself atomically." data-id="Binary ~1 MB untuk Linux (musl statis) dan macOS, x86_64 dan arm64. dcheck update mengunduh rilis terbaru, memverifikasi checksum SHA-256 dan mengganti dirinya secara atomik.">~1 MB binary for Linux (static musl) and macOS, x86_64 and arm64. dcheck update downloads the latest release, verifies its SHA-256 checksum and replaces itself atomically.</p>
             </div>
         </div>
     </section>
@@ -282,12 +282,12 @@
     <section class="max-w-[1000px] mx-auto px-6 py-16" id="install">
         <div class="text-center mb-10">
             <h2 class="text-2xl font-bold mb-3"><span data-en="Install" data-id="Instalasi">Install</span></h2>
-            <p class="text-w-dim" data-en="Any Linux distribution on x86_64 or aarch64 &mdash; the binary is static, nothing else is required." data-id="Distribusi Linux apa pun di x86_64 atau aarch64 &mdash; binary-nya statis, tidak butuh apa-apa lagi." data-i18n-html>Any Linux distribution on x86_64 or aarch64 &mdash; the binary is static, nothing else is required.</p>
+            <p class="text-w-dim" data-en="Any Linux distribution on x86_64 or aarch64 (static binary, nothing else required), and macOS on Apple Silicon or Intel." data-id="Distribusi Linux apa pun di x86_64 atau aarch64 (binary statis, tidak butuh apa-apa lagi), dan macOS di Apple Silicon atau Intel.">Any Linux distribution on x86_64 or aarch64 (static binary, nothing else required), and macOS on Apple Silicon or Intel.</p>
         </div>
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="1. One-line install" data-id="1. Instal satu baris">1. One-line install</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</div>
-        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.4 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.4 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.4 (pin a version).</p>
+        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.5 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.5 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.5 (pin a version).</p>
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="2. Run it" data-id="2. Jalankan">2. Run it</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>sudo dcheck                     <span class="c"># terminal UI (SMART needs root)</span>
@@ -305,9 +305,11 @@
         <table class="dc-table mb-2">
             <thead><tr><th data-en="Platform" data-id="Platform">Platform</th><th data-en="File" data-id="File">File</th></tr></thead>
             <tbody>
-                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.2.4/dcheck-0.2.4-x86_64-unknown-linux-musl.tar.gz">dcheck-0.2.4-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
-                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.2.4/dcheck-0.2.4-aarch64-unknown-linux-musl.tar.gz">dcheck-0.2.4-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
-                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.2.4/SHA256SUMS">SHA256SUMS</a></td></tr>
+                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.2.5/dcheck-0.2.5-x86_64-unknown-linux-musl.tar.gz">dcheck-0.2.5-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.2.5/dcheck-0.2.5-aarch64-unknown-linux-musl.tar.gz">dcheck-0.2.5-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>macOS Apple Silicon (M1&ndash;M4)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-apple-darwin" href="/dcheck/v0.2.5/dcheck-0.2.5-aarch64-apple-darwin.tar.gz">dcheck-0.2.5-aarch64-apple-darwin.tar.gz</a></td></tr>
+                <tr><td>macOS Intel</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-apple-darwin" href="/dcheck/v0.2.5/dcheck-0.2.5-x86_64-apple-darwin.tar.gz">dcheck-0.2.5-x86_64-apple-darwin.tar.gz</a></td></tr>
+                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.2.5/SHA256SUMS">SHA256SUMS</a></td></tr>
             </tbody>
         </table>
         </div>

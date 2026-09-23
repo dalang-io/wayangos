@@ -147,9 +147,12 @@ mounted and unmounted partitions, and ignored virtual devices.
 ## Configuration
 
 - `~/.config/dcheck/config.json` (or `$DCHECK_CONFIG`):
-  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false, "transparent": false, "splash": true, "hdd_design_years": 5 }`
+  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false, "transparent": false, "splash": true, "hdd_design_years": 5, "cpu_temp_warn_c": null }`
   (`hdd_design_years` is the **assumed** HDD design life at 24/7 used for HDD
-  life estimates — drives do not report one; default 5 years = 43,800 h)
+  life estimates — drives do not report one; default 5 years = 43,800 h;
+  `temp_warn_c` is the **disk** temperature warning; CPUs are judged against
+  each sensor's own high/critical limit (coretemp/k10temp), else 85°C, unless
+  `cpu_temp_warn_c` is set)
 - `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`):
   `{ "model substring": TBW_in_TB }`
 - Env: `DCHECK_SYS_ROOT` (alternate fs root), `DCHECK_SMART_JSON` (parse a

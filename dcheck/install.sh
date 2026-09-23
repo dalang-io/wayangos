@@ -1,5 +1,5 @@
 #!/bin/sh
-# dcheck installer.
+# dcheck installer (Linux and macOS, x86_64 / aarch64).
 #
 #   curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh
 #
@@ -36,10 +36,15 @@ sha256() {
     fi
 }
 
-[ "$(uname -s)" = "Linux" ] || die "prebuilt binaries are Linux-only; on $(uname -s) build from source (cargo build --release)"
+OS="$(uname -s)"
+case "$OS" in
+    Linux) OS_SUFFIX=unknown-linux-musl ;;
+    Darwin) OS_SUFFIX=apple-darwin ;;
+    *) die "no prebuilt binary for $OS (Linux and macOS only); build from source (cargo build --release)" ;;
+esac
 case "$(uname -m)" in
-    x86_64 | amd64) TARGET=x86_64-unknown-linux-musl ;;
-    aarch64 | arm64) TARGET=aarch64-unknown-linux-musl ;;
+    x86_64 | amd64) TARGET="x86_64-$OS_SUFFIX" ;;
+    aarch64 | arm64) TARGET="aarch64-$OS_SUFFIX" ;;
     *) die "unsupported architecture $(uname -m) (x86_64 and aarch64 only)" ;;
 esac
 
@@ -90,6 +95,9 @@ case ":$PATH:" in
     *":$DIR:"*) ;;
     *) say "note: $DIR is not on your PATH" ;;
 esac
+if [ "$OS" = "Darwin" ] && ! command -v smartctl >/dev/null 2>&1; then
+    say "macOS: disks show SMART status via diskutil; for full attributes: brew install smartmontools"
+fi
 cat <<EOF
 
   sudo dcheck            # terminal UI (SMART needs root)

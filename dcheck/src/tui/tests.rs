@@ -45,6 +45,12 @@ fn cpu() -> CpuInfo {
         max_mhz: Some(4500.0),
         cache_kb: Some(32_768),
         temp_c: Some(55),
+        sensors: vec![crate::cpu::CpuSensor {
+            label: "Package id 0".into(),
+            temp_c: 55,
+            high_c: Some(77),
+            crit_c: Some(87),
+        }],
         load1: Some(3.4),
         source: "test".into(),
     }

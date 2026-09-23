@@ -609,7 +609,19 @@ pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
     if let Some(kb) = c.cache_kb {
         out.push(format!("  Cache        : {kb} KB"));
     }
-    if let Some(t) = c.temp_c {
+    if c.sensors.len() > 1 || c.sensors.iter().any(|s| s.high_c.is_some() || s.crit_c.is_some()) {
+        for s in &c.sensors {
+            let mut lim = Vec::new();
+            if let Some(h) = s.high_c {
+                lim.push(format!("high {h}°C"));
+            }
+            if let Some(cr) = s.crit_c {
+                lim.push(format!("crit {cr}°C"));
+            }
+            let lim = if lim.is_empty() { String::new() } else { format!(" ({})", lim.join(", ")) };
+            out.push(format!("  {:<13}: {}°C{lim}", truncate(&s.label, 13), s.temp_c));
+        }
+    } else if let Some(t) = c.temp_c {
         out.push(format!("  Temperature  : {t}°C"));
     }
     if let Some(l) = c.load1 {
@@ -623,8 +635,20 @@ pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
     out.push(format!("  Source       : {}", c.source));
     out.push(String::new());
     out.push(section("HEALTH"));
-    let (label, _) = c.verdict(crate::config::load().temp_warn_c);
-    out.push(format!("  Verdict      : {label}"));
+    let h = c.health();
+    out.push(format!("  Verdict      : {}", h.label));
+    if !h.issues.is_empty() {
+        out.push("  Issues       :".into());
+        for i in &h.issues {
+            out.push(format!("    - {i}"));
+        }
+    }
+    for n in &h.notes {
+        out.push(format!("  Note         : {n}"));
+    }
+    if h.issues.is_empty() && h.notes.is_empty() && c.temp_c.is_some() {
+        out.push("  Reason       : all temperatures below their limits".into());
+    }
     out
 }
 
@@ -668,7 +692,23 @@ pub fn ram_json(r: &crate::ram::RamInfo) -> crate::json::Json {
 
 /// CPU JSON object.
 pub fn cpu_json(c: &crate::cpu::CpuInfo) -> crate::json::Json {
-    let (verdict, _) = c.verdict(crate::config::load().temp_warn_c);
+    let h = c.health();
+    let strings = |v: &[String]| {
+        crate::json::Json::Arr(v.iter().map(|s| crate::json::string(s.clone())).collect())
+    };
+    let sensors = crate::json::Json::Arr(
+        c.sensors
+            .iter()
+            .map(|s| {
+                crate::json::object(vec![
+                    ("label", crate::json::string(s.label.clone())),
+                    ("temp_c", crate::json::num(s.temp_c as f64)),
+                    ("high_c", opt_num(s.high_c.map(|v| v as f64))),
+                    ("crit_c", opt_num(s.crit_c.map(|v| v as f64))),
+                ])
+            })
+            .collect(),
+    );
     crate::json::object(vec![
         ("model", crate::json::string(c.model.clone())),
         ("vendor", opt_json(&c.vendor)),
@@ -679,8 +719,11 @@ pub fn cpu_json(c: &crate::cpu::CpuInfo) -> crate::json::Json {
         ("max_mhz", opt_num(c.max_mhz)),
         ("cache_kb", opt_num(c.cache_kb.map(|v| v as f64))),
         ("temp_c", opt_num(c.temp_c.map(|v| v as f64))),
+        ("sensors", sensors),
         ("load1", opt_num(c.load1)),
-        ("verdict", crate::json::string(verdict)),
+        ("verdict", crate::json::string(h.label)),
+        ("issues", strings(&h.issues)),
+        ("notes", strings(&h.notes)),
         ("source", crate::json::string(c.source.clone())),
     ])
 }
