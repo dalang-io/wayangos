@@ -37,10 +37,22 @@ pub fn read(device: &Device) -> Option<SmartData> {
     #[cfg(target_os = "linux")]
     {
         use crate::model::{Bus, MediaKind};
+        let ata_behind_scsi = device.vendor.as_deref().map(str::trim) == Some("ATA");
+        let force_sat = std::env::var_os("DCHECK_SAT").is_some();
         match (device.kind, device.bus) {
             (MediaKind::Nvme, _) | (_, Bus::Nvme) => linux::nvme_read(device),
+            // DCHECK_SAT=1: use ATA PASS-THROUGH even where HDIO works (testing).
+            _ if force_sat => linux::sat_read(device),
+            // SATA behind a SAS/RAID HBA (e.g. PERC/MegaRAID JBOD): the
+            // controller translates ATA PASS-THROUGH (SAT); SCSI logs are a
+            // poor subset for these drives.
+            (_, Bus::Scsi) if ata_behind_scsi => {
+                linux::sat_read(device).or_else(|| linux::scsi_read(device))
+            }
             (_, Bus::Scsi) => linux::scsi_read(device),
-            _ => linux::ata_read(device),
+            // USB bridges usually speak SAT; HDIO does not reach them.
+            (_, Bus::Usb) => linux::ata_read(device).or_else(|| linux::sat_read(device)),
+            _ => linux::ata_read(device).or_else(|| linux::sat_read(device)),
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -469,6 +481,63 @@ pub fn parse_device_stats(log: &[u8]) -> Vec<(u8, u16, u64)> {
     out
 }
 
+/// ATA PASS-THROUGH(16) CDB (SAT). `protocol` 4 = PIO data-in (512-byte
+/// blocks, length in the count field), 3 = non-data with CK_COND so the
+/// drive's registers come back in the sense data. `lba` is 24-bit.
+pub fn sat_cdb(protocol: u8, command: u8, feature: u8, count: u8, lba: u32) -> [u8; 16] {
+    let flags = match protocol {
+        4 => 0x0E, // T_DIR = from device, BYT_BLOK = blocks, T_LENGTH = count field
+        _ => 0x20, // CK_COND: return ATA registers
+    };
+    [
+        0x85,
+        protocol << 1,
+        flags,
+        0,
+        feature,
+        0,
+        count,
+        0,
+        lba as u8,
+        0,
+        (lba >> 8) as u8,
+        0,
+        (lba >> 16) as u8,
+        0, // device
+        command,
+        0,
+    ]
+}
+
+/// SMART RETURN STATUS from SAT sense data: LBA mid/high 0x4F/0xC2 = OK,
+/// 0xF4/0x2C = threshold exceeded. Handles descriptor (0x72, ATA Status
+/// Return descriptor 0x09) and fixed (0x70) sense formats.
+pub fn parse_sat_smart_status(sense: &[u8]) -> Option<bool> {
+    let (mid, high) = match sense.first()? & 0x7F {
+        0x72 | 0x73 => {
+            let total = 8 + *sense.get(7)? as usize;
+            let mut i = 8;
+            let mut regs = None;
+            while i + 1 < total.min(sense.len()) {
+                let len = sense[i + 1] as usize + 2;
+                if sense[i] == 0x09 && i + 13 < sense.len() {
+                    regs = Some((sense[i + 9], sense[i + 11]));
+                    break;
+                }
+                i += len;
+            }
+            regs?
+        }
+        0x70 | 0x71 => (*sense.get(10)?, *sense.get(11)?),
+        _ => return None,
+    };
+    match (mid, high) {
+        (0x4F, 0xC2) => Some(true),
+        (0xF4, 0x2C) => Some(false),
+        _ => None,
+    }
+}
+
 /// Effective user id is root (SMART ioctls need it).
 pub fn is_root() -> bool {
     #[cfg(unix)]
@@ -515,6 +584,7 @@ mod linux {
     const SMART_EXECUTE_OFFLINE: u8 = 0xD4;
 
     const SG_IO: CULong = 0x2285;
+    const SG_DXFER_NONE: CInt = -1;
     const SG_DXFER_FROM_DEV: CInt = -3;
 
     // _IOWR('N', 0x41, struct nvme_admin_cmd) with sizeof == 72.
@@ -570,18 +640,6 @@ mod linux {
 
     const SMART_READ_LOG: u8 = 0xD5;
 
-    /// SMART READ LOG through HDIO_DRIVE_CMD: libata maps args[1] to LBA low
-    /// (the log address) and args[3] to the sector count for WIN_SMART.
-    fn smart_read_log(fd: CInt, address: u8, sectors: u8) -> Option<Vec<u8>> {
-        let mut buf = vec![0u8; 4 + 512 * sectors as usize];
-        buf[0] = WIN_SMART;
-        buf[1] = address;
-        buf[2] = SMART_READ_LOG;
-        buf[3] = sectors;
-        let rc = unsafe { ioctl(fd, HDIO_DRIVE_CMD, buf.as_mut_ptr()) };
-        (rc == 0 && buf[4..].iter().any(|b| *b != 0)).then(|| buf.split_off(4))
-    }
-
     fn hdio_cmd(fd: CInt, command: u8, feature: u8, count: u8, buf: &mut [u8; 516]) -> CInt {
         buf[0] = command;
         buf[1] = 0;
@@ -592,11 +650,17 @@ mod linux {
 
     /// Issue a SCSI command returning data. Success = GOOD status.
     fn scsi_cmd(fd: CInt, cdb: &[u8], data: &mut [u8]) -> bool {
+        matches!(sg_io(fd, cdb, data), Some((0, _)))
+    }
+
+    /// Raw SG_IO: `(SCSI status, sense bytes)`, or None when the ioctl or
+    /// the transport failed. `data` empty = no data phase.
+    fn sg_io(fd: CInt, cdb: &[u8], data: &mut [u8]) -> Option<(u8, Vec<u8>)> {
         let mut sense = [0u8; 32];
         let mut cdb = cdb.to_vec();
         let mut hdr = SgIoHdr {
             interface_id: 'S' as CInt,
-            dxfer_direction: SG_DXFER_FROM_DEV,
+            dxfer_direction: if data.is_empty() { SG_DXFER_NONE } else { SG_DXFER_FROM_DEV },
             cmd_len: cdb.len() as u8,
             mx_sb_len: sense.len() as u8,
             iovec_count: 0,
@@ -619,7 +683,79 @@ mod linux {
             info: 0,
         };
         let rc = unsafe { ioctl(fd, SG_IO, &mut hdr as *mut SgIoHdr) };
-        rc == 0 && hdr.status == 0 && hdr.driver_status == 0
+        // host_status != 0: the HBA never delivered the command.
+        if rc != 0 || hdr.host_status != 0 {
+            return None;
+        }
+        // DRIVER_SENSE (0x08) only says sense data is present.
+        if hdr.driver_status & !0x08 != 0 {
+            return None;
+        }
+        let n = (hdr.sb_len_wr as usize).min(sense.len());
+        Some((hdr.status, sense[..n].to_vec()))
+    }
+
+    /// SAT PIO data-in; accepts GOOD, or CHECK CONDITION that only reports
+    /// "ATA pass-through information available" (RECOVERED ERROR 00/1D).
+    fn sat_pio_in(fd: CInt, command: u8, feature: u8, count: u8, lba: u32) -> Option<Vec<u8>> {
+        let mut buf = vec![0u8; 512 * count as usize];
+        let cdb = super::sat_cdb(4, command, feature, count, lba);
+        let (status, sense) = sg_io(fd, &cdb, &mut buf)?;
+        let ok = status == 0 || (status == 2 && sense_is_passthrough_info(&sense));
+        (ok && buf.iter().any(|b| *b != 0)).then_some(buf)
+    }
+
+    fn sense_is_passthrough_info(sense: &[u8]) -> bool {
+        let (key, asc, ascq) = match sense.first().map(|b| b & 0x7F) {
+            Some(0x72 | 0x73) if sense.len() >= 4 => (sense[1] & 0x0F, sense[2], sense[3]),
+            Some(0x70 | 0x71) if sense.len() >= 14 => (sense[2] & 0x0F, sense[12], sense[13]),
+            _ => return false,
+        };
+        key == 0x01 && asc == 0x00 && ascq == 0x1D
+    }
+
+    /// SMART over SAT: LBA mid/high carry the 0x4F/0xC2 SMART signature.
+    const SMART_LBA: u32 = 0xC2_4F00;
+
+    /// SMART over ATA PASS-THROUGH (SAT) — SATA drives behind SAS/RAID HBAs
+    /// and USB bridges.
+    pub fn sat_read(device: &Device) -> Option<SmartData> {
+        let file = fs::File::open(&device.path).ok()?;
+        let fd = file.as_raw_fd();
+        let smart_in = |feature: u8, count: u8, lba_low: u8| {
+            sat_pio_in(fd, WIN_SMART, feature, count, SMART_LBA | lba_low as u32)
+        };
+        let status = || {
+            let cdb = super::sat_cdb(3, WIN_SMART, SMART_RETURN_STATUS, 0, SMART_LBA);
+            let (_, sense) = sg_io(fd, &cdb, &mut [])?;
+            super::parse_sat_smart_status(&sense)
+        };
+        let mut smart = ata_smart(smart_in, status)?;
+        smart.source = "native (SAT)".to_string();
+        Some(smart)
+    }
+
+    /// Shared SMART read for any ATA transport: `data_in(feature, sectors,
+    /// lba_low)` runs a SMART data-in subcommand, `status()` SMART RETURN
+    /// STATUS.
+    fn ata_smart(
+        data_in: impl Fn(u8, u8, u8) -> Option<Vec<u8>>,
+        status: impl Fn() -> Option<bool>,
+    ) -> Option<SmartData> {
+        let data = data_in(SMART_READ_DATA, 1, 0)?;
+        let mut smart = parse_ata_smart(&data);
+        if let Some(thr) = data_in(SMART_READ_THRESHOLDS, 1, 0) {
+            super::apply_thresholds(&mut smart.attributes, &thr);
+        }
+        smart.passed = status();
+        // Device Statistics (log 0x04, up to 8 pages): standardized writes,
+        // endurance used, temperature history, resets.
+        if let Some(log) = data_in(SMART_READ_LOG, 8, 0x04).or_else(|| data_in(SMART_READ_LOG, 1, 0x04)) {
+            for (page, off, value) in parse_device_stats(&log) {
+                apply_device_stat(&mut smart, page, off, value);
+            }
+        }
+        Some(smart)
     }
 
     /// ATA fixed-length string field. `/sys`/ioctl return the IDENTIFY words in
@@ -799,47 +935,35 @@ mod linux {
         }
     }
 
+    /// SMART through the kernel's HDIO_DRIVE_CMD (directly attached SATA).
     pub fn ata_read(device: &Device) -> Option<SmartData> {
         let file = fs::File::open(&device.path).ok()?;
         let fd = file.as_raw_fd();
 
-        let mut buf = [0u8; 516];
-        if hdio_cmd(fd, WIN_SMART, SMART_READ_DATA, 1, &mut buf) != 0
-            || !buf[4..].iter().any(|b| *b != 0)
+        // Some drives ship with SMART disabled: enable once if the first read
+        // comes back empty.
+        let mut probe = [0u8; 516];
+        if hdio_cmd(fd, WIN_SMART, SMART_READ_DATA, 1, &mut probe) != 0
+            || !probe[4..].iter().any(|b| *b != 0)
         {
             let mut enable = [0u8; 516];
             let _ = hdio_cmd(fd, WIN_SMART, SMART_ENABLE, 0, &mut enable);
-            let mut retry = [0u8; 516];
-            if hdio_cmd(fd, WIN_SMART, SMART_READ_DATA, 1, &mut retry) != 0
-                || !retry[4..].iter().any(|b| *b != 0)
-            {
-                return None;
-            }
-            buf = retry;
         }
-
-        let mut smart = parse_ata_smart(&buf[4..]);
-        let mut thr = [0u8; 516];
-        if hdio_cmd(fd, WIN_SMART, SMART_READ_THRESHOLDS, 1, &mut thr) == 0
-            && thr[4..].iter().any(|b| *b != 0)
-        {
-            super::apply_thresholds(&mut smart.attributes, &thr[4..]);
-        }
-        let mut status = [0u8; 516];
-        if hdio_cmd(fd, WIN_SMART, SMART_RETURN_STATUS, 0, &mut status) == 0 {
-            let ata_status = status[0];
-            if ata_status != 0 {
-                smart.passed = Some(ata_status & 0x01 == 0);
-            }
-        }
-        // Device Statistics (log 0x04, up to 8 pages): standardized writes,
-        // endurance used, temperature history, resets.
-        if let Some(log) = smart_read_log(fd, 0x04, 8).or_else(|| smart_read_log(fd, 0x04, 1)) {
-            for (page, off, value) in parse_device_stats(&log) {
-                apply_device_stat(&mut smart, page, off, value);
-            }
-        }
-        Some(smart)
+        let data_in = |feature: u8, count: u8, lba_low: u8| -> Option<Vec<u8>> {
+            let mut buf = vec![0u8; 4 + 512 * count as usize];
+            buf[0] = WIN_SMART;
+            buf[1] = lba_low;
+            buf[2] = feature;
+            buf[3] = count;
+            let rc = unsafe { ioctl(fd, HDIO_DRIVE_CMD, buf.as_mut_ptr()) };
+            (rc == 0 && buf[4..].iter().any(|b| *b != 0)).then(|| buf.split_off(4))
+        };
+        let status = || {
+            let mut st = [0u8; 516];
+            (hdio_cmd(fd, WIN_SMART, SMART_RETURN_STATUS, 0, &mut st) == 0 && st[0] != 0)
+                .then(|| st[0] & 0x01 == 0)
+        };
+        ata_smart(data_in, status)
     }
 
     pub fn nvme_read(device: &Device) -> Option<SmartData> {
@@ -932,6 +1056,42 @@ mod linux {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sat_cdb_layout() {
+        // SMART READ DATA: PIO in, blocks, count field, 0xC24F signature.
+        let cdb = sat_cdb(4, 0xB0, 0xD0, 1, 0xC2_4F00);
+        assert_eq!(cdb[0], 0x85);
+        assert_eq!(cdb[1], 4 << 1);
+        assert_eq!(cdb[2], 0x0E);
+        assert_eq!((cdb[4], cdb[6]), (0xD0, 1));
+        assert_eq!((cdb[8], cdb[10], cdb[12]), (0x00, 0x4F, 0xC2));
+        assert_eq!(cdb[14], 0xB0);
+        // SMART READ LOG 0x04: LBA low carries the log address.
+        assert_eq!(sat_cdb(4, 0xB0, 0xD5, 8, 0xC2_4F04)[8], 0x04);
+        // Non-data RETURN STATUS asks for registers (CK_COND).
+        let st = sat_cdb(3, 0xB0, 0xDA, 0, 0xC2_4F00);
+        assert_eq!((st[1], st[2]), (3 << 1, 0x20));
+    }
+
+    #[test]
+    fn parses_sat_smart_status_from_sense() {
+        // Descriptor format: 0x72, RECOVERED ERROR 00/1D, ATA status return
+        // descriptor with LBA mid/high at +9/+11.
+        let mut desc = vec![0x72, 0x01, 0x00, 0x1D, 0, 0, 0, 14];
+        desc.extend([0x09, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0x4F, 0, 0xC2, 0, 0x50]);
+        assert_eq!(parse_sat_smart_status(&desc), Some(true));
+        desc[8 + 9] = 0xF4;
+        desc[8 + 11] = 0x2C;
+        assert_eq!(parse_sat_smart_status(&desc), Some(false));
+        // Fixed format: LBA mid/high in bytes 10/11.
+        let mut fixed = vec![0u8; 18];
+        fixed[0] = 0x70;
+        fixed[10] = 0x4F;
+        fixed[11] = 0xC2;
+        assert_eq!(parse_sat_smart_status(&fixed), Some(true));
+        assert_eq!(parse_sat_smart_status(&[]), None);
+    }
 
     #[test]
     fn parses_ata_device_statistics_log() {

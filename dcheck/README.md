@@ -24,7 +24,17 @@ Linux x86_64 / aarch64 (static binary, checksum-verified):
 ```bash
 curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh
 dcheck update            # later: upgrade in place (--check to only look)
+
+# optional: also install smartmontools as a second SMART source
+curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh -s -- --with-smartmontools
 ```
+
+**Requirements:** none at runtime — the Linux binary is static (musl). The
+installer uses `curl` or `wget`, `sha256sum`, `tar`, `awk` (all present on
+stock Ubuntu/Debian/Fedora/RHEL). SMART needs root. Optional:
+`smartmontools` (second source; SATA behind RAID/USB is read natively via
+SAT), `dmidecode` (RAM modules; SMBIOS is also read from sysfs), `curl` for
+`watch --webhook`.
 
 `DCHECK_INSTALL_DIR` (default `/usr/local/bin`) and `DCHECK_VERSION` override
 the defaults. Releases are published with `scripts/deploy-site.sh`.

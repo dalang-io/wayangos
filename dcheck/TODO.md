@@ -168,7 +168,7 @@ Tugas:
 - [x] Tampilkan di report, JSON, TUI VITALS; verifikasi di 10.0.0.177
 - [x] SATA di belakang RAID/SAS controller (bus terlihat SCSI) dikenali sebagai
       ATA dari data SMART-nya → pesan & label yang benar
-- [ ] Native SATA di belakang MegaRAID: HDIO tidak menembus controller, jadi
+- [x] Native SATA di belakang MegaRAID: HDIO tidak menembus controller, jadi
       tanpa smartctl hanya suhu yang terbaca. Perlu ATA PASS-THROUGH (SAT,
       SG_IO ATA 16) untuk SMART READ DATA / READ LOG — cek apakah megaraid_sas
       JBOD meneruskannya
@@ -333,3 +333,22 @@ Tugas:
 - [x] Verifikasi: 10.0.0.177 → OK + catatan "Package id 1 at 73°C, only 4°C
       below its 77°C limit"; 10.0.0.251 → OK + catatan "Package id 0 runs 16°C
       hotter than Package id 1"
+
+## I. Tanpa dependency: SAT native + opsi installer (0.2.6)
+
+- SAT (ATA PASS-THROUGH 16 via SG_IO) native: SMART READ DATA/THRESHOLDS,
+  RETURN STATUS (CK_COND, sense descriptor/fixed), READ LOG 0x04. Dipakai
+  otomatis untuk drive "ATA" di bus SCSI (PERC/MegaRAID JBOD) dan USB, dan
+  sebagai fallback HDIO. `DCHECK_SAT=1` memaksa jalur ini (uji).
+- Verifikasi: 10.0.0.177 SM863a di belakang PERC 3108 dengan
+  `DCHECK_NATIVE=1` → status, atribut + threshold, device statistics
+  lengkap (sebelumnya hanya suhu); lab-243 (Fedora 44, AHCI) HDIO = SAT =
+  smartctl; 10.0.0.251 SAS tidak berubah.
+- Installer: `--with-smartmontools` (apt/dnf/yum/zypper/apk/pacman/brew,
+  lewat sudo bila perlu, dilewati bila sudah ada), `--dry-run`. Default
+  tetap tidak memasang paket.
+- Contoh nyata untuk bagian G (disk kloningan): lab-243 punya SSD model
+  "SSD 1TB", firmware VE0R6304, **WWN 0 000000 000000000** (tanpa OUI
+  pabrikan) → kandidat sinyal "unbranded".
+- [ ] Tampilkan sumber Rated TBW ("override dari tbw.json" vs tabel) —
+      lab-243 punya override `{"ssd 1tb":600}` yang tidak terlihat di report

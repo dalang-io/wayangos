@@ -150,7 +150,7 @@
                 <code id="install-cmd">curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</code>
                 <button class="dc-copy" style="position:static" data-copy="#install-cmd">copy</button>
             </div>
-            <p class="text-w-dim text-xs mt-3"><span data-en="Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release" data-id="Linux &amp; macOS &middot; x86_64 / arm64 &middot; rilis terbaru" data-i18n-html>Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.2.5</span></p>
+            <p class="text-w-dim text-xs mt-3"><span data-en="Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release" data-id="Linux &amp; macOS &middot; x86_64 / arm64 &middot; rilis terbaru" data-i18n-html>Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.2.6</span></p>
         </div>
         <div class="flex flex-wrap justify-center gap-4 relative z-[1]">
             <a href="#install" class="bg-w-gold text-w-bg px-6 py-3 rounded-lg font-bold no-underline hover:bg-w-gold-b transition-all"><span data-en="Install guide" data-id="Panduan instalasi">Install guide</span></a>
@@ -188,7 +188,7 @@
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#128421;</div>
                 <h3 class="text-lg font-bold text-w-text mb-2" data-en="Built for server RAID controllers" data-id="Dibuat untuk RAID controller server">Built for server RAID controllers</h3>
-                <p class="text-w-dim text-sm" data-en="Tested on Dell PERC H330/H730 (LSI MegaRAID 3008/3108): SAS health status, grown defects, error counters, SAS link rate and phy errors, SATA SSDs behind the controller." data-id="Diuji di Dell PERC H330/H730 (LSI MegaRAID 3008/3108): status health SAS, grown defects, error counter, link rate dan phy error SAS, SSD SATA di belakang controller.">Tested on Dell PERC H330/H730 (LSI MegaRAID 3008/3108): SAS health status, grown defects, error counters, SAS link rate and phy errors, SATA SSDs behind the controller.</p>
+                <p class="text-w-dim text-sm" data-en="Tested on Dell PERC H330/H730 (LSI MegaRAID 3008/3108): SAS health status, grown defects, error counters, SAS link rate and phy errors, and full SMART for SATA SSDs behind the controller (ATA pass-through, no smartctl needed)." data-id="Diuji di Dell PERC H330/H730 (LSI MegaRAID 3008/3108): status health SAS, grown defects, error counter, link rate dan phy error SAS, dan SMART lengkap untuk SSD SATA di belakang controller (ATA pass-through, tanpa smartctl).">Tested on Dell PERC H330/H730 (LSI MegaRAID 3008/3108): SAS health status, grown defects, error counters, SAS link rate and phy errors, and full SMART for SATA SSDs behind the controller (ATA pass-through, no smartctl needed).</p>
             </div>
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#9203;</div>
@@ -287,7 +287,7 @@
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="1. One-line install" data-id="1. Instal satu baris">1. One-line install</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</div>
-        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.5 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.5 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.5 (pin a version).</p>
+        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.6 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.6 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.6 (pin a version).</p>
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="2. Run it" data-id="2. Jalankan">2. Run it</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>sudo dcheck                     <span class="c"># terminal UI (SMART needs root)</span>
@@ -300,16 +300,35 @@
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>dcheck update --check    <span class="c"># is there a newer release?</span>
 <span class="p">$ </span>sudo dcheck update       <span class="c"># download, verify SHA-256, replace in place</span></div>
 
+        <h3 class="text-lg font-bold mb-3 mt-8 text-w-text" data-en="Optional: smartmontools as a second source" data-id="Opsional: smartmontools sebagai sumber kedua">Optional: smartmontools as a second source</h3>
+        <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh -s -- --with-smartmontools</div>
+        <p class="text-w-dim text-sm mb-8" data-en="Uses apt, dnf, yum, zypper, apk, pacman or brew; skipped if already installed. Add --dry-run to see what would happen. Not required: SATA, SAS and NVMe &mdash; including SATA behind PERC/MegaRAID and USB bridges &mdash; are read natively." data-id="Memakai apt, dnf, yum, zypper, apk, pacman atau brew; dilewati bila sudah terpasang. Tambahkan --dry-run untuk melihat apa yang akan dilakukan. Tidak wajib: SATA, SAS dan NVMe &mdash; termasuk SATA di belakang PERC/MegaRAID dan USB bridge &mdash; dibaca secara native." data-i18n-html>Uses apt, dnf, yum, zypper, apk, pacman or brew; skipped if already installed. Add --dry-run to see what would happen. Not required: SATA, SAS and NVMe &mdash; including SATA behind PERC/MegaRAID and USB bridges &mdash; are read natively.</p>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Requirements" data-id="Kebutuhan">Requirements</h3>
+        <div class="overflow-x-auto mb-2">
+        <table class="dc-table">
+            <thead><tr><th data-en="What" data-id="Apa">What</th><th data-en="Needed?" data-id="Wajib?">Needed?</th><th data-en="Why" data-id="Untuk">Why</th></tr></thead>
+            <tbody>
+                <tr><td data-en="Runtime libraries" data-id="Library runtime">Runtime libraries</td><td class="text-w-green" data-en="none" data-id="tidak ada">none</td><td data-en="Static binary (musl) &mdash; any distribution, rescue systems, containers" data-id="Binary statis (musl) &mdash; distro apa pun, sistem rescue, container" data-i18n-html>Static binary (musl) &mdash; any distribution, rescue systems, containers</td></tr>
+                <tr><td class="dc-mono">curl / wget, sha256sum, tar, awk</td><td data-en="installer &amp; update" data-id="installer &amp; update" data-i18n-html>installer &amp; update</td><td data-en="Present on stock Ubuntu, Debian, Fedora, RHEL. Minimal container: apt install -y curl ca-certificates" data-id="Sudah ada di Ubuntu, Debian, Fedora, RHEL standar. Container minimal: apt install -y curl ca-certificates">Present on stock Ubuntu, Debian, Fedora, RHEL. Minimal container: apt install -y curl ca-certificates</td></tr>
+                <tr><td data-en="root (sudo)" data-id="root (sudo)">root (sudo)</td><td data-en="for SMART" data-id="untuk SMART">for SMART</td><td data-en="Raw disk access; without it the disk list still works" data-id="Akses disk mentah; tanpa itu daftar disk tetap tampil">Raw disk access; without it the disk list still works</td></tr>
+                <tr><td class="dc-mono">smartmontools</td><td data-en="optional" data-id="opsional">optional</td><td data-en="Second SMART source, merged with the native read" data-id="Sumber SMART kedua, digabung dengan pembacaan native">Second SMART source, merged with the native read</td></tr>
+                <tr><td class="dc-mono">dmidecode</td><td data-en="optional" data-id="opsional">optional</td><td data-en="RAM module detail; SMBIOS is also read directly from sysfs" data-id="Detail modul RAM; SMBIOS juga dibaca langsung dari sysfs">RAM module detail; SMBIOS is also read directly from sysfs</td></tr>
+                <tr><td class="dc-mono">curl</td><td data-en="optional" data-id="opsional">optional</td><td data-en="Only for dcheck watch --webhook" data-id="Hanya untuk dcheck watch --webhook">Only for dcheck watch --webhook</td></tr>
+            </tbody>
+        </table>
+        </div>
+
         <h3 class="text-lg font-bold mb-3 mt-8 text-w-text" data-en="Manual download" data-id="Unduh manual">Manual download</h3>
         <div class="overflow-x-auto">
         <table class="dc-table mb-2">
             <thead><tr><th data-en="Platform" data-id="Platform">Platform</th><th data-en="File" data-id="File">File</th></tr></thead>
             <tbody>
-                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.2.5/dcheck-0.2.5-x86_64-unknown-linux-musl.tar.gz">dcheck-0.2.5-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
-                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.2.5/dcheck-0.2.5-aarch64-unknown-linux-musl.tar.gz">dcheck-0.2.5-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
-                <tr><td>macOS Apple Silicon (M1&ndash;M4)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-apple-darwin" href="/dcheck/v0.2.5/dcheck-0.2.5-aarch64-apple-darwin.tar.gz">dcheck-0.2.5-aarch64-apple-darwin.tar.gz</a></td></tr>
-                <tr><td>macOS Intel</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-apple-darwin" href="/dcheck/v0.2.5/dcheck-0.2.5-x86_64-apple-darwin.tar.gz">dcheck-0.2.5-x86_64-apple-darwin.tar.gz</a></td></tr>
-                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.2.5/SHA256SUMS">SHA256SUMS</a></td></tr>
+                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.2.6/dcheck-0.2.6-x86_64-unknown-linux-musl.tar.gz">dcheck-0.2.6-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.2.6/dcheck-0.2.6-aarch64-unknown-linux-musl.tar.gz">dcheck-0.2.6-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>macOS Apple Silicon (M1&ndash;M4)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-apple-darwin" href="/dcheck/v0.2.6/dcheck-0.2.6-aarch64-apple-darwin.tar.gz">dcheck-0.2.6-aarch64-apple-darwin.tar.gz</a></td></tr>
+                <tr><td>macOS Intel</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-apple-darwin" href="/dcheck/v0.2.6/dcheck-0.2.6-x86_64-apple-darwin.tar.gz">dcheck-0.2.6-x86_64-apple-darwin.tar.gz</a></td></tr>
+                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.2.6/SHA256SUMS">SHA256SUMS</a></td></tr>
             </tbody>
         </table>
         </div>

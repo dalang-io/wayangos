@@ -2,6 +2,13 @@
 # dcheck installer (Linux and macOS, x86_64 / aarch64).
 #
 #   curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh
+#   curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh -s -- --with-smartmontools
+#
+# Options:
+#   --with-smartmontools  also install smartmontools with the system package
+#                         manager (optional second SMART source; dcheck reads
+#                         SATA/SAS/NVMe natively without it)
+#   --dry-run             print what would be done, change nothing
 #
 # Env:
 #   DCHECK_VERSION      version to install (default: <base>/LATEST)
@@ -12,6 +19,20 @@
 # Release layout: <base>/LATEST, <base>/v<ver>/dcheck-<ver>-<target>.tar.gz,
 # <base>/v<ver>/SHA256SUMS. Upgrade later with `dcheck update`.
 set -eu
+
+WITH_SMARTMONTOOLS="${DCHECK_WITH_SMARTMONTOOLS:-}"
+DRY_RUN=""
+for arg in "$@"; do
+    case "$arg" in
+        --with-smartmontools) WITH_SMARTMONTOOLS=1 ;;
+        --dry-run) DRY_RUN=1 ;;
+        -h | --help)
+            echo "usage: curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh -s -- [--with-smartmontools] [--dry-run]"
+            echo "env:   DCHECK_VERSION, DCHECK_INSTALL_DIR, DCHECK_BASE_URL, DCHECK_WITH_SMARTMONTOOLS=1"
+            exit 0 ;;
+        *) printf 'unknown option: %s\n' "$arg" >&2; exit 2 ;;
+    esac
+done
 
 BASE="${DCHECK_BASE_URL:-https://wayang.dalang.io/dcheck}"
 BASE="${BASE%/}"
@@ -66,6 +87,10 @@ say "downloading dcheck $VERSION ($TARGET)"
 fetch "$BASE/v$VERSION/$PKG" "$TMP/$PKG" || die "download failed: $BASE/v$VERSION/$PKG"
 fetch "$BASE/v$VERSION/SHA256SUMS" "$TMP/SHA256SUMS" || die "download failed: SHA256SUMS"
 
+if [ -n "$DRY_RUN" ]; then
+    say "dry run: would install $PKG ($TARGET) to ${DCHECK_INSTALL_DIR:-/usr/local/bin}"
+fi
+
 EXPECTED="$(awk -v f="$PKG" '{ n=$2; sub(/^\*/, "", n); if (n == f) print $1 }' "$TMP/SHA256SUMS")"
 [ -n "$EXPECTED" ] || die "$PKG is not listed in SHA256SUMS"
 ACTUAL="$(sha256 "$TMP/$PKG")"
@@ -75,6 +100,46 @@ say "checksum ok"
 tar xzf "$TMP/$PKG" -C "$TMP" dcheck
 chmod 0755 "$TMP/dcheck"
 "$TMP/dcheck" --version >/dev/null 2>&1 || die "downloaded binary does not run on this system"
+
+# Optional: smartmontools through the system package manager.
+install_smartmontools() {
+    if command -v smartctl >/dev/null 2>&1; then
+        say "smartmontools already installed ($(command -v smartctl))"
+        return 0
+    fi
+    if command -v apt-get >/dev/null 2>&1; then cmd="apt-get install -y smartmontools"
+    elif command -v dnf >/dev/null 2>&1; then cmd="dnf install -y smartmontools"
+    elif command -v yum >/dev/null 2>&1; then cmd="yum install -y smartmontools"
+    elif command -v zypper >/dev/null 2>&1; then cmd="zypper --non-interactive install smartmontools"
+    elif command -v apk >/dev/null 2>&1; then cmd="apk add smartmontools"
+    elif command -v pacman >/dev/null 2>&1; then cmd="pacman -S --noconfirm smartmontools"
+    elif command -v brew >/dev/null 2>&1; then cmd="brew install smartmontools"
+    else
+        say "no supported package manager found; install smartmontools manually"
+        return 0
+    fi
+    pre=""
+    case "$cmd" in
+        brew*) ;;
+        *) if [ "$(id -u)" -ne 0 ]; then
+               command -v sudo >/dev/null 2>&1 || { say "need root or sudo to run: $cmd"; return 0; }
+               pre="sudo "
+           fi ;;
+    esac
+    if [ -n "$DRY_RUN" ]; then
+        say "dry run: would run: $pre$cmd"
+        return 0
+    fi
+    say "installing smartmontools: $pre$cmd"
+    # shellcheck disable=SC2086
+    $pre$cmd || say "smartmontools install failed (dcheck works without it)"
+}
+
+if [ -n "$DRY_RUN" ]; then
+    [ -n "$WITH_SMARTMONTOOLS" ] && install_smartmontools
+    say "dry run: nothing changed"
+    exit 0
+fi
 
 DIR="${DCHECK_INSTALL_DIR:-/usr/local/bin}"
 SUDO=""
@@ -95,7 +160,9 @@ case ":$PATH:" in
     *":$DIR:"*) ;;
     *) say "note: $DIR is not on your PATH" ;;
 esac
-if [ "$OS" = "Darwin" ] && ! command -v smartctl >/dev/null 2>&1; then
+if [ -n "$WITH_SMARTMONTOOLS" ]; then
+    install_smartmontools
+elif [ "$OS" = "Darwin" ] && ! command -v smartctl >/dev/null 2>&1; then
     say "macOS: disks show SMART status via diskutil; for full attributes: brew install smartmontools"
 fi
 cat <<EOF
