@@ -39,7 +39,10 @@ One-shot health gate. Exit code reflects the worst verdict.
 Poll and alert when a device worsens or a new issue appears.
 .TP
 .BR ram " [" \-\-json ]
-Memory report: total/used/available, swap, and ECC errors (Linux EDAC).
+Memory report: total/used/available, swap, ECC errors (Linux EDAC), and DIMM
+modules (vendor/type/speed/slots) via SMBIOS when
+.B dmidecode
+is available.
 .TP
 .BR cpu " [" \-\-json ]
 CPU report: model, topology, clock, temperature (Linux), 1-minute load.

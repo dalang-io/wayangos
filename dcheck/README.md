@@ -4,9 +4,10 @@ Device health check — inspect storage (HDD/SSD/NVMe) identity, capacity, healt
 and estimated remaining life. Terminal UI, single static binary, no mandatory
 external tools.
 
-> Status: **M1–M12** — storage (enumeration; native SMART ATA/NVMe/SCSI; ATA
-> attributes+thresholds; self-test + read-only bench; link speed), RAM (with ECC
-> on Linux), CPU (model/topology/temp/load), terminal UI, `--json`,
+> Status: **M1–M13** — storage (enumeration; native SMART ATA/NVMe/SCSI; ATA
+> attributes+thresholds; self-test + read-only bench; link speed), RAM (usage,
+> ECC, and SMBIOS modules: vendor/type DDR4/DDR5/speed/slots; DDR5 temperature),
+> CPU (vendor/model/topology/clock/cache/temp/load), terminal UI, `--json`,
 > `prometheus`, monitoring/alerts, `smartctl` enrichment, TBW overrides, and a
 > FreeBSD/macOS backend.
 > Full plan: [`../docs/DCHECK.md`](../docs/DCHECK.md).

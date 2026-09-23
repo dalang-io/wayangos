@@ -327,6 +327,19 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     } else {
         out.push("  Swap         : none".to_string());
     }
+    if let Some(t) = r.memory_type() {
+        out.push(format!("  Type         : {t}"));
+    }
+    if r.slots_total > 0 {
+        out.push(format!(
+            "  DIMM slots   : {} used / {}",
+            r.modules.len(),
+            r.slots_total
+        ));
+    }
+    if let Some(t) = r.ram_temp_c {
+        out.push(format!("  Temperature  : {t}°C"));
+    }
     out.push(format!("  Source       : {}", r.source));
     out.push(String::new());
     out.push("[ Health ]".to_string());
@@ -341,6 +354,27 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
         out.push("  ECC          : no errors reported (or EDAC unavailable)".to_string());
     }
     let _ = sev;
+    if !r.modules.is_empty() {
+        out.push(String::new());
+        out.push("[ Modules ]".to_string());
+        for m in &r.modules {
+            let speed = m
+                .speed_mts
+                .map(|s| format!("{s} MT/s"))
+                .unwrap_or_default();
+            let vendor = m.manufacturer.clone().unwrap_or_default();
+            let part = m.part_number.clone().unwrap_or_default();
+            out.push(format!(
+                "  {:<6} {:>6}  {:<6} {:<10} {:<12} {}",
+                m.locator,
+                human_size(m.size_bytes),
+                m.kind,
+                speed,
+                vendor,
+                part
+            ));
+        }
+    }
     out
 }
 
@@ -350,11 +384,20 @@ pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
     out.push("CPU".to_string());
     let model = if c.model.is_empty() { "-" } else { &c.model };
     out.push(format!("  Model        : {model}"));
+    if let Some(v) = &c.vendor {
+        out.push(format!("  Vendor       : {v}"));
+    }
     out.push(format!("  Sockets      : {}", c.sockets));
     out.push(format!("  Cores        : {}", c.cores));
     out.push(format!("  Threads      : {}", c.threads));
-    if let Some(mhz) = c.mhz {
-        out.push(format!("  Clock        : {:.0} MHz", mhz));
+    match (c.mhz, c.max_mhz) {
+        (Some(cur), Some(max)) => out.push(format!("  Clock        : {cur:.0} MHz (max {max:.0})")),
+        (Some(cur), None) => out.push(format!("  Clock        : {cur:.0} MHz")),
+        (None, Some(max)) => out.push(format!("  Clock        : max {max:.0} MHz")),
+        (None, None) => {}
+    }
+    if let Some(kb) = c.cache_kb {
+        out.push(format!("  Cache        : {kb} KB"));
     }
     if let Some(t) = c.temp_c {
         out.push(format!("  Temperature  : {t}°C"));
@@ -382,6 +425,27 @@ pub fn ram_json(r: &crate::ram::RamInfo) -> crate::json::Json {
         ("swap_free_bytes", crate::json::num(r.swap_free_bytes as f64)),
         ("ecc_correctable", crate::json::num(r.ecc_correctable as f64)),
         ("ecc_uncorrectable", crate::json::num(r.ecc_uncorrectable as f64)),
+        ("memory_type", opt_json(&r.memory_type())),
+        ("slots_total", crate::json::num(r.slots_total as f64)),
+        ("ram_temp_c", opt_num(r.ram_temp_c.map(|v| v as f64))),
+        ("modules", {
+            let v: Vec<crate::json::Json> = r
+                .modules
+                .iter()
+                .map(|m| {
+                    crate::json::object(vec![
+                        ("locator", crate::json::string(m.locator.clone())),
+                        ("size_bytes", crate::json::num(m.size_bytes as f64)),
+                        ("kind", crate::json::string(m.kind.clone())),
+                        ("speed_mts", opt_num(m.speed_mts.map(|v| v as f64))),
+                        ("manufacturer", opt_json(&m.manufacturer)),
+                        ("part_number", opt_json(&m.part_number)),
+                        ("rank", opt_num(m.rank.map(|v| v as f64))),
+                    ])
+                })
+                .collect();
+            crate::json::Json::Arr(v)
+        }),
         ("verdict", crate::json::string(verdict)),
         ("source", crate::json::string(r.source.clone())),
     ])
@@ -392,10 +456,13 @@ pub fn cpu_json(c: &crate::cpu::CpuInfo) -> crate::json::Json {
     let (verdict, _) = c.verdict(crate::config::load().temp_warn_c);
     crate::json::object(vec![
         ("model", crate::json::string(c.model.clone())),
+        ("vendor", opt_json(&c.vendor)),
         ("sockets", crate::json::num(c.sockets as f64)),
         ("cores", crate::json::num(c.cores as f64)),
         ("threads", crate::json::num(c.threads as f64)),
         ("mhz", opt_num(c.mhz)),
+        ("max_mhz", opt_num(c.max_mhz)),
+        ("cache_kb", opt_num(c.cache_kb.map(|v| v as f64))),
         ("temp_c", opt_num(c.temp_c.map(|v| v as f64))),
         ("load1", opt_num(c.load1)),
         ("verdict", crate::json::string(verdict)),

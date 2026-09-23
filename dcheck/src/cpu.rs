@@ -3,10 +3,13 @@
 #[derive(Debug, Default, Clone)]
 pub struct CpuInfo {
     pub model: String,
+    pub vendor: Option<String>,
     pub sockets: u32,
     pub cores: u32,
     pub threads: u32,
     pub mhz: Option<f64>,
+    pub max_mhz: Option<f64>,
+    pub cache_kb: Option<u64>,
     pub temp_c: Option<i64>,
     pub load1: Option<f64>,
     pub source: String,
@@ -48,9 +51,11 @@ pub fn read() -> CpuInfo {
 pub fn parse_cpuinfo(text: &str) -> CpuInfo {
     use std::collections::BTreeSet;
     let mut model = String::new();
+    let mut vendor = None;
     let mut threads = 0u32;
     let mut cores_per_socket = 0u32;
     let mut mhz = None;
+    let mut cache_kb = None;
     let mut physical_ids: BTreeSet<String> = BTreeSet::new();
 
     for line in text.lines() {
@@ -61,6 +66,7 @@ pub fn parse_cpuinfo(text: &str) -> CpuInfo {
         let v = v.trim();
         match k {
             "model name" if model.is_empty() => model = v.to_string(),
+            "vendor_id" if vendor.is_none() => vendor = Some(v.to_string()),
             "processor" => threads += 1,
             "cpu cores" if cores_per_socket == 0 => {
                 cores_per_socket = v.parse().unwrap_or(0);
@@ -69,6 +75,9 @@ pub fn parse_cpuinfo(text: &str) -> CpuInfo {
                 physical_ids.insert(v.to_string());
             }
             "cpu MHz" if mhz.is_none() => mhz = v.parse().ok(),
+            "cache size" if cache_kb.is_none() => {
+                cache_kb = v.split_whitespace().next().and_then(|n| n.parse().ok());
+            }
             _ => {}
         }
     }
@@ -80,10 +89,12 @@ pub fn parse_cpuinfo(text: &str) -> CpuInfo {
     };
     CpuInfo {
         model,
+        vendor,
         sockets,
         cores,
         threads,
         mhz,
+        cache_kb,
         source: "cpuinfo".to_string(),
         ..CpuInfo::default()
     }
@@ -113,6 +124,11 @@ mod linux {
         if let Ok(freq) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq") {
             if let Ok(khz) = freq.trim().parse::<f64>() {
                 info.mhz = Some(khz / 1000.0);
+            }
+        }
+        if let Ok(freq) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq") {
+            if let Ok(khz) = freq.trim().parse::<f64>() {
+                info.max_mhz = Some(khz / 1000.0);
             }
         }
         info.load1 = std::fs::read_to_string("/proc/loadavg")
@@ -173,7 +189,12 @@ mod macos {
 
     fn sysctl_str(key: &str) -> Option<String> {
         let out = Command::new("sysctl").arg("-n").arg(key).output().ok()?;
-        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     }
 
     fn sysctl_u32(key: &str) -> Option<u32> {
@@ -182,16 +203,29 @@ mod macos {
 
     pub fn read() -> CpuInfo {
         let model = sysctl_str("machdep.cpu.brand_string").unwrap_or_default();
+        let vendor = sysctl_str("machdep.cpu.vendor").or_else(|| {
+            if model.contains("Apple") {
+                Some("Apple".to_string())
+            } else {
+                None
+            }
+        });
         let mhz = sysctl_str("hw.cpufrequency")
+            .and_then(|s| s.parse::<f64>().ok())
+            .map(|hz| hz / 1.0e6);
+        let max_mhz = sysctl_str("hw.cpufrequency_max")
             .and_then(|s| s.parse::<f64>().ok())
             .map(|hz| hz / 1.0e6);
         let load1 = sysctl_str("vm.loadavg").and_then(|s| parse_load(&s));
         CpuInfo {
             model,
+            vendor,
             sockets: 1,
             cores: sysctl_u32("hw.physicalcpu").unwrap_or(0),
             threads: sysctl_u32("hw.logicalcpu").unwrap_or(0),
             mhz,
+            max_mhz,
+            cache_kb: None,
             temp_c: None, // not exposed on macOS
             load1,
             source: "sysctl".to_string(),
@@ -219,10 +253,13 @@ mod freebsd {
         let load1 = sysctl_str("vm.loadavg").and_then(|s| parse_load(&s));
         CpuInfo {
             model,
+            vendor: None,
             sockets: 1,
             cores: ncpu,
             threads: ncpu,
             mhz: None,
+            max_mhz: None,
+            cache_kb: None,
             temp_c,
             load1,
             source: "sysctl".to_string(),

@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M12 done** (Linux + FreeBSD + macOS; storage native + smartctl; RAM + ECC; CPU; TUI; `--json`; monitoring/alerts; TBW overrides; passthrough; NVMe extras; config; Prometheus; man page) · Owner: TBD
+Status: **M1–M13 done** (Linux + FreeBSD + macOS; storage native + smartctl; RAM + ECC + SMBIOS modules; CPU vendor/topo/temp/cache; TUI; `--json`; monitoring/alerts; TBW overrides; passthrough; NVMe extras; config; Prometheus; man page) · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -373,6 +373,17 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
   loading + spinner.
 - **AC:** verified on real hardware — Fedora (Xeon, 87°C → MONITOR), Dell R630
   (dual Xeon, 80 threads, 51°C → OK), Apple M2.
+
+### M13 — RAM & hardware detail — DONE
+- RAM modules from SMBIOS (`dmidecode -t 17`, Linux; root): vendor, part number,
+  type (DDR4/DDR5), speed/configured speed, rank, locator, slots used/total.
+  Vendor inferred from JEDEC hex code / part-number prefix.
+- On-DIMM temperature (DDR5 `spd5118` / `jc42` hwmon).
+- CPU vendor (`GenuineIntel`/`AuthenticAMD`/Apple), max clock (`cpuinfo_max_freq`
+  / `hw.cpufrequency_max`), cache size.
+- macOS: memory modules via `system_profiler SPMemoryDataType` (Intel only).
+- **AC:** verified — Dell R630 shows DDR4 2133 MT/s SK Hynix HMA84GL7…, 1/24
+  slots; CPU GenuineIntel, 80 threads, cache 50 MB.
 
 ## 17. Risks
 
