@@ -2,20 +2,24 @@
 
 ## Supported Platforms
 
-### x86_64 (AMD64)
+### x86_64 (AMD64) — supported
 - Intel/AMD 64-bit processors
 - Tested on: QEMU/KVM, bare metal
 - Primary development target
+- Base, PREEMPT_RT, and GPU editions; GRUB ISOs are UEFI + BIOS hybrid
 
-### ARM64 (AArch64)
+### ARM64 (AArch64) — supported
 - ARMv8-A 64-bit processors
-- Targets: Raspberry Pi 4/5, NVIDIA Jetson, various SBCs
-- Cross-compile: `aarch64-linux-gnu-`
+- Targets: Raspberry Pi 3, Orange Pi Zero 2W
+- Configs: `defconfig-arm64-rpi3`, `defconfig-arm64-orangepi-zero2w`
+- Cross-compile with `ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-`
 
-### RISC-V (rv64gc)
+### RISC-V (rv64gc) — roadmap
 - 64-bit RISC-V with G (IMAFDZicsr_Zifencei) and C extensions
 - Targets: SiFive boards, StarFive VisionFive 2
-- Cross-compile: `riscv64-linux-gnu-`
+- Requires cross-compile toolchain (`riscv64-linux-gnu-`)
+
+> RISC-V is not yet wired into `scripts/`. Contributions welcome.
 
 ## Build Host Requirements
 
@@ -23,26 +27,31 @@
 - GCC 12+ or Clang 16+
 - GNU Make, flex, bison, bc
 - libelf-dev, libssl-dev
-- ~2GB disk space per architecture build
-- Cross-compiler packages for non-native architectures
+- cpio, gzip, grub-pc-bin, grub-efi-amd64-bin, xorriso, mtools
+- ~2GB disk space for the kernel build
 
 ## Boot Flow
 
 ```
-Firmware (BIOS/UEFI/U-Boot)
-  → Bootloader (optional: GRUB/syslinux/direct kernel boot)
-    → Kernel (bzImage/Image)
+Firmware (BIOS/UEFI)
+  → GRUB (grub-mkrescue ISO)
+    → Kernel (bzImage)
       → initramfs (cpio.gz)
-        → /sbin/init (custom shell script)
-          → /etc/init.d/rcS
-            → getty on serial console
+        → /sbin/init (BusyBox init)
+          → /etc/inittab
+            → /etc/init.d/rcS  (mount fs, mdev, network, sshd)
+              → /etc/init.d/pos-app  (framebuffer + POS binary, POS ISO only)
 ```
+
+On ARM64 SBCs the vendor bootloader (the Raspberry Pi firmware, or U-Boot on
+the Orange Pi Zero 2W) loads the kernel and device tree, after which the same
+initramfs/`init` flow runs.
 
 ## Memory Layout (minimal profile)
 
 | Component | Size |
 |-----------|------|
-| Kernel | ~4-6 MB |
+| Kernel | ~14 MB (defconfig-qemu) |
 | initramfs | ~2-3 MB |
 | Runtime RAM | ~20 MB |
-| **Total minimum** | **~64 MB** |
+| **Recommended minimum** | **~128 MB** |

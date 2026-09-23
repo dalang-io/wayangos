@@ -1,0 +1,10 @@
+# WAYANG_BASE: defconfig-qemu
+#
+# WayangOS x86_64 AMD GPU kernel fragment.
+# Enables DRM core plus the AMDGPU and legacy Radeon drivers
+# on top of the QEMU base config.
+#
+CONFIG_DRM=y
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_DRM_AMDGPU=y
+CONFIG_DRM_RADEON=y

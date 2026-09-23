@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Bash syntax check
+        run: |
+          fail=0
+          for f in scripts/*.sh; do
+            echo "bash -n $f"
+            bash -n "$f" || fail=1
+          done
+          exit $fail
+
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
+
+  configs:
+    name: Validate kernel configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate config format and bases
+        run: |
+          fail=0
+          for f in configs/defconfig-*; do
+            name="$(basename "$f")"
+            first="$(head -n 1 "$f")"
+            if [[ "$first" =~ ^#[[:space:]]+WAYANG_BASE:[[:space:]]+([^[:space:]]+)[[:space:]]*$ ]]; then
+              base="${BASH_REMATCH[1]}"
+              echo "$name: fragment (base=$base)"
+              if [ "$base" != "defconfig" ] && [ ! -f "configs/$base" ]; then
+                echo "  ERROR: base configs/$base not found"; fail=1
+              fi
+            else
+              echo "$name: full config"
+              grep -q '^CONFIG_' "$f" || { echo "  ERROR: no CONFIG_ lines"; fail=1; }
+            fi
+          done
+          exit $fail
+
+      - name: Check required QEMU base options
+        run: |
+          for opt in CONFIG_INPUT_EVDEV CONFIG_KEYBOARD_ATKBD CONFIG_SERIO_I8042; do
+            grep -q "$opt" configs/defconfig-qemu || { echo "missing $opt"; exit 1; }
+          done
+
+      - name: Check expected configs exist
+        run: |
+          for c in defconfig-qemu defconfig-rt defconfig-intel defconfig-amd \
+                   defconfig-nvidia defconfig-arm64-rpi3 defconfig-arm64-orangepi-zero2w; do
+            test -f "configs/$c" || { echo "missing configs/$c"; exit 1; }
+          done
+
+  pos:
+    name: Build WayangPOS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential linux-libc-dev
+
+      - name: Build POS binary
+        run: ./scripts/build-pos.sh
+
+      - name: Verify binary
+        run: test -x "$HOME/wayangos-build/wayang-pos-static"
+
+  smoke:
+    name: Rootfs smoke build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget cpio gzip unzip linux-libc-dev
+
+      - name: Fetch external sources
+        run: ./scripts/fetch-sources.sh
+
+      - name: Build rootfs
+        run: ./scripts/build-rootfs.sh
+
+      - name: Verify initramfs
+        run: test -s "$HOME/wayangos-build/wayangos-initramfs.img"

@@ -1,0 +1,34 @@
+# WAYANG_BASE: defconfig-qemu
+#
+# WayangOS Real-Time (PREEMPT_RT) x86_64 kernel fragment.
+#
+# NOTE: This fragment ONLY works on an RT-patched kernel tree
+#       (Linux 6.19.3-rt1 / the PREEMPT_RT patch series).
+#       CONFIG_PREEMPT_RT does not exist in a vanilla tree, so
+#       resolve this fragment against the patched source. It
+#       replaces the base's voluntary preemption with full RT.
+#
+# Requires EXPERT so the preemption model choice is selectable.
+CONFIG_EXPERT=y
+#
+# PREEMPT_RT core (full real-time preemption)
+#
+CONFIG_ARCH_SUPPORTS_RT=y
+CONFIG_PREEMPT_RT=y
+# CONFIG_PREEMPT_NONE is not set
+# CONFIG_PREEMPT_VOLUNTARY is not set
+# CONFIG_PREEMPT_DYNAMIC is not set
+#
+# Tick / timer tuning for deterministic latency
+#
+CONFIG_HZ_1000=y
+CONFIG_HZ=1000
+# CONFIG_HZ_250 is not set
+# CONFIG_HZ_100 is not set
+CONFIG_HIGH_RES_TIMERS=y
+#
+# RCU and CPU isolation for dedicated RT cores
+#
+CONFIG_NO_HZ_FULL=y
+CONFIG_RCU_BOOST=y
+CONFIG_CPU_ISOLATION=y

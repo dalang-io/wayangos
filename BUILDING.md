@@ -1,13 +1,14 @@
 # Building WayangOS
 
-Complete guide to building WayangOS from source.
+Complete guide to building WayangOS from source. This is the canonical build
+guide; `docs/BUILDING.md` only holds per-component details.
 
 ## Prerequisites
 
 ### Environment
-- **WSL2 Ubuntu** on Windows (tested with Ubuntu 22.04+)
-- Build dir: `~/wayangos-build/`
-- Repo dir: `/mnt/c/Users/Desktop PC/.openclaw/workspace/linux-distro/`
+- **Linux x86_64** (native) or **WSL2 Ubuntu** on Windows (tested with Ubuntu 22.04+)
+- Build dir: `~/wayangos-build/` (override with `BUILD_DIR`)
+- Repo dir: wherever you cloned this repository
 
 ### Packages
 ```bash
@@ -16,19 +17,32 @@ sudo apt install build-essential gcc make flex bison bc libelf-dev libssl-dev \
     qemu-system-x86 wget git
 ```
 
-### Source Trees (in `~/wayangos-build/`)
-| Component | Version | Path |
-|-----------|---------|------|
+### External sources
+Kernel, BusyBox, Dropbear, and SQLite are **not** tracked in this repo (too
+large). Download them into the build dir:
+
+```bash
+./scripts/fetch-sources.sh
+# Real-time PREEMPT_RT kernel tree instead of the base kernel:
+KERNEL_FLAVOR=rt ./scripts/fetch-sources.sh
+```
+
+| Component | Version | Path (under `$BUILD_DIR`) |
+|-----------|---------|---------------------------|
 | Linux kernel | 6.19.7 | `linux-6.19.7/` |
+| Linux kernel (RT) | 6.19.3-rt1 | `linux-6.19.3-rt1/` |
 | BusyBox | 1.37.0 | `busybox-1.37.0/busybox` (pre-built static) |
 | Dropbear SSH | 2024.86 | `dropbear-2024.86/` |
 | SQLite | amalgamation | `sqlite3.c`, `sqlite3.h` |
 
-### POS Application (separate repo)
+### POS application (in this repo)
+Wayang POS source is tracked here at `wayangos-pos/fbpos-v3.c` (direct
+framebuffer, evdev input, SQLite backend).
+
 | Component | Path |
 |-----------|------|
-| POS binary | `~/wayangos-pos-lvgl/wayang-pos-static` |
-| LVGL | `~/wayangos-pos-lvgl/lvgl/` (v9.2.2) |
+| POS source | `wayangos-pos/fbpos-v3.c` |
+| POS binary | `$BUILD_DIR/wayang-pos-static` |
 
 ---
 
@@ -37,11 +51,11 @@ sudo apt install build-essential gcc make flex bison bc libelf-dev libssl-dev \
 Build everything and get a bootable POS ISO:
 
 ```bash
-cd /mnt/c/Users/Desktop\ PC/.openclaw/workspace/linux-distro
-
-# Full POS ISO pipeline (kernel + rootfs + POS binary + ISO)
+./scripts/fetch-sources.sh
 ./scripts/build-pos-iso.sh defconfig-qemu wayangos-pos-qemu.iso
 ```
+
+`build-pos-iso.sh` skips steps whose outputs already exist, so re-runs are cheap.
 
 ---
 
@@ -50,17 +64,46 @@ cd /mnt/c/Users/Desktop\ PC/.openclaw/workspace/linux-distro
 ### 1. Build Kernel
 
 ```bash
-# Using an existing config
-./scripts/build-kernel.sh defconfig-qemu
-
-# For GPU-specific builds
-./scripts/build-kernel.sh defconfig-qemu bzImage-intel  # then add i915
+./scripts/build-kernel.sh defconfig-qemu bzImage-qemu
 ```
 
-Available configs in `configs/`:
-- `defconfig-qemu` — QEMU testing (recommended starting point)
+Usage: `./scripts/build-kernel.sh <config> [output]`. Environment variables:
 
-See `configs/README.md` for GPU-specific config generation.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ARCH` | `x86_64` | Target architecture (`x86_64` or `arm64`) |
+| `CROSS_COMPILE` | — | Toolchain prefix, e.g. `aarch64-linux-gnu-` |
+| `BUILD_DIR` | `~/wayangos-build` | Kernel tree + output location |
+| `KDIR` | `$BUILD_DIR/linux-6.19.7` | Kernel source tree (use the RT tree for RT configs) |
+
+Available configs in `configs/`:
+
+| Config | Target |
+|--------|--------|
+| `defconfig-qemu` | QEMU / x86_64 base (recommended starting point) |
+| `defconfig-rt` | x86_64 PREEMPT_RT |
+| `defconfig-intel` | x86_64 Intel i915 |
+| `defconfig-amd` | x86_64 AMD amdgpu + radeon |
+| `defconfig-nvidia` | x86_64 NVIDIA nouveau |
+| `defconfig-arm64-rpi3` | ARM64 Raspberry Pi 3 |
+| `defconfig-arm64-orangepi-zero2w` | ARM64 Orange Pi Zero 2W |
+
+RT builds need the RT source tree first:
+
+```bash
+KERNEL_FLAVOR=rt ./scripts/fetch-sources.sh
+KDIR=~/wayangos-build/linux-6.19.3-rt1 ./scripts/build-kernel.sh defconfig-rt bzImage-rt
+```
+
+ARM64 cross-compile:
+
+```bash
+sudo apt install gcc-aarch64-linux-gnu
+ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+    ./scripts/build-kernel.sh defconfig-arm64-rpi3 Image-rpi3
+```
+
+See `configs/README.md` for GPU-specific config generation notes.
 
 ### 2. Build Rootfs
 
@@ -80,17 +123,18 @@ Includes:
 
 ### 3. Build POS Binary
 
+Build the in-repo Wayang POS app (`wayangos-pos/fbpos-v3.c`):
+
 ```bash
-cd ~/wayangos-pos-lvgl
-make clean && make
-# Output: wayang-pos-static
+./scripts/build-pos.sh
+# Output: $BUILD_DIR/wayang-pos-static
 ```
 
 The POS app uses:
-- LVGL v9.2.2 for GUI rendering
-- Direct framebuffer (`/dev/fb0`)
+- Direct framebuffer rendering (`/dev/fb0`)
 - Linux evdev for touch/keyboard/mouse input
 - SQLite for transaction storage
+- An embedded bitmap font, no external dependencies
 
 ### 4. Assemble ISO
 
@@ -146,6 +190,20 @@ echo 'screendump /tmp/screen.ppm' | socat - UNIX-CONNECT:/tmp/qemu-mon
 
 ---
 
+## Security
+
+The base rootfs is a **development image**:
+
+- Root SSH login has **no password** by default (`etc/shadow` root entry is empty)
+- Dropbear listens on port 22 and generates host keys on first boot (`-R`)
+
+Before deploying to the field:
+- Set a root password (`passwd`) or install an SSH public key in `/root/.ssh/authorized_keys`
+- Restrict or disable Dropbear
+- Change the default POS admin PIN (`1234`)
+
+---
+
 ## Known Issues
 
 ### Keyboard not working in QEMU
@@ -164,7 +222,9 @@ CONFIG_INPUT_EVDEV=y
 ```
 
 ### Large kernel size with AMD GPU
-The `bzImage-amd` is ~19MB vs ~14MB for others because AMD GPU support (amdgpu + radeon) includes significant firmware handling code.
+AMD GPU support (amdgpu + radeon) adds significant firmware handling code, so
+`defconfig-amd` produces the largest kernel of the x86_64 GPU configs. Use
+`defconfig-intel` or `defconfig-nvidia` where the hardware matches.
 
 ### UEFI boot
 GRUB ISOs default to BIOS boot. For UEFI, ensure `grub-efi-amd64-bin` is installed and `grub-mkrescue` will automatically include EFI boot support.
@@ -175,16 +235,27 @@ GRUB ISOs default to BIOS boot. For UEFI, ensure `grub-efi-amd64-bin` is install
 
 ```
 wayangos/
-├── configs/              # Kernel configs
+├── configs/                        # Kernel configs (base/RT/GPU/ARM64)
 │   ├── README.md
-│   └── defconfig-qemu   # Current working config
-├── scripts/              # Build scripts
-│   ├── build-kernel.sh   # Build kernel from config
-│   ├── build-rootfs.sh   # Build base rootfs
-│   ├── build-iso.sh      # Assemble ISO
-│   └── build-pos-iso.sh  # Full POS ISO pipeline
-├── landing-page/         # Website (DO NOT MODIFY in builds)
-├── wayangos-pos/         # Old POS v3 (reference)
-├── BUILDING.md           # This file
+│   ├── defconfig-qemu
+│   ├── defconfig-rt
+│   ├── defconfig-intel
+│   ├── defconfig-amd
+│   ├── defconfig-nvidia
+│   ├── defconfig-arm64-rpi3
+│   └── defconfig-arm64-orangepi-zero2w
+├── scripts/                        # Build scripts
+│   ├── fetch-sources.sh            # Download kernel/BusyBox/Dropbear/SQLite
+│   ├── build-kernel.sh             # Build kernel from config (ARCH-aware)
+│   ├── build-rootfs.sh             # Build base rootfs
+│   ├── build-pos.sh                # Build POS binary from wayangos-pos/
+│   ├── build-iso.sh                # Assemble ISO
+│   ├── build-pos-iso.sh            # Full POS ISO pipeline
+│   └── deprecated/                 # Historical scripts (reference only)
+├── wayangos-pos/                   # Wayang POS source (fbpos-v3.c)
+├── userspace/                      # Reference init scripts (legacy)
+├── docs/                           # Architecture notes
+├── landing-page/                   # Website (wayang.dalang.io)
+├── BUILDING.md                     # This file
 └── README.md
 ```

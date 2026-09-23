@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="WayangOS &mdash; Ultra-minimal Linux distro. 20MB ISO, boots in 2 seconds. Built for IoT, kiosks, embedded systems, and edge servers. Free and open source.">
+    <meta name="description" content="WayangOS &mdash; Ultra-minimal Linux distro. 17&ndash;35 MB ISO, boots in 2 seconds. Built for IoT, kiosks, embedded systems, and edge servers. Free and open source.">
     <meta name="keywords" content="WayangOS, Linux distro, minimal Linux, IoT, kiosk, embedded, edge server, open source">
     <meta property="og:title" content="WayangOS &mdash; The Shadow that Powers the Machine">
-    <meta property="og:description" content="Ultra-minimal Linux distro. 20MB ISO, boots in 2 seconds. Built for IoT, kiosks, and edge servers.">
+    <meta property="og:description" content="Ultra-minimal Linux distro. 17&ndash;35 MB ISO, boots in 2 seconds. Built for IoT, kiosks, and edge servers.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://wayang.dalang.io/">
     <meta property="og:image" content="https://wayang.dalang.io/assets/og-image.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="WayangOS &mdash; The Shadow that Powers the Machine">
-    <meta name="twitter:description" content="Ultra-minimal Linux distro. 20MB ISO, boots in 2 seconds.">
+    <meta name="twitter:description" content="Ultra-minimal Linux distro. 17&ndash;35 MB ISO, boots in 2 seconds.">
     <meta name="twitter:image" content="https://wayang.dalang.io/assets/og-image.png">
     <link rel="canonical" href="https://wayang.dalang.io/">
     <link rel="alternate" hreflang="en" href="https://wayang.dalang.io/">
@@ -89,8 +89,8 @@
         </div>
         <div class="flex gap-12 mt-20 relative z-[1] flex-wrap justify-center max-md:gap-4 max-md:mt-12">
             <div class="text-center min-w-[80px]">
-                <div class="text-4xl font-extrabold text-w-gold tracking-tight max-md:text-3xl">20MB</div>
-                <div class="text-xs text-w-dim uppercase tracking-widest">Bootable ISO</div>
+                <div class="text-4xl font-extrabold text-w-gold tracking-tight max-md:text-3xl">17–35MB</div>
+                <div class="text-xs text-w-dim uppercase tracking-widest">Bootable ISO (by edition)</div>
             </div>
             <div class="text-center min-w-[80px]">
                 <div class="text-4xl font-extrabold text-w-gold tracking-tight max-md:text-3xl">64MB</div>
@@ -138,19 +138,19 @@
                     <div class="terminal-dot terminal-dot-red"></div>
                     <div class="terminal-dot terminal-dot-yellow"></div>
                     <div class="terminal-dot terminal-dot-green"></div>
-                    <div class="flex-1 text-center text-xs text-w-dim">WayangOS v0.5 — wayang:/#</div>
+                    <div class="flex-1 text-center text-xs text-w-dim">WayangOS v0.6.0 — wayang:/#</div>
                 </div>
                 <div class="p-5 md:px-6 font-mono text-sm leading-loose text-w-text2 overflow-x-auto max-md:text-xs max-md:p-3">
                     <div><span class="text-w-dim"># Boot with QEMU — 128MB RAM</span></div>
-                    <div><span class="text-w-green">$ </span><span class="text-w-text">qemu-system-x86_64 -cdrom wayangos-0.5-headless-x86_64.iso -m 128M</span></div>
+                    <div><span class="text-w-green">$ </span><span class="text-w-text">qemu-system-x86_64 -cdrom wayangos-intel.iso -m 128M</span></div>
                     <div>&nbsp;</div>
-                    <div><span class="text-w-gold">  ꦮꦪꦁ  WayangOS v0.5 ready</span></div>
+                    <div><span class="text-w-gold">  ꦮꦪꦁ  WayangOS v0.6.0 ready</span></div>
                     <div>&nbsp;</div>
-                    <div><span class="text-w-gold">  ꦮꦪꦁ  WayangOS v0.5</span></div>
+                    <div><span class="text-w-gold">  ꦮꦪꦁ  WayangOS v0.6.0</span></div>
                     <div><span class="text-w-gold">  The Shadow that Powers the Machine</span></div>
                     <div>&nbsp;</div>
                     <div><span class="text-w-green">wayang:/# </span><span class="text-w-text">uname -r</span></div>
-                    <div><span class="text-w-gold">6.19.3-rt1</span></div>
+                    <div><span class="text-w-gold">6.19.7</span></div>
                     <div>&nbsp;</div>
                     <div><span class="text-w-dim"># Deploy a static binary — that's your package manager</span></div>
                     <div><span class="text-w-green">wayang:/# </span><span class="text-w-text">scp user@dev:/app/myserver /usr/bin/</span></div>
@@ -174,8 +174,8 @@
                 <div class="bg-w-card border border-w-border rounded-xl p-8 transition-all hover:bg-w-card-h hover:border-w-border-g hover:-translate-y-0.5 max-md:p-5">
                     <div class="text-3xl mb-4">⚡</div>
                     <h3 class="text-lg mb-2 text-w-text">Ultra-Minimal</h3>
-                    <p class="text-w-text2 text-sm">20 MB bootable ISO. BusyBox + Dropbear SSH + curl. No systemd, no D-Bus, no polkit. 4 static binaries, zero shared libraries. UEFI + BIOS hybrid boot.</p>
-                    <span class="inline-block mt-3 px-2.5 py-1 bg-w-gold-dim border border-w-border-g rounded text-xs text-w-gold font-mono">4 binaries · 20 MB · UEFI+BIOS · done</span>
+                    <p class="text-w-text2 text-sm">A 20 MB headless bootable ISO (21 MB GUI, 30–35 MB GPU, 17–18 MB ARM). BusyBox + Dropbear SSH + curl. No systemd, no D-Bus, no polkit. 3 static binaries, zero shared libraries. UEFI + BIOS hybrid boot.</p>
+                    <span class="inline-block mt-3 px-2.5 py-1 bg-w-gold-dim border border-w-border-g rounded text-xs text-w-gold font-mono">3 binaries · 20 MB headless · UEFI+BIOS · done</span>
                 </div>
                 <div class="bg-w-card border border-w-border rounded-xl p-8 transition-all hover:bg-w-card-h hover:border-w-border-g hover:-translate-y-0.5 max-md:p-5">
                     <div class="text-3xl mb-4">🔌</div>
@@ -204,13 +204,13 @@
                 <div class="bg-w-card border border-w-border rounded-xl p-8 transition-all hover:bg-w-card-h hover:border-w-border-g hover:-translate-y-0.5 max-md:p-5">
                     <div class="text-3xl mb-4">🔒</div>
                     <h3 class="text-lg mb-2 text-w-text">Minimal Attack Surface</h3>
-                    <p class="text-w-text2 text-sm">4 binaries total. No unnecessary services, no listening ports except SSH. Fewer packages = fewer CVEs. The best security is code that doesn't exist.</p>
+                    <p class="text-w-text2 text-sm">3 binaries total. No unnecessary services, no listening ports except SSH. Fewer packages = fewer CVEs. The best security is code that doesn't exist.</p>
                     <span class="inline-block mt-3 px-2.5 py-1 bg-w-gold-dim border border-w-border-g rounded text-xs text-w-gold font-mono">fewer packages = fewer CVEs</span>
                 </div>
                 <div class="bg-w-card border border-w-border rounded-xl p-8 transition-all hover:bg-w-card-h hover:border-w-border-g hover:-translate-y-0.5 max-md:p-5">
                     <div class="text-3xl mb-4">🏗️</div>
                     <h3 class="text-lg mb-2 text-w-text">PREEMPT_RT Real-Time Kernel</h3>
-                    <p class="text-w-text2 text-sm">Linux 6.19.3-rt1 with full real-time preemption, 1000Hz tick, and high-res timers. Deterministic scheduling for when microseconds matter. RTOS by default.</p>
+                    <p class="text-w-text2 text-sm">Linux 6.19.3-rt1 with full real-time preemption, 1000Hz tick, and high-res timers. Deterministic scheduling for when microseconds matter. Available as the RT edition.</p>
                     <span class="inline-block mt-3 px-2.5 py-1 bg-w-gold-dim border border-w-border-g rounded text-xs text-w-gold font-mono">CONFIG_PREEMPT_RT=y · 1000Hz · x86_64</span>
                 </div>
             </div>
@@ -231,14 +231,14 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr class="highlight-row"><td>ISO Size</td><td>20 MB</td><td>~200 MB</td><td>~1.2 GB</td><td>~600 MB</td></tr>
+                    <tr class="highlight-row"><td>ISO Size</td><td>17–35 MB (by edition)</td><td>~200 MB</td><td>~1.2 GB</td><td>~600 MB</td></tr>
                     <tr class="highlight-row"><td>Min RAM</td><td>64 MB</td><td>128 MB</td><td>512 MB</td><td>256 MB</td></tr>
                     <tr class="highlight-row"><td>Boot Time</td><td>&lt; 2s</td><td>~5s</td><td>~15s</td><td>~8s</td></tr>
                     <tr><td>Init System</td><td>Custom (shell)</td><td>OpenRC</td><td>systemd</td><td>systemd</td></tr>
                     <tr><td>SSH on Boot</td><td><span class="check">✓ Built-in</span></td><td><span class="cross">✗ Install</span></td><td><span class="check">✓ Optional</span></td><td><span class="cross">✗ Install</span></td></tr>
                     <tr><td>Package Manager</td><td>None (scp)</td><td>apk</td><td>apt</td><td>apt</td></tr>
                     <tr><td>GUI Edition</td><td><span class="check">✓ fbdev/DRM</span></td><td><span class="cross">✗ Manual</span></td><td><span class="check">✓ Desktop</span></td><td><span class="cross">✗ Manual</span></td></tr>
-                    <tr><td>Packages</td><td>4 (static)</td><td>~14 (base)</td><td>~300+ (base)</td><td>~150+ (base)</td></tr>
+                    <tr><td>Packages</td><td>3 (static)</td><td>~14 (base)</td><td>~300+ (base)</td><td>~150+ (base)</td></tr>
                 </tbody>
             </table>
         </div>
@@ -364,7 +364,7 @@
                 <div class="border-t border-w-border mt-6 pt-5">
                     <h4 class="text-w-text2 text-sm mb-3 text-center">🧪 No USB? Try it in a virtual machine</h4>
                     <div class="bg-w-bg2 rounded-lg p-3.5 font-mono text-xs text-w-text text-center overflow-x-auto break-all">
-                        qemu-system-x86_64 -cdrom wayangos-0.5-headless-x86_64.iso -m 128M
+                        qemu-system-x86_64 -cdrom wayangos-intel.iso -m 128M
                     </div>
                     <p class="text-w-dim text-xs text-center mt-2">Or open the .iso in VirtualBox / VMware — it just works.</p>
                 </div>
@@ -374,7 +374,7 @@
                     <summary class="text-w-dim text-sm cursor-pointer">🔧 Advanced: Manual USB install with GRUB (for developers)</summary>
                     <div class="bg-w-bg2 rounded-lg p-3.5 mt-3 font-mono text-xs text-w-text leading-loose overflow-x-auto break-words">
                         <span class="text-w-dim"># Download tar.gz instead of ISO</span><br>
-                        tar xzf wayangos-0.5-headless-x86_64.iso &amp;&amp; cd wayangos-0.5-headless-x86_64<br><br>
+                        tar xzf wayangos.iso &amp;&amp; cd wayangos<br><br>
                         <span class="text-w-dim"># Partition &amp; format USB (replace sdX)</span><br>
                         sudo fdisk /dev/sdX<br>
                         sudo mkfs.ext4 /dev/sdX1<br>

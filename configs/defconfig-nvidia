@@ -1,0 +1,9 @@
+# WAYANG_BASE: defconfig-qemu
+#
+# WayangOS x86_64 NVIDIA(open) GPU kernel fragment.
+# Enables DRM core plus the Nouveau driver on top of the
+# QEMU base config.
+#
+CONFIG_DRM=y
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_DRM_NOUVEAU=y

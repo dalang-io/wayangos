@@ -1,79 +1,94 @@
-# WayangOS POS — Touchscreen Point of Sale System
+# WayangOS
 
-Production-grade POS for Indonesian UMKM (warung, kafe, toko), running on minimal Linux (WayangOS) with direct framebuffer rendering. No X11, no Wayland — just raw pixels on `/dev/fb0`.
+Ultra-minimal Linux distro for kiosks, POS terminals, and embedded/edge devices. No X11, no Wayland, no systemd — just a kernel, BusyBox, and direct framebuffer rendering. The base headless image is a ~20 MB ISO that boots in seconds and runs entirely from RAM.
 
-## Features
+Target market: Indonesian UMKM (warung, kafe, toko) and industrial kiosks. Fully offline — your data stays on the device.
 
-- **Touchscreen-ready** — full touch UI with tap navigation, no physical keyboard needed
-- **Virtual keyboard** — on-screen QWERTY for text input (login, menu names, prices)
-- **SQLite persistence** — all data stored locally in `/data/pos.db`
-- **Multi-user auth** — PIN-based login with admin/cashier roles
-- **Menu CRUD** — add, edit, delete menu items with categories and prices
-- **Category management** — organize menu by category with touch selector
-- **Order history** — complete transaction log with date/time stamps
-- **Pagination** — smooth scrolling through long lists with nav buttons
-- **18MB bootable ISO** — boots in seconds, runs entirely from RAM
-- **No internet required** — fully offline, your data stays yours
+## Editions
+
+| Edition | Kernel | Arch | ISO size | Config |
+|---------|--------|------|----------|--------|
+| Headless | 6.19.7 | x86_64 | 20 MB | `defconfig-qemu` |
+| Headless RT | 6.19.3-rt1 | x86_64 | 20 MB | `defconfig-rt` |
+| GUI | 6.19.7 | x86_64 | 21 MB | `defconfig-qemu` |
+| GUI RT | 6.19.3-rt1 | x86_64 | 21 MB | `defconfig-rt` |
+| Intel GPU | 6.19.7 | x86_64 | 30 MB | `defconfig-intel` |
+| AMD GPU | 6.19.7 | x86_64 | 35 MB | `defconfig-amd` |
+| NVIDIA GPU | 6.19.7 | x86_64 | 31 MB | `defconfig-nvidia` |
+| Raspberry Pi 3 | 6.19.7 | ARM64 | 18 MB | `defconfig-arm64-rpi3` |
+| Orange Pi Zero 2W | 6.19.7 | ARM64 | 17 MB | `defconfig-arm64-orangepi-zero2w` |
+
+RT editions use the PREEMPT_RT kernel tree (`6.19.3-rt1`); all other editions use
+the base kernel (`6.19.7`).
+
+## What's in this repo
+
+| Path | Contents |
+|------|----------|
+| `configs/` | Kernel configs (base, RT, GPU, ARM64) — see `configs/README.md` |
+| `scripts/` | Build pipeline: kernel → rootfs → ISO, plus POS builds |
+| `scripts/deprecated/` | Historical build scripts, kept for reference only |
+| `wayangos-pos/` | Wayang POS source (`fbpos-v3.c`) — direct framebuffer, evdev, SQLite |
+| `userspace/` | Reference init scripts (legacy — see `userspace/README.md`) |
+| `docs/` | Architecture and per-component build notes |
+| `landing-page/` | Static website (wayang.dalang.io) |
+
+The rootfs ships exactly **3 static binaries**: BusyBox, `dropbearmulti`, and
+curl. Everything else is deployed as a static binary via `scp` — there is no
+package manager.
 
 ## Hardware Target
 
-- **SBC:** Orange Pi Zero 2W (~$15)
+- **SBC:** Raspberry Pi 3 and Orange Pi Zero 2W (~$15)
 - **Display:** 7" touchscreen LCD (1024×600)
 - **Storage:** MicroSD card (any size)
 - **Total cost:** Under $50 for a complete POS terminal
 
 Also runs on any x86_64 machine via QEMU or bare metal.
 
-## Screenshots
-
-<!-- TODO: Add screenshots of login, menu, order flow -->
-
-## Building
-
-### Prerequisites (Ubuntu/Debian)
-
-```bash
-sudo apt install gcc make libsqlite3-dev
-```
-
-### Build the POS binary
-
-```bash
-# You need sqlite3.c amalgamation in the build directory
-gcc -static -O2 -o fbpos-v3 fbpos-v3.c sqlite3.c -lm -lpthread -DSQLITE_INTEGRATION
-```
-
-### Build bootable ISO
-
-```bash
-# Requires: kernel image, base initramfs, grub-mkrescue
-./build-final.sh
-```
-
-See `build-final.sh` for the full ISO build process.
-
-## Project Structure
-
-```
-fbpos-v3.c       — Main POS application (single-file C, ~5000 lines)
-font8x16.h       — Embedded 8×16 bitmap font
-input-test.c     — Input device testing utility
-kiosk-init.sh    — Init script for kiosk boot
-build-final.sh   — Full ISO build script
-```
-
 ## Architecture
 
 - **Rendering:** Direct framebuffer writes to `/dev/fb0` (32-bit BGRA)
-- **Input:** Linux evdev (`/dev/input/eventN`) for touch + mouse
-- **Database:** SQLite3 compiled-in (amalgamation build)
-- **Font:** Embedded 8×16 bitmap font, no external dependencies
-- **Boot:** Custom BusyBox initramfs → dropbear SSH → POS app
+- **Input:** Linux evdev (`/dev/input/eventN`) for touch, mouse, keyboard
+- **Database:** SQLite3 (compiled into the app)
+- **Font:** Embedded bitmap font, no external dependencies
+- **Boot:** Custom BusyBox initramfs → Dropbear SSH → app
+- **Init:** BusyBox init, no systemd/openrc
+
+## Quick Start
+
+```bash
+# 1. Download external sources (kernel, BusyBox, Dropbear, SQLite)
+./scripts/fetch-sources.sh
+#    For the RT tree instead: KERNEL_FLAVOR=rt ./scripts/fetch-sources.sh
+
+# 2. Build a bootable POS ISO
+./scripts/build-pos-iso.sh defconfig-qemu wayangos-pos-qemu.iso
+```
+
+Full instructions, prerequisites, the edition matrix, and QEMU testing are in
+[`BUILDING.md`](BUILDING.md).
 
 ## Default Login
 
-- **Admin:** username `admin`, PIN `1234`
+- **OS shell (SSH/serial):** root, no password by default (development image)
+- **POS app:** username `admin`, PIN `1234`
+
+> **Security:** the default rootfs ships with passwordless root SSH for development convenience. Do not expose it to untrusted networks. See the Security section in `BUILDING.md`.
+
+## Security
+
+The base rootfs is intended for development and controlled deployments. Before shipping to the field:
+
+- Set a root password or add an SSH key to `/root/.ssh/authorized_keys`
+- Restrict or disable Dropbear on port 22
+- Change the default POS admin PIN
+
+## Contributing
+
+- Shell scripts are linted with `shellcheck` in CI (`.github/workflows/ci.yml`).
+- Keep scripts POSIX `sh` where possible; they run inside a BusyBox initramfs.
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE).

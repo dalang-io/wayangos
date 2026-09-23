@@ -7,9 +7,7 @@ set -e
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPTS_DIR="$REPO_DIR/scripts"
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
-POS_BINARY="${POS_BINARY:-$HOME/wayangos-pos-lvgl/wayang-pos-static}"
-SQLITE_C="$BUILD/sqlite3.c"
-SQLITE_H="$BUILD/sqlite3.h"
+POS_BINARY="${POS_BINARY:-$BUILD/wayang-pos-static}"
 
 CONFIG_NAME="${1:-defconfig-qemu}"
 OUTPUT="${2:-$BUILD/wayangos-pos-${CONFIG_NAME}.iso}"
@@ -44,13 +42,13 @@ fi
 echo "--- Adding POS to rootfs ---"
 
 if [ ! -f "$POS_BINARY" ]; then
-    echo "ERROR: POS binary not found at $POS_BINARY"
-    echo "Build it first: cd ~/wayangos-pos-lvgl && make"
-    exit 1
+    echo "--- POS binary not found, building it ---"
+    bash "$SCRIPTS_DIR/build-pos.sh"
+    POS_BINARY="$BUILD/wayang-pos-static"
 fi
 
 WORK=$(mktemp -d)
-trap "rm -rf $WORK" EXIT
+trap 'rm -rf "$WORK"' EXIT
 
 cd "$WORK"
 gunzip -c "$BASE_INITRAMFS" | cpio -id 2>/dev/null

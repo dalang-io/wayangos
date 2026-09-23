@@ -19,7 +19,7 @@ echo "  Initramfs: $INITRAMFS ($(du -h "$INITRAMFS" | cut -f1))"
 echo "  Output:    $OUTPUT"
 
 ISO_DIR=$(mktemp -d)
-trap "rm -rf $ISO_DIR" EXIT
+trap 'rm -rf "$ISO_DIR"' EXIT
 
 mkdir -p "$ISO_DIR/boot/grub"
 cp "$KERNEL" "$ISO_DIR/boot/vmlinuz"

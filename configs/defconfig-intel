@@ -1,0 +1,9 @@
+# WAYANG_BASE: defconfig-qemu
+#
+# WayangOS x86_64 Intel i915 GPU kernel fragment.
+# Enables the Direct Rendering Manager core plus the Intel
+# integrated-graphics driver on top of the QEMU base config.
+#
+CONFIG_DRM=y
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_DRM_I915=y

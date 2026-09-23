@@ -1,0 +1,27 @@
+# WAYANG_BASE: defconfig
+#
+# WayangOS arm64 Raspberry Pi 3 fragment.
+# SoC: Broadcom BCM2837 (Cortex-A53 quad-core, ARM64)
+# GPU: VideoCore IV (VC4 display + V3D render)
+# Boot: arm64 Image + bcm2837-rpi-3-b.dtb (U-Boot / config.txt)
+#
+# Resolved on top of `make ARCH=arm64 defconfig`.
+CONFIG_ARM64=y
+CONFIG_ARCH_BCM=y
+CONFIG_ARCH_BCM2835=y
+CONFIG_DRM=y
+CONFIG_DRM_VC4=y
+CONFIG_DRM_V3D=y
+CONFIG_FB=y
+CONFIG_FRAMEBUFFER_CONSOLE=y
+CONFIG_MMC=y
+CONFIG_MMC_BCM2835=y
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_USB=y
+CONFIG_USB_DWC2=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_EXT4_FS=y
+CONFIG_TMPFS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y

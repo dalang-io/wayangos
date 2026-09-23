@@ -8,14 +8,23 @@ BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
 ROOTFS="$BUILD/rootfs"
 INITRAMFS="$BUILD/wayangos-initramfs.img"
 BUSYBOX="$BUILD/busybox-1.37.0/busybox"
+BUSYBOX_DIR="$BUILD/busybox-1.37.0"
 DROPBEAR_DIR="$BUILD/dropbear-2024.86"
 
-echo "=== Building WayangOS Rootfs ==="
+ARCH="${ARCH:-x86_64}"
+case "$ARCH" in
+    x86_64) CROSS_COMPILE="${CROSS_COMPILE:-}" ;;
+    arm64)  CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}" ;;
+    *)
+        echo "ERROR: unsupported ARCH=$ARCH (allowed: x86_64, arm64)" >&2
+        exit 1
+        ;;
+esac
+
+echo "=== Building WayangOS Rootfs ($ARCH) ==="
 
 # Validate dependencies
-for dep in "$BUSYBOX"; do
-    [ -f "$dep" ] || { echo "ERROR: Missing $dep — build BusyBox first"; exit 1; }
-done
+[ -f "$BUSYBOX" ] || { echo "ERROR: Missing $BUSYBOX — run scripts/fetch-sources.sh first"; exit 1; }
 
 # Clean rootfs
 rm -rf "$ROOTFS"
@@ -25,6 +34,17 @@ mkdir -p "$ROOTFS"/{bin,sbin,usr/bin,usr/sbin,etc,proc,sys,dev,tmp,var/log,var/r
 # 1. BusyBox
 # ============================================
 echo "[1/4] Installing BusyBox..."
+if [ "$ARCH" = "arm64" ]; then
+    echo "  Cross-building BusyBox for arm64..."
+    (
+        cd "$BUSYBOX_DIR"
+        make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" distclean >/dev/null 2>&1 || true
+        make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" defconfig >/dev/null
+        sed -i 's/# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
+        sed -i 's/^CONFIG_TC=y/# CONFIG_TC is not set/' .config
+        make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)" LDFLAGS=-static >/dev/null
+    )
+fi
 cp "$BUSYBOX" "$ROOTFS/bin/busybox"
 chmod 755 "$ROOTFS/bin/busybox"
 
@@ -42,13 +62,25 @@ cd "$BUILD"
 # 2. Dropbear SSH
 # ============================================
 echo "[2/4] Installing Dropbear SSH..."
-if [ ! -f "$DROPBEAR_DIR/dropbearmulti" ]; then
+if [ "$ARCH" = "arm64" ]; then
+    echo "  Cross-building Dropbear for arm64..."
+    cd "$DROPBEAR_DIR"
+    if [ -f Makefile ]; then
+        make distclean >/dev/null 2>&1 || true
+    fi
+    CC="${CROSS_COMPILE}gcc" ./configure --host=aarch64-linux-gnu \
+        --enable-static --disable-zlib --disable-pam --disable-harden \
+        --disable-lastlog --disable-utmp --disable-utmpx --disable-wtmp --disable-wtmpx \
+        LDFLAGS="-static" CFLAGS="-Os -s" 2>&1 | tail -3
+    make PROGRAMS="dropbear dropbearkey dbclient scp" MULTI=1 STATIC=1 -j"$(nproc)" 2>&1 | tail -5
+    cd "$BUILD"
+elif [ ! -f "$DROPBEAR_DIR/dropbearmulti" ]; then
     echo "  Building Dropbear from source..."
     cd "$DROPBEAR_DIR"
     [ -f Makefile ] || ./configure --enable-static --disable-zlib --disable-pam --disable-harden \
         --disable-lastlog --disable-utmp --disable-utmpx --disable-wtmp --disable-wtmpx \
         LDFLAGS="-static" CFLAGS="-Os -s" 2>&1 | tail -3
-    make PROGRAMS="dropbear dropbearkey dbclient scp" MULTI=1 STATIC=1 -j$(nproc) 2>&1 | tail -5
+    make PROGRAMS="dropbear dropbearkey dbclient scp" MULTI=1 STATIC=1 -j"$(nproc)" 2>&1 | tail -5
     cd "$BUILD"
 fi
 
@@ -65,14 +97,18 @@ echo "  Dropbear: $(du -h "$ROOTFS/usr/bin/dropbearmulti" | cut -f1)"
 # 3. Static curl
 # ============================================
 echo "[3/4] Installing static curl..."
-if [ -f "$ROOTFS/usr/bin/curl" ]; then
+if [ "$ARCH" != "x86_64" ]; then
+    echo "  WARNING: static curl is x86_64-only; skipping for $ARCH" >&2
+elif [ -f "$ROOTFS/usr/bin/curl" ]; then
     echo "  curl already present"
 else
     CURL_URL="https://github.com/moparisthebest/static-curl/releases/latest/download/curl-amd64"
     wget -q "$CURL_URL" -O "$ROOTFS/usr/bin/curl"
     chmod 755 "$ROOTFS/usr/bin/curl"
 fi
-echo "  curl: $(du -h "$ROOTFS/usr/bin/curl" | cut -f1)"
+if [ -f "$ROOTFS/usr/bin/curl" ]; then
+    echo "  curl: $(du -h "$ROOTFS/usr/bin/curl" | cut -f1)"
+fi
 
 # ============================================
 # 4. Init scripts & config
@@ -258,5 +294,9 @@ echo ""
 echo "=== Rootfs Complete ==="
 echo "  BusyBox: $(du -h bin/busybox | cut -f1)"
 echo "  Dropbear: $(du -h usr/bin/dropbearmulti | cut -f1)"
-echo "  curl: $(du -h usr/bin/curl | cut -f1)"
+if [ -f usr/bin/curl ]; then
+    echo "  curl: $(du -h usr/bin/curl | cut -f1)"
+else
+    echo "  curl: skipped ($ARCH)"
+fi
 echo "  Initramfs: $(du -h "$INITRAMFS" | cut -f1)"

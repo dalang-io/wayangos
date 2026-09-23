@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Download WayangOS &mdash; Ultra-minimal Linux distro. Pilih edisi sesuai GPU: Intel, AMD, NVIDIA, Raspberry Pi, Orange Pi. Gratis dan open source.">
     <meta property="og:title" content="Download WayangOS &mdash; Pilih Edisi untuk Hardware Anda">
-    <meta property="og:description" content="ISO 20MB, boot dalam 2 detik. Tersedia untuk Intel, AMD, NVIDIA, Raspberry Pi, Orange Pi.">
+    <meta property="og:description" content="ISO 17&ndash;35 MB per edisi, boot dalam 2 detik. Tersedia untuk Intel, AMD, NVIDIA, Raspberry Pi, Orange Pi.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://wayang.dalang.io/download.html">
     <meta property="og:image" content="https://wayang.dalang.io/assets/og-download.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Download WayangOS — Pilih Edisi untuk Hardware Anda">
-    <meta name="twitter:description" content="ISO 20MB, boot dalam 2 detik. Tersedia untuk Intel, AMD, NVIDIA, Raspberry Pi, Orange Pi.">
+    <meta name="twitter:description" content="ISO 17&ndash;35 MB per edisi, boot dalam 2 detik. Tersedia untuk Intel, AMD, NVIDIA, Raspberry Pi, Orange Pi.">
     <meta name="twitter:image" content="https://wayang.dalang.io/assets/og-download.png">
     <link rel="canonical" href="https://wayang.dalang.io/download.html">
     <link rel="alternate" hreflang="en" href="https://wayang.dalang.io/download.html">
@@ -223,27 +223,27 @@
             </details>
         </div>
 
-        <!-- WayangPOS Downloads -->
+        <!-- WayangPOS — build from source -->
         <div class="mb-12">
             <div class="flex items-center gap-3 mb-5 pb-3 border-b border-w-border">
                 <h2 class="text-xl font-bold text-w-text">🏪 WayangOS POS</h2>
-                <span class="text-w-dim text-sm">v3.0.0</span>
+                <span class="text-w-dim text-sm">from source</span>
             </div>
-            <p class="text-w-text2 text-sm mb-5"><span data-id="Sistem kasir lengkap untuk toko, kafe, dan warung. Siap layar sentuh, keyboard virtual, 100% offline.">Complete Point of Sale system for shops, cafés, and stores. Touchscreen-ready, virtual keyboard, 100% offline.</span></p>
+            <p class="text-w-text2 text-sm mb-5"><span data-id="Sistem kasir lengkap untuk toko, kafe, dan warung. Siap layar sentuh, keyboard virtual, 100% offline.">Complete Point of Sale system for shops, cafés, and stores. Touchscreen-ready, virtual keyboard, 100% offline.</span> The POS app ships in this repo at <code class="bg-w-bg2 px-1.5 py-0.5 rounded text-w-gold">wayangos-pos/</code> — build it with <code class="bg-w-bg2 px-1.5 py-0.5 rounded text-w-gold">scripts/build-pos.sh</code>.</p>
             <div class="pos-grid">
                 <div class="bg-w-card border border-w-border rounded-xl p-7 max-md:p-5 text-center transition-all hover:border-w-gold">
                     <div class="text-3xl mb-2.5">💿</div>
-                    <h3 class="text-w-gold text-lg mb-1">POS — UEFI + BIOS</h3>
-                    <div class="text-w-dim text-xs mb-3">For modern & legacy hardware</div>
-                    <div class="text-w-gold text-xl font-extrabold mb-3.5">25 MB</div>
-                    <a href="https://github.com/mashanz/wayangos-pos/releases/download/v3.0.0/wayangos-pos-uefi.iso" class="block bg-w-gold text-black p-3 rounded-lg font-bold no-underline text-sm hover:bg-w-gold-b transition-all">⬇ Download UEFI+BIOS</a>
+                    <h3 class="text-w-gold text-lg mb-1">POS — Static Binary</h3>
+                    <div class="text-w-dim text-xs mb-3">Compile the POS app for any WayangOS image</div>
+                    <div class="text-w-gold text-xs font-mono font-bold mb-3.5 break-all">./scripts/build-pos.sh</div>
+                    <a href="https://github.com/mashanz/wayangos/tree/master/wayangos-pos" target="_blank" class="block bg-w-gold text-black p-3 rounded-lg font-bold no-underline text-sm hover:bg-w-gold-b transition-all">Build from source →</a>
                 </div>
                 <div class="bg-w-card border border-w-border rounded-xl p-7 max-md:p-5 text-center transition-all hover:border-w-gold">
                     <div class="text-3xl mb-2.5">📀</div>
-                    <h3 class="text-w-gold text-lg mb-1">POS — BIOS Only</h3>
-                    <div class="text-w-dim text-xs mb-3">For older PCs/laptops (legacy BIOS)</div>
-                    <div class="text-w-gold text-xl font-extrabold mb-3.5">18 MB</div>
-                    <a href="https://github.com/mashanz/wayangos-pos/releases/download/v3.0.0/wayangos-pos-v3.iso" class="block bg-w-bg2 text-w-gold border border-w-gold p-3 rounded-lg font-bold no-underline text-sm hover:bg-w-gold-dim transition-all">⬇ Download BIOS</a>
+                    <h3 class="text-w-gold text-lg mb-1">POS — Full ISO</h3>
+                    <div class="text-w-dim text-xs mb-3">Kernel + rootfs + POS → bootable UEFI/BIOS ISO</div>
+                    <div class="text-w-gold text-xs font-mono font-bold mb-3.5 break-all">./scripts/build-pos-iso.sh defconfig-qemu</div>
+                    <a href="https://github.com/mashanz/wayangos/tree/master/wayangos-pos" target="_blank" class="block bg-w-bg2 text-w-gold border border-w-gold p-3 rounded-lg font-bold no-underline text-sm hover:bg-w-gold-dim transition-all">Build from source →</a>
                 </div>
             </div>
             <p class="text-center mt-4"><a href="apps/pos.html" class="text-w-gold no-underline text-sm">Learn more about WayangPOS — features, hardware, tech specs →</a></p>
@@ -261,7 +261,7 @@
             <p class="text-w-text2 text-sm mb-3"><span data-id="Ingin kustomisasi? Build dari source:">Want to customize? Build from source:</span></p>
             <div class="flex justify-center gap-4 flex-wrap">
                 <a href="https://github.com/mashanz/wayangos" target="_blank" class="text-w-gold text-sm no-underline bg-w-card border border-w-border px-5 py-2.5 rounded-md">🔧 WayangOS Source</a>
-                <a href="https://github.com/mashanz/wayangos-pos" target="_blank" class="text-w-gold text-sm no-underline bg-w-card border border-w-border px-5 py-2.5 rounded-md">🏪 POS Source</a>
+                <a href="https://github.com/mashanz/wayangos/tree/master/wayangos-pos" target="_blank" class="text-w-gold text-sm no-underline bg-w-card border border-w-border px-5 py-2.5 rounded-md">🏪 POS Source</a>
             </div>
         </div>
     </div>

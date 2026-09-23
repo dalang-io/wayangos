@@ -1,83 +1,68 @@
-# Building WayangOS
+# Building WayangOS (details)
 
-## Prerequisites
+This file previously duplicated the main build guide with outdated instructions.
+**The canonical, up-to-date build guide is [`../BUILDING.md`](../BUILDING.md).**
 
-### Debian/Ubuntu
-```bash
-sudo apt install build-essential flex bison bc libelf-dev libssl-dev \
-  gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
-  cpio gzip qemu-system-x86 qemu-system-arm qemu-system-misc
-```
+Use it for prerequisites, the full pipeline, and QEMU testing. The notes below
+only cover per-component details.
 
-### Arch Linux
-```bash
-sudo pacman -S base-devel flex bison bc libelf openssl \
-  aarch64-linux-gnu-gcc riscv64-linux-gnu-gcc \
-  cpio qemu-full
-```
+## Components
 
-## Building the Kernel
+| Component | Version | Source location | Provided by |
+|-----------|---------|-----------------|-------------|
+| Linux kernel | 6.19.7 | `$BUILD_DIR/linux-6.19.7` | `scripts/fetch-sources.sh` |
+| Linux kernel (RT) | 6.19.3-rt1 | `$BUILD_DIR/linux-6.19.3-rt1` | `KERNEL_FLAVOR=rt scripts/fetch-sources.sh` |
+| ARM64 kernel | 6.19.7 | `$BUILD_DIR/linux-6.19.7` | built with `ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-` |
+| BusyBox | 1.37.0 | `$BUILD_DIR/busybox-1.37.0/busybox` | `scripts/fetch-sources.sh` (prebuilt static) |
+| Dropbear SSH | 2024.86 | `$BUILD_DIR/dropbear-2024.86` | `scripts/fetch-sources.sh` |
+| SQLite | amalgamation | `$BUILD_DIR/sqlite3.c` / `.h` | `scripts/fetch-sources.sh` |
+| POS application | in-repo | `wayangos-pos/fbpos-v3.c` | `scripts/build-pos.sh` |
 
-```bash
-# Make scripts executable
-chmod +x build/*.sh
-
-# Build x86_64 minimal kernel
-./build/build-kernel.sh x86_64 minimal
-
-# Build ARM64 server kernel
-./build/build-kernel.sh arm64 server
-
-# Build RISC-V real-time kernel
-./build/build-kernel.sh riscv rt
-```
-
-Output goes to `build/output/<arch>-<config>/`.
-
-## Building the Root Filesystem
+`$BUILD_DIR` defaults to `~/wayangos-build` and can be overridden:
 
 ```bash
-./build/build-rootfs.sh x86_64
+BUILD_DIR=/path/to/build ./scripts/build-pos-iso.sh defconfig-qemu
 ```
 
-Output: `build/output/rootfs/<arch>-initramfs.cpio.gz`
+## Kernel
 
-## Testing with QEMU
-
-### x86_64
 ```bash
-qemu-system-x86_64 \
-  -kernel build/output/x86_64-minimal/bzImage \
-  -initrd build/output/rootfs/x86_64-initramfs.cpio.gz \
-  -append "console=ttyS0" \
-  -nographic -m 64M
+./scripts/build-kernel.sh <config-name> [output-name]
 ```
 
-### ARM64
+The script copies `configs/<config-name>` into the kernel tree (`$KDIR`), runs
+`make olddefconfig`, builds the kernel, and writes the result to
+`$BUILD_DIR/<output-name>`. It is ARCH-aware: set `ARCH` (`x86_64` or `arm64`)
+and `CROSS_COMPILE` for non-native targets.
+
+Maintained configs: `defconfig-qemu`, `defconfig-rt`, `defconfig-intel`,
+`defconfig-amd`, `defconfig-nvidia`, `defconfig-arm64-rpi3`, and
+`defconfig-arm64-orangepi-zero2w`. See
+[`../configs/README.md`](../configs/README.md) for details.
+
+## Rootfs
+
 ```bash
-qemu-system-aarch64 \
-  -machine virt -cpu cortex-a72 \
-  -kernel build/output/arm64-minimal/Image \
-  -initrd build/output/rootfs/arm64-initramfs.cpio.gz \
-  -append "console=ttyAMA0" \
-  -nographic -m 64M
+./scripts/build-rootfs.sh
 ```
 
-### RISC-V
+Produces `$BUILD_DIR/wayangos-initramfs.img`: BusyBox (all applets) + Dropbear
+SSH + static curl, with init scripts generated inline. See
+[`../scripts/build-rootfs.sh`](../scripts/build-rootfs.sh).
+
+## ISO
+
 ```bash
-qemu-system-riscv64 \
-  -machine virt \
-  -kernel build/output/riscv-minimal/Image \
-  -initrd build/output/rootfs/riscv-initramfs.cpio.gz \
-  -append "console=ttyS0" \
-  -nographic -m 64M
+# Plain OS
+./scripts/build-iso.sh <kernel> <initramfs> [output.iso]
+
+# Full POS pipeline (kernel + rootfs + POS binary → ISO)
+./scripts/build-pos-iso.sh defconfig-qemu wayangos-pos-qemu.iso
 ```
 
-## Custom Configurations
+## Architecture
 
-To create a custom kernel config:
-
-1. Start from an existing profile: `cp configs/minimal.config configs/custom.config`
-2. Edit with menuconfig: `cd kernel && make ARCH=x86_64 menuconfig`
-3. Save the result: `cp .config ../configs/custom.config`
-4. Build: `./build/build-kernel.sh x86_64 custom`
+The kernel script is ARCH-aware and covers **x86_64** (`defconfig-qemu`,
+`defconfig-rt`, `defconfig-intel`, `defconfig-amd`, `defconfig-nvidia`) and
+**ARM64** (`defconfig-arm64-rpi3`, `defconfig-arm64-orangepi-zero2w`). RISC-V
+remains a roadmap item — see [`ARCHITECTURE.md`](ARCHITECTURE.md).
