@@ -243,12 +243,22 @@ rated_TBW ≈ capacity_TB * 0.3 * 365 * 5     # ≈0.3 DWPD for 5 years
 
 ### HDD
 
-No TBW. Use SMART health + ageing heuristic:
+No TBW. dcheck compares three ageing ratios and extrapolates the dominant one
+(implemented, see `health.rs`):
 
 ```
-design_life ≈ 5 years (43800 h)     # typical consumer/enterprise range
-remaining   ≈ max(design_life - power_on_hours, 0)
+design_hours = hdd_design_years (config, default 5) * 8760   # 43,800 h — ASSUMED
+ratio        = max(power_on_hours / design_hours,
+                   start_stop / rated_start_stop,           # rated by the drive
+                   load_unload / rated_load_unload)         # rated by the drive
+remaining    = power_on_hours * (1/ratio - 1)               # 0 when ratio >= 1
 ```
+
+The design life is an assumption (drives do not report one); the rated cycle
+counts come from the drive (SCSI log page 0x0E / smartctl). A drive past
+100% is flagged MONITOR ("past its design life") and the report shows by how
+long it is overdue. Estimates are not capped; the confidence line says how
+much to trust them.
 
 Flag on: reallocated sectors > 0, pending sectors > 0, offline uncorrectable > 0,
 spin retry > 0, SMART FAILED, temperature beyond range.

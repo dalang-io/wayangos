@@ -18,6 +18,7 @@ mod ram;
 mod report;
 mod smartctl;
 mod tui;
+mod update;
 
 use std::io::{self, IsTerminal, Write};
 
@@ -49,6 +50,7 @@ fn run(args: &[String]) -> i32 {
         Some("check") => check_cmd(&args[1..], false),
         Some("watch") => watch_cmd(&args[1..], false),
         Some("prometheus") => prometheus_cmd(&args[1..], false),
+        Some("update") | Some("self-update") => update::cmd(&args[1..]),
         Some("tui") => run_tui(
             false,
             tui_theme_arg(&args[1..]),
@@ -198,6 +200,7 @@ USAGE:
     dcheck check            One-shot health gate (exit code = worst verdict)
     dcheck watch            Monitor + alert (--interval, --webhook, --json)
     dcheck prometheus       Prometheus metrics for scrapers
+    dcheck update           Update to the latest release (--check, --force)
     dcheck demo             Run with built-in sample devices (no sysfs needed)
     dcheck ram | cpu        Memory / CPU report (--json)
     dcheck --version

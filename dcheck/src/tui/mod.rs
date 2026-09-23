@@ -84,7 +84,10 @@ impl DevHealth {
             Some((s, h)) => DevHealth {
                 label: h.verdict.label().to_string(),
                 sev: h.verdict.severity(),
-                life: h.wear_used_percent.map(|w| 100u64.saturating_sub(w)),
+                life: h
+                    .wear_used_percent
+                    .or(h.design_life_used)
+                    .map(|w| 100u64.saturating_sub(w)),
                 temp: s.temperature_c,
             },
             None => DevHealth {

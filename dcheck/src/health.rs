@@ -8,6 +8,16 @@ use crate::smartctl::SmartData;
 const DAYS_247_PER_DAY: u64 = 24;
 const DAYS_87_PER_DAY: u64 = 8; // office: 8h/day, 7 days/week
 
+/// Hours in a year of 24/7 operation.
+const HOURS_PER_YEAR: f64 = 365.0 * 24.0;
+
+/// Assumed HDD design life in hours: `hdd_design_years` from the config,
+/// default 5 years at 24/7 (typical enterprise service life / warranty;
+/// consumer drives are rarely rated higher). Drives do not report this.
+pub fn hdd_design_hours() -> u64 {
+    (crate::config::load().hdd_design_years * HOURS_PER_YEAR).round() as u64
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     Ok,
@@ -66,6 +76,16 @@ pub struct Health {
     pub rated_tbw_bytes: Option<u64>,
     pub wear_used_percent: Option<u64>,
     pub remaining_poh: Option<u64>,
+    /// HDD: share of the design life / rated cycles already used (may exceed
+    /// 100), and which limit dominates.
+    pub design_life_used: Option<u64>,
+    pub design_limit: Option<&'static str>,
+    /// What the life estimate is based on.
+    pub life_basis: Option<&'static str>,
+    /// Hours the drive has run past its rated life (0 remaining).
+    pub overdue_poh: Option<u64>,
+    /// Assumed HDD design life (hours at 24/7) the estimate used.
+    pub design_hours: Option<u64>,
     pub days_247: Option<u64>,
     pub days_87: Option<u64>,
     pub confidence: Confidence,
@@ -168,6 +188,50 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         }
     }
 
+    let mut life_basis = if remaining_poh.is_none() {
+        None
+    } else if wear_used.is_some() {
+        Some("vendor wear indicator")
+    } else {
+        Some("host writes vs rated endurance (TBW)")
+    };
+
+    // HDDs have no endurance rating: compare runtime and mechanical cycles
+    // with the design life / rated counts and extrapolate the dominant one.
+    let is_hdd = device.kind == crate::model::MediaKind::Hdd
+        || smart.rotation_rate.is_some_and(|r| r > 0);
+    let mut design_life_used = None;
+    let mut design_limit = None;
+    let mut overdue_poh = None;
+    let mut design_hours = None;
+    if is_hdd && wear_used.is_none() {
+        let hours = hdd_design_hours();
+        if let Some((what, ratio)) = hdd_design_ratio(smart, hours) {
+            design_life_used = Some((ratio * 100.0).round() as u64);
+            design_limit = Some(what);
+            design_hours = Some(hours);
+            life_basis = Some("assumed HDD design life and the drive's rated cycles");
+            let poh = smart.power_on_hours.unwrap_or(0);
+            if ratio >= 1.0 && poh > 0 {
+                // Runtime beyond the point where the dominant limit hit 100%.
+                overdue_poh = Some((poh as f64 * (1.0 - 1.0 / ratio)) as u64);
+            }
+            remaining_poh = if ratio >= 1.0 {
+                Some(0)
+            } else if ratio > 0.0 && poh > 0 {
+                Some((poh as f64 * (1.0 / ratio - 1.0)) as u64)
+            } else {
+                None
+            };
+            if ratio >= 1.0 {
+                issues.push(format!(
+                    "past its design life ({what} at {}% of rating) — plan a replacement",
+                    (ratio * 100.0).round()
+                ));
+            }
+        }
+    }
+
     // Wear is reported in whole percent, so 1-2% extrapolates very noisily.
     let confidence = if wear_used.is_some_and(|w| w > 2) {
         Confidence::High
@@ -201,11 +265,36 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         rated_tbw_bytes: rated,
         wear_used_percent: wear_used,
         remaining_poh,
+        design_life_used,
+        design_limit,
+        life_basis,
+        overdue_poh,
+        design_hours,
         days_247: remaining_poh.map(|h| h / DAYS_247_PER_DAY),
         days_87: remaining_poh.map(|h| h / DAYS_87_PER_DAY),
         confidence,
         notes,
     }
+}
+
+/// Dominant HDD ageing ratio: power-on hours vs design life, start-stop and
+/// load-unload cycles vs their rated counts.
+fn hdd_design_ratio(s: &SmartData, design_hours: u64) -> Option<(&'static str, f64)> {
+    let mut best: Option<(&'static str, f64)> = None;
+    let mut consider = |what, used: Option<u64>, rated: Option<u64>| {
+        if let (Some(u), Some(r)) = (used, rated) {
+            if r > 0 {
+                let ratio = u as f64 / r as f64;
+                if best.is_none_or(|(_, b)| ratio > b) {
+                    best = Some((what, ratio));
+                }
+            }
+        }
+    };
+    consider("power-on hours", s.power_on_hours, Some(design_hours));
+    consider("start-stop cycles", s.power_cycles, s.rated_start_stop);
+    consider("load-unload cycles", s.load_unload, s.rated_load_unload);
+    best
 }
 
 /// User-provided TBW overrides, loaded once.
@@ -325,6 +414,52 @@ fn rated_tbw_table(m: &str, capacity_bytes: u64) -> Option<u64> {
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
+
+    fn hdd(size: u64) -> Device {
+        Device {
+            kind: MediaKind::Hdd,
+            bus: Bus::Scsi,
+            ..ssd("TOSHIBA MBF2300RC", size)
+        }
+    }
+
+    #[test]
+    fn hdd_life_from_design_hours() {
+        let mut s = SmartData::default();
+        s.passed = Some(true);
+        s.power_on_hours = Some(21_900); // half of 5 y
+        s.power_cycles = Some(40);
+        s.rated_start_stop = Some(50_000);
+        let h = evaluate(&hdd(300_000_000_000), &s);
+        assert_eq!(h.design_life_used, Some(50));
+        assert_eq!(h.design_limit, Some("power-on hours"));
+        assert_eq!(h.remaining_poh, Some(21_900));
+        assert_eq!(h.verdict, Verdict::Ok);
+        assert_eq!(h.confidence, Confidence::Low);
+    }
+
+    #[test]
+    fn hdd_cycles_can_dominate() {
+        let mut s = SmartData::default();
+        s.passed = Some(true);
+        s.power_on_hours = Some(1_000);
+        s.load_unload = Some(150_000);
+        s.rated_load_unload = Some(200_000);
+        let h = evaluate(&hdd(300_000_000_000), &s);
+        assert_eq!(h.design_limit, Some("load-unload cycles"));
+        assert_eq!(h.design_life_used, Some(75));
+    }
+
+    #[test]
+    fn hdd_past_design_life_is_monitor() {
+        let mut s = SmartData::default();
+        s.passed = Some(true);
+        s.power_on_hours = Some(91_992);
+        let h = evaluate(&hdd(900_000_000_000), &s);
+        assert_eq!(h.remaining_poh, Some(0));
+        assert_eq!(h.verdict, Verdict::Monitor);
+        assert!(h.issues.iter().any(|i| i.contains("design life")));
+    }
     use crate::model::{Bus, MediaKind};
 
     fn ssd(model: &str, size: u64) -> Device {

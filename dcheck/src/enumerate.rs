@@ -92,8 +92,13 @@ pub fn find_device(devices: &[Device], needle: &str) -> Option<Device> {
         .cloned()
 }
 
+/// Virtual / layered block devices: no SMART, and they would only add
+/// UNKNOWN rows (and a non-zero `dcheck check`). Ceph RBD, DRBD and bcache
+/// devices also resolve outside `/devices/virtual`, so match them by name.
 fn is_ignored(name: &str) -> bool {
-    const PREFIXES: [&str; 8] = ["loop", "ram", "zram", "dm-", "md", "sr", "nbd", "zd"];
+    const PREFIXES: [&str; 11] = [
+        "loop", "ram", "zram", "dm-", "md", "sr", "nbd", "zd", "rbd", "drbd", "bcache",
+    ];
     PREFIXES.iter().any(|p| name.starts_with(p))
 }
 
@@ -735,6 +740,16 @@ mod freebsd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ignores_virtual_block_devices() {
+        for name in ["rbd0", "rbd63", "drbd1", "bcache0", "dm-3", "loop7", "nbd0", "zd16", "md127"] {
+            assert!(is_ignored(name), "{name} should be skipped");
+        }
+        for name in ["sda", "nvme0n1", "mmcblk0", "vda", "xvda"] {
+            assert!(!is_ignored(name), "{name} should be listed");
+        }
+    }
 
     #[test]
     fn partitions_are_recognised() {

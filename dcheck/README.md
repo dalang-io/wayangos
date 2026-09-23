@@ -14,6 +14,18 @@ external tools.
 > FreeBSD/macOS backend.
 > Full plan: [`../docs/DCHECK.md`](../docs/DCHECK.md).
 
+## Install
+
+Linux x86_64 / aarch64 (static binary, checksum-verified):
+
+```bash
+curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh
+dcheck update            # later: upgrade in place (--check to only look)
+```
+
+`DCHECK_INSTALL_DIR` (default `/usr/local/bin`) and `DCHECK_VERSION` override
+the defaults. Releases are published with `scripts/deploy-site.sh`.
+
 ## Usage
 
 ```
@@ -30,6 +42,7 @@ dcheck storage <dev> --json   # full JSON report for one device
 dcheck tui              # force the terminal UI
 dcheck demo             # run with built-in sample devices
 dcheck ram | cpu        # memory / CPU report (or --json)
+dcheck update           # self-update from wayang.dalang.io (--check, --force)
 dcheck --version
 ```
 
@@ -80,7 +93,7 @@ cargo run -- storage /dev/nvme0n1
 
 ## Build
 
-Requires Rust (1.74+).
+Requires Rust 1.98.1 (pinned in `rust-toolchain.toml`).
 
 ```bash
 # Native debug build for local testing
@@ -130,7 +143,9 @@ mounted and unmounted partitions, and ignored virtual devices.
 ## Configuration
 
 - `~/.config/dcheck/config.json` (or `$DCHECK_CONFIG`):
-  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false, "transparent": false, "splash": true }`
+  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false, "transparent": false, "splash": true, "hdd_design_years": 5 }`
+  (`hdd_design_years` is the **assumed** HDD design life at 24/7 used for HDD
+  life estimates — drives do not report one; default 5 years = 43,800 h)
 - `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`):
   `{ "model substring": TBW_in_TB }`
 - Env: `DCHECK_SYS_ROOT` (alternate fs root), `DCHECK_SMART_JSON` (parse a

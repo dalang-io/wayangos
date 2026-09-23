@@ -1,0 +1,192 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      4
+    ],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.8.0-124-generic",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "-x",
+      "-j",
+      "/dev/sdb"
+    ],
+    "exit_status": 4
+  },
+  "local_time": {
+    "time_t": 1790162137,
+    "asctime": "Wed Sep 23 11:15:37 2026 UTC"
+  },
+  "device": {
+    "name": "/dev/sdb",
+    "info_name": "/dev/sdb",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "scsi_vendor": "TOSHIBA",
+  "scsi_product": "MBF2300RC",
+  "scsi_model_name": "TOSHIBA MBF2300RC",
+  "scsi_revision": "0109",
+  "scsi_version": "SPC-3",
+  "user_capacity": {
+    "blocks": 585937500,
+    "bytes": 300000000000
+  },
+  "logical_block_size": 512,
+  "rotation_rate": 10025,
+  "form_factor": {
+    "scsi_value": 3,
+    "name": "2.5 inches"
+  },
+  "logical_unit_id": "0x50000393e822400c",
+  "serial_number": "EB00PC309TGF",
+  "device_type": {
+    "scsi_terminology": "Peripheral Device Type [PDT]",
+    "scsi_value": 0,
+    "name": "disk"
+  },
+  "scsi_transport_protocol": {
+    "name": "SAS (SPL-4)",
+    "value": 6
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "temperature_warning": {
+    "enabled": false
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "temperature": {
+    "current": 32,
+    "drive_trip": 65
+  },
+  "scsi_start_stop_cycle_counter": {
+    "year_of_manufacture": "2012",
+    "week_of_manufacture": "12",
+    "specified_cycle_count_over_device_lifetime": 50000,
+    "accumulated_start_stop_cycles": 40,
+    "specified_load_unload_count_over_device_lifetime": 200000,
+    "accumulated_load_unload_cycles": 1785
+  },
+  "scsi_grown_defect_list": 0,
+  "seagate_farm_log": {
+    "supported": false
+  },
+  "scsi_error_counter_log": {
+    "read": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "458181.282",
+      "total_uncorrected_errors": 0
+    },
+    "write": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "58649.514",
+      "total_uncorrected_errors": 0
+    },
+    "verify": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "0.001",
+      "total_uncorrected_errors": 0
+    }
+  },
+  "scsi_self_test_0": {
+    "code": {
+      "value": 5,
+      "string": "Foreground short"
+    },
+    "result": {
+      "value": 0,
+      "string": "Completed"
+    },
+    "power_on_time": {
+      "hours": 1,
+      "aka": "accumulated_power_on_hours"
+    }
+  },
+  "scsi_extended_self_test_seconds": 2723,
+  "scsi_background_scan": {
+    "status": {
+      "value": 8,
+      "string": "waiting until BMS interval timer expires",
+      "number_scans_performed": 1066,
+      "scan_progress": "0.00%",
+      "number_medium_scans_performed": 0
+    }
+  },
+  "power_on_time": {
+    "hours": 25660,
+    "minutes": 6
+  },
+  "scsi_sas_port_0": {
+    "relative_target_port_id": 1,
+    "generation_code": 2,
+    "number_of_phys": 1,
+    "phy_0": {
+      "identifier": 0,
+      "attached_device_type": "expander device",
+      "attached_reason": "SMP phy control function",
+      "reason": "loss of dword synchronization",
+      "negotiated_logical_link_rate": "phy enabled; 6 Gbps",
+      "attached_initiator_port": {
+        "ssp_stp_smp": "000"
+      },
+      "attached_target_port": {
+        "ssp_stp_smp": "001"
+      },
+      "sas_address": "0x50000393e822400e",
+      "attached_sas_address": "0x500056b3378eb5ff",
+      "attached_phy_identifier": 6,
+      "invalid_dword_count": 724,
+      "running_disparity_error_count": 715,
+      "loss_of_dword_synchronization_count": 181,
+      "phy_reset_problem_count": 4
+    }
+  },
+  "scsi_sas_port_1": {
+    "relative_target_port_id": 2,
+    "generation_code": 2,
+    "number_of_phys": 1,
+    "phy_0": {
+      "identifier": 1,
+      "attached_device_type": "no device attached",
+      "attached_reason": "unknown",
+      "reason": "unknown",
+      "negotiated_logical_link_rate": "phy enabled; unknown",
+      "attached_initiator_port": {
+        "ssp_stp_smp": "000"
+      },
+      "attached_target_port": {
+        "ssp_stp_smp": "000"
+      },
+      "sas_address": "0x50000393e822400f",
+      "attached_sas_address": "0x0",
+      "attached_phy_identifier": 0,
+      "invalid_dword_count": 0,
+      "running_disparity_error_count": 0,
+      "loss_of_dword_synchronization_count": 0,
+      "phy_reset_problem_count": 0
+    }
+  }
+}

@@ -14,7 +14,7 @@ use crate::cpu::CpuInfo;
 use crate::health::Health;
 use crate::model::Device;
 use crate::ram::RamInfo;
-use crate::report::{fmt_years, human_size, mount_summary};
+use crate::report::{human_size, mount_summary};
 use crate::smartctl::SmartData;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -565,13 +565,19 @@ fn cpu_vitals(
 fn report_vitals(app: &App, width: u16) -> Vec<Line<'static>> {
     let (p, ui) = (&app.pal, app.ui);
     let Some((s, h)) = &app.report_metrics else {
-        return vec![
+        let mut lines = vec![
             w::field("VERDICT", LW - 1, vec![w::badge(1, "UNKNOWN", p, ui)], p),
             Line::from(""),
-            Line::from(Span::styled("SMART telemetry unavailable.", p.bold(p.warn))),
-            Line::from(Span::styled("Run as root (sudo dcheck) or install", p.fg(p.dim))),
-            Line::from(Span::styled("smartmontools for full diagnostics.", p.fg(p.dim))),
+            Line::from(Span::styled("SMART telemetry unavailable", p.bold(p.warn))),
         ];
+        if let Some(d) = app.report_dev.and_then(|i| app.devices.get(i)) {
+            let (why, hint) = crate::report::smart_unavailable(d);
+            lines.push(Line::from(Span::styled(format!("{} {why}", ui.bullet()), p.fg(p.fg))));
+            if let Some(h) = hint {
+                lines.push(Line::from(Span::styled(format!("{} {h}", ui.bullet()), p.fg(p.dim))));
+            }
+        }
+        return lines;
     };
     let cells = w::gauge_cells_for(width, LW, VW);
     let sev = h.verdict.severity();
@@ -595,21 +601,44 @@ fn report_vitals(app: &App, width: u16) -> Vec<Line<'static>> {
     if !po.is_empty() {
         lines.push(w::field("POWER-ON", LW, text(po.join(&format!(" {} ", ui.dot())), p), p));
     }
-    let years = |d: u64| {
-        let y = fmt_years(d);
-        if y.ends_with('d') {
-            y
-        } else {
-            format!("{y}y")
-        }
-    };
-    let est = match (h.days_247, h.days_87) {
-        (Some(a), Some(b)) => {
-            vec![Span::styled(format!("~{} 24/7 {} ~{} 8h/day", years(a), ui.dot(), years(b)), p.fg(p.fg))]
-        }
-        _ => vec![Span::styled("unknown", p.fg(p.dim))],
+    if let Some((y, wk)) = s.manufactured {
+        let age = crate::report::age_years(y, wk)
+            .map(|a| format!(" {} {a:.1} y old", ui.dot()))
+            .unwrap_or_default();
+        lines.push(w::field("MADE", LW, text(format!("{y} week {wk}{age}"), p), p));
+    }
+    let mut cycles = Vec::new();
+    if let (Some(a), Some(r)) = (s.power_cycles, s.rated_start_stop) {
+        cycles.push(format!("start {a}/{r}"));
+    }
+    if let (Some(a), Some(r)) = (s.load_unload, s.rated_load_unload) {
+        cycles.push(format!("load {a}/{r}"));
+    }
+    if !cycles.is_empty() {
+        lines.push(w::field("CYCLES", LW, text(cycles.join(&format!(" {} ", ui.dot())), p), p));
+    }
+    if let (Some(hours), Some(used), Some(what)) = (h.design_hours, h.design_life_used, h.design_limit) {
+        lines.push(w::field(
+            "DESIGN",
+            LW,
+            vec![
+                Span::styled(format!("{:.1} y @24/7 ", hours as f64 / (365.0 * 24.0)), p.fg(p.fg)),
+                Span::styled(format!("({hours} h, assumed)"), p.fg(p.dim)),
+            ],
+            p,
+        ));
+        lines.push(w::field("", LW, vec![Span::styled(format!("{used}% used ({what})"), p.fg(p.dim))], p));
+    }
+    let est = match crate::report::life_left(h) {
+        Some(t) => vec![Span::styled(t.replace("  |  ", &format!(" {} ", ui.dot())), p.fg(p.fg))],
+        None => vec![Span::styled("unknown", p.fg(p.dim))],
     };
     lines.push(w::field("EST. LIFE", LW, est, p));
+    if h.design_hours.is_none() {
+        if let Some(basis) = h.life_basis {
+            lines.push(w::field("", LW, vec![Span::styled(format!("({basis})"), p.fg(p.dim))], p));
+        }
+    }
 
     lines.push(Line::from(""));
     lines.push(w::caption("ALERTS", width, p, ui));
@@ -641,7 +670,7 @@ fn life_gauges(
     p: &Palette,
     ui: Ui,
 ) {
-    match h.wear_used_percent {
+    match h.wear_used_percent.or(h.design_life_used) {
         Some(used) => {
             let left = 100u64.saturating_sub(used) as f64;
             let color = if left < 20.0 {

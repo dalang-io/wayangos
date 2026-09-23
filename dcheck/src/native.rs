@@ -250,20 +250,217 @@ pub fn parse_nvme_health(data: &[u8]) -> SmartData {
     s
 }
 
-/// Parse SCSI log page parameters (code -> raw data).
+/// Parse SCSI log page parameters (code -> raw data). Stops at the page
+/// length from the header so zero padding is not read as parameters.
 pub fn parse_log_params(buf: &[u8]) -> Vec<(u16, Vec<u8>)> {
     let mut out = Vec::new();
+    if buf.len() < 4 {
+        return out;
+    }
+    let page_len = u16::from_be_bytes([buf[2], buf[3]]) as usize;
+    let end = buf.len().min(4 + page_len);
     let mut i = 4; // skip 4-byte log page header
-    while i + 4 <= buf.len() {
+    while i + 4 <= end {
         let code = u16::from_be_bytes([buf[i], buf[i + 1]]);
         let len = buf[i + 3] as usize;
-        if i + 4 + len > buf.len() {
+        if i + 4 + len > end {
             break;
         }
         out.push((code, buf[i + 4..i + 4 + len].to_vec()));
         i += 4 + len;
     }
     out
+}
+
+/// LOG SENSE page control: cumulative values (what smartctl reports).
+pub const LOG_PC_CUMULATIVE: u8 = 1;
+
+/// LOG SENSE(10) CDB. PC lives in byte 2 bits 7-6 next to the page code;
+/// byte 1 only holds SP/PPC (setting it makes drives reject the command).
+pub fn log_sense_cdb(page: u8, pc: u8, alloc: u16) -> [u8; 10] {
+    let [hi, lo] = alloc.to_be_bytes();
+    [0x4D, 0x00, (pc & 0x03) << 6 | (page & 0x3F), 0, 0, 0, 0, hi, lo, 0]
+}
+
+/// READ DEFECT DATA(10) for the grown defect list (REQ_GLIST, format 4).
+pub fn read_defect_cdb() -> [u8; 10] {
+    [0x37, 0x00, 0x08 | 0x04, 0, 0, 0, 0, 0x00, 0xFC, 0x00]
+}
+
+/// Big-endian unsigned counter of up to 8 bytes (SCSI log parameters vary).
+fn be_uint(data: &[u8]) -> u64 {
+    let tail = &data[data.len().saturating_sub(8)..];
+    tail.iter().fold(0u64, |acc, b| (acc << 8) | *b as u64)
+}
+
+/// Supported page codes from LOG SENSE page 0x00.
+pub fn parse_supported_pages(buf: &[u8]) -> Vec<u8> {
+    if buf.len() < 4 {
+        return Vec::new();
+    }
+    let len = u16::from_be_bytes([buf[2], buf[3]]) as usize;
+    buf[4..buf.len().min(4 + len)].iter().map(|p| p & 0x3F).collect()
+}
+
+/// Fold one SCSI log page into `s`; returns true when it contributed data.
+///
+/// - 0x02 / 0x03 write / read error counters: 0x0005 bytes processed,
+///   0x0006 total uncorrected errors
+/// - 0x0D temperature: 0x0000 current °C (byte 1, 0xFF = unknown)
+/// - 0x06 non-medium errors: 0x0000 count
+/// - 0x0E start-stop cycle counter: 0x0001 manufacture date ("YYYYWW"),
+///   0x0003 / 0x0004 rated / accumulated start-stop cycles,
+///   0x0005 / 0x0006 rated / accumulated load-unload cycles
+/// - 0x10 self-test results: 0x0001 most recent test
+/// - 0x18 SAS protocol port: negotiated link rate + phy error counters
+/// - 0x15 background scan results: 0x0000 accumulated power-on minutes
+/// - 0x2F informational exceptions: 0x0000 ASC/ASCQ (0 = no failure
+///   predicted) and most recent temperature
+pub fn apply_scsi_log(s: &mut SmartData, page: u8, buf: &[u8]) -> bool {
+    let mut found = false;
+    for (code, data) in parse_log_params(buf) {
+        match (page, code) {
+            (0x02 | 0x03, 0x0006) if !data.is_empty() => {
+                s.uncorrectable = Some(s.uncorrectable.unwrap_or(0) + be_uint(&data));
+                found = true;
+            }
+            (0x02 | 0x03, 0x0005) if !data.is_empty() => {
+                let blocks = be_uint(&data) / s.block_size().max(1);
+                if page == 0x02 {
+                    s.lba_written = Some(blocks);
+                } else {
+                    s.lba_read = Some(blocks);
+                }
+                found = true;
+            }
+            (0x0D, 0x0000) if data.len() >= 2 && data[1] != 0xFF => {
+                s.temperature_c = Some(data[1] as i64);
+                found = true;
+            }
+            (0x06, 0x0000) if !data.is_empty() => {
+                s.non_medium_errors = Some(be_uint(&data));
+                found = true;
+            }
+            (0x0E, 0x0001) if data.len() >= 6 && data[..6].is_ascii() => {
+                let text = String::from_utf8_lossy(&data[..6]);
+                if let (Ok(y), Ok(w)) = (text[..4].trim().parse::<u16>(), text[4..].trim().parse::<u8>()) {
+                    if y > 1990 {
+                        s.manufactured = Some((y, w));
+                    }
+                }
+            }
+            (0x0E, 0x0003) if data.len() >= 4 => s.rated_start_stop = Some(be_uint(&data[..4])),
+            (0x0E, 0x0004) if data.len() >= 4 => {
+                s.power_cycles = Some(be_uint(&data[..4]));
+                found = true;
+            }
+            (0x0E, 0x0005) if data.len() >= 4 => s.rated_load_unload = Some(be_uint(&data[..4])),
+            (0x0E, 0x0006) if data.len() >= 4 => s.load_unload = Some(be_uint(&data[..4])),
+            (0x10, 0x0001) if data.len() >= 4 && data.iter().any(|b| *b != 0) => {
+                s.last_self_test = Some(self_test_summary(data[0], u16::from_be_bytes([data[2], data[3]])));
+            }
+            (0x18, _) => {
+                if let Some((rate, errs)) = parse_sas_port(&data) {
+                    if s.interface_speed.is_none() {
+                        s.interface_speed = rate;
+                    }
+                    let acc = s.phy_errors.get_or_insert([0; 4]);
+                    for (a, e) in acc.iter_mut().zip(errs) {
+                        *a += e;
+                    }
+                }
+            }
+            (0x15, 0x0000) if data.len() >= 4 => {
+                s.power_on_hours = Some(be_uint(&data[..4]) / 60);
+                found = true;
+            }
+            (0x2F, 0x0000) if data.len() >= 2 => {
+                s.passed = Some(data[0] == 0);
+                if s.temperature_c.is_none() && data.len() >= 3 && data[2] != 0 && data[2] != 0xFF {
+                    s.temperature_c = Some(data[2] as i64);
+                }
+                found = true;
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// "Foreground short: completed (at 1 h)" from a self-test result byte
+/// (code in bits 7-5, result in bits 3-0) and its power-on-hours stamp.
+fn self_test_summary(b0: u8, hours: u16) -> String {
+    let code = match b0 >> 5 {
+        1 => "Background short",
+        2 => "Background extended",
+        4 => "Abort background",
+        5 => "Foreground short",
+        6 => "Foreground extended",
+        _ => "Self-test",
+    };
+    let result = match b0 & 0x0F {
+        0 => "completed",
+        1 => "aborted by command",
+        2 => "aborted by reset",
+        3 => "unknown error",
+        4 => "FAILED",
+        5..=7 => "FAILED (segment)",
+        0xF => "in progress",
+        _ => "reserved",
+    };
+    format!("{code}: {result} (at {hours} h)")
+}
+
+/// One SAS protocol-specific port parameter (log page 0x18): negotiated link
+/// rate of the first active phy and summed phy error counters.
+fn parse_sas_port(data: &[u8]) -> Option<(Option<String>, [u64; 4])> {
+    if data.len() < 4 || data[0] & 0x0F != 6 {
+        return None; // not SAS
+    }
+    let phys = data[3] as usize;
+    let mut rate = None;
+    let mut errs = [0u64; 4];
+    let mut off = 4;
+    for _ in 0..phys {
+        if off + 4 > data.len() {
+            break;
+        }
+        let len = 4 + data[off + 3] as usize;
+        let desc = &data[off..data.len().min(off + len)];
+        if desc.len() >= 48 {
+            if rate.is_none() {
+                rate = match desc[5] & 0x0F {
+                    0x8 => Some("1.5 Gbps"),
+                    0x9 => Some("3 Gbps"),
+                    0xA => Some("6 Gbps"),
+                    0xB => Some("12 Gbps"),
+                    0xC => Some("22.5 Gbps"),
+                    _ => None,
+                }
+                .map(str::to_string);
+            }
+            for (i, e) in errs.iter_mut().enumerate() {
+                *e += be_uint(&desc[32 + i * 4..36 + i * 4]);
+            }
+        }
+        off += len;
+    }
+    Some((rate, errs))
+}
+
+/// Effective user id is root (SMART ioctls need it).
+pub fn is_root() -> bool {
+    #[cfg(unix)]
+    {
+        extern "C" {
+            fn geteuid() -> u32;
+        }
+        unsafe { geteuid() == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -273,7 +470,8 @@ mod linux {
     use std::path::Path;
 
     use super::{
-        nonempty, parse_ata_smart, parse_log_params, parse_nvme_health, IdInfo, SelfTest, SmartData,
+        apply_scsi_log, log_sense_cdb, read_defect_cdb, nonempty, parse_ata_smart, parse_nvme_health,
+        parse_supported_pages, IdInfo, SelfTest, SmartData, LOG_PC_CUMULATIVE,
     };
     use crate::model::{Bus, Device, MediaKind};
 
@@ -480,54 +678,40 @@ mod linux {
             .unwrap_or_default()
     }
 
-    /// SCSI log page (page control in `pc`: 0x40 = cumulative).
-    fn log_page(fd: CInt, page: u8, pc: u8) -> Option<Vec<u8>> {
-        let mut buf = [0u8; 252];
-        let cdb = [0x4D, pc, page, 0, 0, 0, 0, 0x00, 0xFC, 0x00];
-        if scsi_cmd(fd, &cdb, &mut buf) {
-            Some(buf.to_vec())
-        } else {
-            None
-        }
+    /// Read one SCSI log page (cumulative values).
+    fn log_page(fd: CInt, page: u8) -> Option<Vec<u8>> {
+        let mut buf = vec![0u8; 1024];
+        let cdb = log_sense_cdb(page, LOG_PC_CUMULATIVE, buf.len() as u16);
+        scsi_cmd(fd, &cdb, &mut buf).then_some(buf)
     }
 
     pub fn scsi_read(device: &Device) -> Option<SmartData> {
         let file = fs::File::open(&device.path).ok()?;
         let fd = file.as_raw_fd();
-        let mut s = SmartData::default();
-        s.source = "native".to_string();
-        s.logical_block_size = Some(512);
+        let mut s = SmartData {
+            source: "native".to_string(),
+            logical_block_size: Some(device.logical_block_size.max(512)),
+            ..Default::default()
+        };
+
+        // Only ask for pages the drive lists (page 0x00); fall back to all.
+        const PAGES: [u8; 9] = [0x2F, 0x0D, 0x02, 0x03, 0x06, 0x0E, 0x10, 0x15, 0x18];
+        let supported = log_page(fd, 0x00).map(|b| parse_supported_pages(&b));
         let mut found = false;
-
-        // Temperature (log page 0x0D, parameter 0x0000).
-        if let Some(buf) = log_page(fd, 0x0D, 0x40) {
-            for (code, data) in parse_log_params(&buf) {
-                if code == 0x0000 && data.len() >= 2 {
-                    s.temperature_c = Some(i16::from_be_bytes([data[0], data[1]]) as i64);
-                    found = true;
-                }
+        for page in PAGES {
+            if supported.as_ref().is_some_and(|sp| !sp.contains(&page)) {
+                continue;
+            }
+            if let Some(buf) = log_page(fd, page) {
+                found |= apply_scsi_log(&mut s, page, &buf);
             }
         }
 
-        // Total uncorrected errors from read (0x03) + write (0x02) counter logs.
-        let mut uncorrected = 0u64;
-        for page in [0x02u8, 0x03u8] {
-            if let Some(buf) = log_page(fd, page, 0x40) {
-                for (code, data) in parse_log_params(&buf) {
-                    if code == 0x0005 && data.len() >= 4 {
-                        uncorrected += u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as u64;
-                        found = true;
-                    }
-                }
-            }
-        }
-        if found {
-            s.uncorrectable = Some(uncorrected);
-        }
-
-        // Grown defect list (READ DEFECT DATA, GLIST).
+        // Grown defect list: READ DEFECT DATA(10) with REQ_GLIST and the
+        // bytes-from-index format in byte 2 (8-byte entries); the header's
+        // list length is valid even when the list itself is truncated.
         let mut defect = [0u8; 252];
-        if scsi_cmd(fd, &[0x37, 0x08, 0, 0, 0, 0, 0, 0x00, 0xFC, 0x00], &mut defect) {
+        if scsi_cmd(fd, &read_defect_cdb(), &mut defect) {
             let len = u16::from_be_bytes([defect[2], defect[3]]) as usize;
             s.reallocated = Some((len / 8) as u64);
             found = true;
@@ -536,7 +720,10 @@ mod linux {
         if !found {
             return None;
         }
-        s.passed = Some(s.uncorrectable.unwrap_or(0) == 0);
+        if s.passed.is_none() {
+            // No informational-exceptions page: judge by uncorrected errors.
+            s.passed = Some(s.uncorrectable.unwrap_or(0) == 0);
+        }
         Some(s)
     }
 
@@ -703,6 +890,138 @@ mod tests {
     use super::*;
 
     #[test]
+    fn applies_start_stop_self_test_and_non_medium_pages() {
+        let mut s = SmartData::default();
+        apply_scsi_log(
+            &mut s,
+            0x0E,
+            &log_page(
+                0x0E,
+                &[
+                    (0x0001, b"201212"),
+                    (0x0003, &50_000u32.to_be_bytes()),
+                    (0x0004, &40u32.to_be_bytes()),
+                    (0x0005, &200_000u32.to_be_bytes()),
+                    (0x0006, &1_785u32.to_be_bytes()),
+                ],
+            ),
+        );
+        assert_eq!(s.manufactured, Some((2012, 12)));
+        assert_eq!((s.power_cycles, s.rated_start_stop), (Some(40), Some(50_000)));
+        assert_eq!((s.load_unload, s.rated_load_unload), (Some(1_785), Some(200_000)));
+
+        apply_scsi_log(&mut s, 0x06, &log_page(0x06, &[(0x0000, &[0, 0, 0, 38])]));
+        assert_eq!(s.non_medium_errors, Some(38));
+
+        let mut st = [0u8; 16];
+        st[0] = 5 << 5; // foreground short, result 0 = completed
+        st[3] = 1;
+        apply_scsi_log(&mut s, 0x10, &log_page(0x10, &[(0x0001, &st)]));
+        assert_eq!(s.last_self_test.as_deref(), Some("Foreground short: completed (at 1 h)"));
+    }
+
+    #[test]
+    fn parses_sas_port_phy_counters() {
+        let mut data = vec![0x06, 0, 2, 1]; // SAS, generation 2, 1 phy
+        let mut desc = vec![0u8; 48];
+        desc[3] = 44;
+        desc[5] = 0x0A; // 6 Gbps
+        desc[32..36].copy_from_slice(&724u32.to_be_bytes());
+        desc[36..40].copy_from_slice(&715u32.to_be_bytes());
+        desc[40..44].copy_from_slice(&181u32.to_be_bytes());
+        desc[44..48].copy_from_slice(&4u32.to_be_bytes());
+        data.extend(desc);
+        let mut s = SmartData::default();
+        apply_scsi_log(&mut s, 0x18, &log_page(0x18, &[(0x0001, &data)]));
+        assert_eq!(s.interface_speed.as_deref(), Some("6 Gbps"));
+        assert_eq!(s.phy_errors, Some([724, 715, 181, 4]));
+    }
+
+    /// Build a log page: header + (code, data) parameters.
+    fn log_page(page: u8, params: &[(u16, &[u8])]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (code, data) in params {
+            body.extend_from_slice(&code.to_be_bytes());
+            body.push(0x03); // DU/DS/TSD/ETC/TMC/LBIN/LP flags
+            body.push(data.len() as u8);
+            body.extend_from_slice(data);
+        }
+        let mut out = vec![page, 0];
+        out.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        out.extend(body);
+        out.resize(252, 0); // zero padding like a real reply
+        out
+    }
+
+    #[test]
+    fn log_sense_cdb_puts_page_control_in_byte_2() {
+        let cdb = log_sense_cdb(0x0D, LOG_PC_CUMULATIVE, 1024);
+        assert_eq!(cdb[0], 0x4D);
+        assert_eq!(cdb[1], 0x00, "byte 1 is SP/PPC only");
+        assert_eq!(cdb[2], 0x40 | 0x0D);
+        assert_eq!([cdb[7], cdb[8]], [0x04, 0x00]);
+    }
+
+    #[test]
+    fn read_defect_cdb_requests_glist_in_byte_2() {
+        let cdb = read_defect_cdb();
+        assert_eq!(cdb[0], 0x37);
+        assert_eq!(cdb[1], 0x00);
+        assert_eq!(cdb[2] & 0x08, 0x08);
+    }
+
+    #[test]
+    fn parses_supported_pages() {
+        let buf = [0x00, 0x00, 0x00, 0x04, 0x00, 0x02, 0x0D, 0x2F, 0x00, 0x00];
+        assert_eq!(parse_supported_pages(&buf), vec![0x00, 0x02, 0x0D, 0x2F]);
+    }
+
+    #[test]
+    fn log_params_stop_at_page_length() {
+        let buf = log_page(0x0D, &[(0x0000, &[0, 38])]);
+        assert_eq!(parse_log_params(&buf).len(), 1);
+    }
+
+    #[test]
+    fn applies_sas_log_pages() {
+        let mut s = SmartData {
+            logical_block_size: Some(512),
+            ..Default::default()
+        };
+        assert!(apply_scsi_log(&mut s, 0x2F, &log_page(0x2F, &[(0x0000, &[0x00, 0x00, 36])])));
+        assert!(apply_scsi_log(&mut s, 0x0D, &log_page(0x0D, &[(0x0000, &[0, 38]), (0x0001, &[0, 68])])));
+        let written = 1_000_000_000_000u64.to_be_bytes();
+        assert!(apply_scsi_log(
+            &mut s,
+            0x02,
+            &log_page(0x02, &[(0x0005, &written), (0x0006, &[0, 0, 0, 2])])
+        ));
+        assert!(apply_scsi_log(&mut s, 0x03, &log_page(0x03, &[(0x0006, &[0, 0, 0, 1])])));
+        assert!(apply_scsi_log(
+            &mut s,
+            0x0E,
+            &log_page(0x0E, &[(0x0003, &[0, 0, 0x27, 0x10]), (0x0004, &[0, 0, 0x01, 0x2C])])
+        ));
+        let minutes = (5000u32 * 60).to_be_bytes();
+        assert!(apply_scsi_log(&mut s, 0x15, &log_page(0x15, &[(0x0000, &minutes)])));
+
+        assert_eq!(s.passed, Some(true));
+        assert_eq!(s.temperature_c, Some(38));
+        assert_eq!(s.uncorrectable, Some(3), "write 2 + read 1, not bytes processed");
+        assert_eq!(s.bytes_written(), Some(1_000_000_000_000));
+        assert_eq!(s.power_cycles, Some(300));
+        assert_eq!(s.power_on_hours, Some(5000));
+    }
+
+    #[test]
+    fn informational_exception_marks_failure() {
+        let mut s = SmartData::default();
+        apply_scsi_log(&mut s, 0x2F, &log_page(0x2F, &[(0x0000, &[0x5D, 0x10, 40])]));
+        assert_eq!(s.passed, Some(false));
+        assert_eq!(s.temperature_c, Some(40));
+    }
+
+    #[test]
     fn parses_ata_attributes() {
         let mut data = vec![0u8; 512];
         let mut put = |idx: usize, id: u8, value: u8, raw: u64| {
@@ -784,8 +1103,8 @@ mod tests {
 
     #[test]
     fn parses_scsi_log_parameters() {
-        // header (4) + param 0x0000 len2 value 33 + param 0x0001 len1 value 5
-        let buf = [0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x21,
+        // header (4, page length 11) + param 0x0000 len2 value 33 + param 0x0001 len1 value 5
+        let buf = [0x0d, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x02, 0x00, 0x21,
                    0x00, 0x01, 0x00, 0x01, 0x05];
         let params = parse_log_params(&buf);
         assert_eq!(params.len(), 2);

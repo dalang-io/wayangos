@@ -50,6 +50,14 @@ CPU report: model, topology, clock, temperature (Linux), 1-minute load.
 .BR prometheus
 Print Prometheus metrics.
 .TP
+.BR update " [" \-\-check "] [" \-\-force "] [" "\-\-url \fIbase\fP" ]
+Download the latest release from
+.I https://wayang.dalang.io/dcheck
+(or
+.BR DCHECK_UPDATE_URL ),
+verify its SHA-256 checksum and replace the running binary. Needs write access
+to the binary's directory (use sudo for /usr/local/bin). Linux x86_64/aarch64.
+.TP
 .BR tui " [" \-\-light | \-\-dark "] [" \-\-mouse "] [" \-\-plain "] [" \-\-transparent ]
 Terminal UI: a sci-fi HUD with a command deck, storage array, per-device
 vitals dashboard and memory/processor dashboards. Uses neon truecolor when the
@@ -134,7 +142,11 @@ Path to a TBW override map; default
 .TP
 .I ~/.config/dcheck/config.json
 Optional settings:
-.RB { "temp_warn_c": \ 60, "watch_interval": \ 60, "theme": \ "dark", "plain": \ false, "transparent": \ false, "splash": \ true }.
+.RB { "temp_warn_c": \ 60, "watch_interval": \ 60, "theme": \ "dark", "plain": \ false, "transparent": \ false, "splash": \ true, "hdd_design_years": \ 5 }.
+.B hdd_design_years
+is the assumed HDD design life at 24/7 (drives do not report one); HDD life is
+estimated from it together with the drive's rated start-stop and load-unload
+cycles.
 .TP
 .I ~/.config/dcheck/tbw.json
 Rated endurance overrides:

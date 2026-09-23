@@ -25,7 +25,7 @@ echo "=== dcheck $VERSION release ==="
 
 for target in $TARGETS; do
     echo "--- $target ---"
-    if ! TARGET="$target" "$REPO_DIR/scripts/build-dcheck.sh" >/dev/null; then
+    if ! TARGET="$target" OUT="$OUT_DIR/dcheck-$target" "$REPO_DIR/scripts/build-dcheck.sh" >/dev/null; then
         echo "  skipped (build failed — needs a linker for $target)"
         continue
     fi
@@ -35,7 +35,12 @@ for target in $TARGETS; do
     tmp="$(mktemp -d)"
     cp "$bin" "$tmp/dcheck"
     cp "$DCHECK_DIR/README.md" "$tmp/README.md"
-    (cd "$tmp" && tar czf "$OUT_DIR/$pkg" dcheck README.md)
+    # macOS tar would embed extended attributes (e.g. com.apple.provenance)
+    # that GNU tar on the target warns about; strip them.
+    tar_flags=()
+    if tar --no-xattrs -cf /dev/null /dev/null 2>/dev/null; then tar_flags+=(--no-xattrs); fi
+    if tar --no-mac-metadata -cf /dev/null /dev/null 2>/dev/null; then tar_flags+=(--no-mac-metadata); fi
+    (cd "$tmp" && COPYFILE_DISABLE=1 tar ${tar_flags[@]+"${tar_flags[@]}"} -czf "$OUT_DIR/$pkg" dcheck README.md)
     rm -rf "$tmp"
     echo "  $pkg ($(du -h "$OUT_DIR/$pkg" | cut -f1))"
 done

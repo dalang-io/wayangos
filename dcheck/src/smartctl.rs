@@ -45,6 +45,22 @@ pub struct SmartData {
     pub warning_temp_time: Option<u64>,
     pub critical_temp_time: Option<u64>,
     pub nvme_errors: Option<u64>,
+    /// SCSI/SAS: manufacture date (year, week) from the start-stop log page.
+    pub manufactured: Option<(u16, u8)>,
+    /// SCSI/SAS: rated lifetime start-stop cycles (actual is `power_cycles`).
+    pub rated_start_stop: Option<u64>,
+    /// SCSI/SAS: head load-unload cycles, actual and rated.
+    pub load_unload: Option<u64>,
+    pub rated_load_unload: Option<u64>,
+    /// SCSI/SAS: non-medium (transport/controller) error count.
+    pub non_medium_errors: Option<u64>,
+    /// Temperature at which the drive trips (SCSI "drive trip").
+    pub trip_temp_c: Option<i64>,
+    /// Most recent self-test, e.g. "Foreground short: completed (1 h)".
+    pub last_self_test: Option<String>,
+    /// SAS phy error counters summed over ports: invalid dword, running
+    /// disparity, loss of dword sync, phy reset problems.
+    pub phy_errors: Option<[u64; 4]>,
     /// Non-fatal error reported by smartctl (e.g. permission denied).
     pub error: Option<String>,
 }
@@ -52,6 +68,31 @@ pub struct SmartData {
 impl SmartData {
     pub fn block_size(&self) -> u64 {
         self.logical_block_size.unwrap_or(512)
+    }
+
+    /// Fill every field still unknown here from `other` (another source for
+    /// the same drive), keeping this source's values where both exist.
+    pub fn fill_from(&mut self, other: &SmartData) {
+        macro_rules! fill {
+            ($($f:ident),* $(,)?) => {
+                $( if self.$f.is_none() { self.$f = other.$f.clone(); } )*
+            };
+        }
+        fill!(
+            passed, model, serial, firmware, rotation_rate, form_factor, sata_version,
+            interface_speed, temperature_c, power_on_hours, power_cycles, lba_written,
+            lba_read, capacity_bytes, logical_block_size, reallocated, pending,
+            uncorrectable, crc_errors, life_percent, in_smartctl_database, smart_available,
+            media_errors, available_spare, available_spare_threshold, warning_temp_time,
+            critical_temp_time, nvme_errors, manufactured, rated_start_stop, load_unload,
+            rated_load_unload, non_medium_errors, trip_temp_c, last_self_test, phy_errors,
+        );
+        if self.attributes.is_empty() {
+            self.attributes = other.attributes.clone();
+        }
+        if !other.source.is_empty() && !self.source.contains(&other.source) {
+            self.source = format!("{}+{}", self.source, other.source);
+        }
     }
 
     pub fn bytes_written(&self) -> Option<u64> {
@@ -176,7 +217,8 @@ fn run_smartctl(device: &str, dtype: Option<&str>) -> Option<SmartData> {
     if let Some(d) = dtype {
         cmd.arg("-d").arg(d);
     }
-    let output = cmd.arg("-a").arg("-j").arg(device).output().ok()?;
+    // -x is a superset of -a: adds SAS phy counters and more ATA/SCSI logs.
+    let output = cmd.arg("-x").arg("-j").arg(device).output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let json = Json::parse(&text)?;
     let mut s = parse_smart(&json);
@@ -230,9 +272,9 @@ fn parse_smart(j: &Json) -> SmartData {
         ..SmartData::default()
     };
 
-    s.model = str_at(j, &["model_name"]);
+    s.model = str_at(j, &["model_name"]).or_else(|| str_at(j, &["scsi_model_name"]));
     s.serial = str_at(j, &["serial_number"]);
-    s.firmware = str_at(j, &["firmware_version"]);
+    s.firmware = str_at(j, &["firmware_version"]).or_else(|| str_at(j, &["scsi_revision"]));
     s.rotation_rate = j.get("rotation_rate").and_then(Json::as_u64);
     s.form_factor = str_at(j, &["form_factor", "name"]);
     s.sata_version = str_at(j, &["sata_version", "string"]);
@@ -254,6 +296,11 @@ fn parse_smart(j: &Json) -> SmartData {
         .and_then(|v| v.get("hours"))
         .and_then(Json::as_u64);
     s.power_cycles = j.get("power_cycle_count").and_then(Json::as_u64);
+    s.trip_temp_c = j
+        .get("temperature")
+        .and_then(|v| v.get("drive_trip"))
+        .and_then(Json::as_i64);
+    parse_scsi(j, &mut s);
     s.logical_block_size = j.get("logical_block_size").and_then(Json::as_u64);
     s.capacity_bytes = j
         .get("user_capacity")
@@ -384,6 +431,98 @@ fn parse_smart(j: &Json) -> SmartData {
     s
 }
 
+/// SCSI/SAS sections of `smartctl -x -j`.
+fn parse_scsi(j: &Json, s: &mut SmartData) {
+    let num = |v: Option<&Json>| -> Option<f64> {
+        let v = v?;
+        v.as_f64().or_else(|| v.as_str().and_then(|t| t.trim().parse().ok()))
+    };
+    if let Some(ss) = j.get("scsi_start_stop_cycle_counter") {
+        let year = num(ss.get("year_of_manufacture")).map(|v| v as u16);
+        let week = num(ss.get("week_of_manufacture")).map(|v| v as u8);
+        if let (Some(y), Some(w)) = (year, week) {
+            if y > 1990 {
+                s.manufactured = Some((y, w));
+            }
+        }
+        s.rated_start_stop = ss
+            .get("specified_cycle_count_over_device_lifetime")
+            .and_then(Json::as_u64);
+        if s.power_cycles.is_none() {
+            s.power_cycles = ss.get("accumulated_start_stop_cycles").and_then(Json::as_u64);
+        }
+        s.rated_load_unload = ss
+            .get("specified_load_unload_count_over_device_lifetime")
+            .and_then(Json::as_u64);
+        s.load_unload = ss.get("accumulated_load_unload_cycles").and_then(Json::as_u64);
+    }
+    if let Some(g) = j.get("scsi_grown_defect_list").and_then(Json::as_u64) {
+        s.reallocated = Some(g);
+    }
+    if let Some(log) = j.get("scsi_error_counter_log") {
+        let bs = s.block_size().max(1) as f64;
+        let mut uncorrected = None;
+        for (dir, slot) in [("read", &mut s.lba_read), ("write", &mut s.lba_written)] {
+            let Some(d) = log.get(dir) else { continue };
+            if let Some(gb) = num(d.get("gigabytes_processed")) {
+                *slot = Some((gb * 1e9 / bs) as u64);
+            }
+            if let Some(u) = d.get("total_uncorrected_errors").and_then(Json::as_u64) {
+                uncorrected = Some(uncorrected.unwrap_or(0) + u);
+            }
+        }
+        if uncorrected.is_some() {
+            s.uncorrectable = uncorrected;
+        }
+    }
+    if let Some(t) = j.get("scsi_self_test_0") {
+        let code = str_at(t, &["code", "string"]);
+        let result = str_at(t, &["result", "string"]);
+        let hours = t
+            .get("power_on_time")
+            .and_then(|v| v.get("hours"))
+            .and_then(Json::as_u64);
+        if let (Some(c), Some(r)) = (code, result) {
+            let at = hours.map(|h| format!(" (at {h} h)")).unwrap_or_default();
+            s.last_self_test = Some(format!("{c}: {}{at}", r.to_ascii_lowercase()));
+        }
+    }
+    let mut phy = [0u64; 4];
+    let mut any_phy = false;
+    for port in 0..8 {
+        let Some(p) = j.get(&format!("scsi_sas_port_{port}")) else { break };
+        for n in 0..8 {
+            let Some(ph) = p.get(&format!("phy_{n}")) else { break };
+            if s.interface_speed.is_none() {
+                if let Some(rate) = str_at(ph, &["negotiated_logical_link_rate"]) {
+                    // "phy enabled; 6 Gbps" -> "6 Gbps"
+                    let rate = rate.rsplit(';').next().unwrap_or(&rate).trim().to_string();
+                    if rate.contains("bps") {
+                        s.interface_speed = Some(rate);
+                    }
+                }
+            }
+            for (i, key) in [
+                "invalid_dword_count",
+                "running_disparity_error_count",
+                "loss_of_dword_synchronization_count",
+                "phy_reset_problem_count",
+            ]
+            .iter()
+            .enumerate()
+            {
+                if let Some(v) = ph.get(key).and_then(Json::as_u64) {
+                    phy[i] += v;
+                    any_phy = true;
+                }
+            }
+        }
+    }
+    if any_phy {
+        s.phy_errors = Some(phy);
+    }
+}
+
 fn str_at(j: &Json, path: &[&str]) -> Option<String> {
     let mut cur = j;
     for key in path {
@@ -395,6 +534,50 @@ fn str_at(j: &Json, path: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_sas_hdd_from_smartctl_x() {
+        let text = include_str!("../testdata/smart-sas-toshiba-mbf2300rc.json");
+        let s = parse_smart(&Json::parse(text).unwrap());
+        assert_eq!(s.model.as_deref(), Some("TOSHIBA MBF2300RC"));
+        assert_eq!(s.firmware.as_deref(), Some("0109"));
+        assert_eq!(s.passed, Some(true));
+        assert_eq!(s.temperature_c, Some(32));
+        assert_eq!(s.trip_temp_c, Some(65));
+        assert_eq!(s.power_on_hours, Some(25660));
+        assert_eq!(s.rotation_rate, Some(10025));
+        assert_eq!(s.manufactured, Some((2012, 12)));
+        assert_eq!(s.power_cycles, Some(40));
+        assert_eq!(s.rated_start_stop, Some(50000));
+        assert_eq!(s.load_unload, Some(1785));
+        assert_eq!(s.rated_load_unload, Some(200000));
+        assert_eq!(s.reallocated, Some(0));
+        assert_eq!(s.uncorrectable, Some(0));
+        assert_eq!(s.bytes_read().map(|b| b / 1_000_000_000), Some(458181));
+        assert_eq!(s.bytes_written().map(|b| b / 1_000_000_000), Some(58649));
+        assert_eq!(s.interface_speed.as_deref(), Some("6 Gbps"));
+        assert_eq!(s.phy_errors, Some([724, 715, 181, 4]));
+        assert!(s.last_self_test.as_deref().unwrap().starts_with("Foreground short: completed"));
+    }
+
+    #[test]
+    fn fill_from_keeps_primary_and_fills_gaps() {
+        let mut a = SmartData {
+            source: "smartctl".into(),
+            temperature_c: Some(30),
+            ..Default::default()
+        };
+        let b = SmartData {
+            source: "native".into(),
+            temperature_c: Some(99),
+            non_medium_errors: Some(38),
+            ..Default::default()
+        };
+        a.fill_from(&b);
+        assert_eq!(a.temperature_c, Some(30));
+        assert_eq!(a.non_medium_errors, Some(38));
+        assert_eq!(a.source, "smartctl+native");
+    }
 
     const SAMPLE: &str = r#"{
         "smartctl": {"messages": []},

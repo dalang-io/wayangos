@@ -55,7 +55,7 @@ pub fn usage(mount: &str) -> Option<Usage> {
     }
 
     extern "C" {
-        fn statvfs(path: *const i8, buf: *mut Statvfs) -> i32;
+        fn statvfs(path: *const std::ffi::c_char, buf: *mut Statvfs) -> i32;
     }
 
     let c = CString::new(mount).ok()?;

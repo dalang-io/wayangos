@@ -254,14 +254,10 @@ pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>)
     match smart {
         Some(s) => health_lines(d, s, &mut out),
         None => {
-            out.push("  SMART        : unavailable (run as root, or install smartmontools)".into());
-            if d.bus == crate::model::Bus::Scsi {
-                out.push(
-                    "  Note         : native SCSI/SAS health unavailable (controller may block LOG SENSE)"
-                        .into(),
-                );
-            } else {
-                out.push("  Note         : run as root for raw-device SMART access".into());
+            let (why, hint) = smart_unavailable(d);
+            out.push(format!("  SMART        : unavailable — {why}"));
+            if let Some(h) = hint {
+                out.push(format!("  Hint         : {h}"));
             }
         }
     }
@@ -309,7 +305,16 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
         out.push("  SMART        : device reports SMART as unavailable".into());
     }
     if let Some(t) = s.temperature_c {
-        out.push(format!("  Temperature  : {t}°C"));
+        match s.trip_temp_c {
+            Some(trip) => out.push(format!("  Temperature  : {t}°C (trips at {trip}°C)")),
+            None => out.push(format!("  Temperature  : {t}°C")),
+        }
+    }
+    if let Some((y, w)) = s.manufactured {
+        let age = age_years(y, w)
+            .map(|a| format!(" — {a:.1} years old"))
+            .unwrap_or_default();
+        out.push(format!("  Manufactured : {y} week {w}{age}"));
     }
     if let Some(poh) = s.power_on_hours {
         let cycles = s
@@ -317,6 +322,15 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
             .map(|c| format!(", {c} power cycles"))
             .unwrap_or_default();
         out.push(format!("  Power-on     : {poh} h{cycles}"));
+    }
+    if let (Some(a), Some(r)) = (s.power_cycles, s.rated_start_stop) {
+        out.push(format!("  Start-stop   : {a} of {r} rated"));
+    }
+    if let Some(lu) = s.load_unload {
+        match s.rated_load_unload {
+            Some(r) => out.push(format!("  Load-unload  : {lu} of {r} rated")),
+            None => out.push(format!("  Load-unload  : {lu}")),
+        }
     }
     if let Some(w) = h.tbw_bytes {
         out.push(format!("  Written      : {} (host)", human_size(w)));
@@ -326,6 +340,25 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
     }
     if let Some(used) = h.wear_used_percent {
         out.push(format!("  Wear         : {used}% used"));
+    }
+    if d.bus == crate::model::Bus::Scsi || s.rated_start_stop.is_some() {
+        if let Some(g) = s.reallocated {
+            out.push(format!("  Grown defects: {g}"));
+        }
+        if let Some(u) = s.uncorrectable {
+            out.push(format!("  Uncorrected  : {u} errors"));
+        }
+        if let Some(n) = s.non_medium_errors {
+            out.push(format!("  Non-medium   : {n} errors (transport/controller)"));
+        }
+    }
+    if let Some(t) = &s.last_self_test {
+        out.push(format!("  Self-test    : {t}"));
+    }
+    if let Some([inv, disp, sync, reset]) = s.phy_errors {
+        out.push(format!(
+            "  SAS phy      : invalid dword {inv}, disparity {disp}, loss of sync {sync}, reset problems {reset}"
+        ));
     }
     if let Some(m) = s.media_errors {
         if m > 0 {
@@ -345,18 +378,24 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
             out.push(format!("  Critical temp: {c} min"));
         }
     }
-    match h.rated_tbw_bytes {
-        Some(r) => out.push(format!("  Rated TBW    : {}", human_size(r))),
-        None => out.push("  Rated TBW    : unknown (model not in endurance table)".into()),
+    if let (Some(used), Some(what), Some(hours)) = (h.design_life_used, h.design_limit, h.design_hours) {
+        out.push(format!(
+            "  Design life  : {hours} h ({:.1} y @24/7, assumed — drives do not report it)",
+            hours as f64 / (365.0 * 24.0)
+        ));
+        out.push(format!("  Life used    : {used}% (limited by {what})"));
+    } else {
+        match h.rated_tbw_bytes {
+            Some(r) => out.push(format!("  Rated TBW    : {}", human_size(r))),
+            None => out.push("  Rated TBW    : unknown (model not in endurance table)".into()),
+        }
     }
-
-    match (h.days_247, h.days_87, h.remaining_poh) {
-        (Some(d247), Some(d87), Some(hours)) => out.push(format!(
-            "  Life left    : ~{hours} h  (~{}y @24/7  |  ~{}y @8/7)",
-            fmt_years(d247),
-            fmt_years(d87)
-        )),
-        _ => out.push("  Life left    : unknown (insufficient endurance data)".into()),
+    match life_left(&h) {
+        Some(text) => out.push(format!("  Life left    : {text}")),
+        None => out.push("  Life left    : unknown (insufficient endurance data)".into()),
+    }
+    if let Some(basis) = h.life_basis {
+        out.push(format!("  Estimate from: {basis}"));
     }
     out.push(format!("  Confidence   : {}", h.confidence.label()));
 
@@ -372,6 +411,42 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
     if let Some(err) = &s.error {
         out.push(format!("  Error        : {err} (run as root)"));
     }
+}
+
+/// "~4.2y @24/7 | ~12.6y @8h/day", or how far past its rated life it is.
+/// Not capped: long projections from little wear are shown as computed
+/// (the confidence line says how much to trust them).
+pub fn life_left(h: &health::Health) -> Option<String> {
+    let fmt = |d: u64| {
+        let y = fmt_years(d);
+        if y.ends_with('d') {
+            format!("~{y}")
+        } else {
+            format!("~{y}y")
+        }
+    };
+    if h.remaining_poh == Some(0) {
+        return Some(match h.overdue_poh {
+            Some(over) => format!(
+                "0 — past its rated life by {} @24/7",
+                fmt(over / 24)
+            ),
+            None => "0 — at or beyond its rated life".into(),
+        });
+    }
+    let (d247, d87) = (h.days_247?, h.days_87?);
+    Some(format!("{} @24/7  |  {} @8h/day", fmt(d247), fmt(d87)))
+}
+
+/// Years since a (year, ISO week) manufacture date.
+pub fn age_years(year: u16, week: u8) -> Option<f64> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs_f64();
+    let now_years = 1970.0 + now / (365.2425 * 86400.0);
+    let made = year as f64 + (week.clamp(1, 53) as f64 - 1.0) / 52.18;
+    (now_years >= made).then_some(now_years - made)
 }
 
 pub fn fmt_years(days: u64) -> String {
@@ -551,6 +626,38 @@ pub fn cpu_json(c: &crate::cpu::CpuInfo) -> crate::json::Json {
     ])
 }
 
+/// Why SMART data is missing for `d`, plus an optional hint.
+pub fn smart_unavailable(d: &Device) -> (String, Option<String>) {
+    use crate::model::Bus;
+    if !crate::native::is_root() && !crate::enumerate::is_demo() {
+        return (
+            "reading SMART needs root".into(),
+            Some("run `sudo dcheck`".into()),
+        );
+    }
+    let why = match d.bus {
+        Bus::Scsi => "the drive/controller rejected the SCSI log pages",
+        Bus::Usb => "the USB bridge does not pass SMART through",
+        Bus::Mmc => "SD/eMMC cards do not report SMART",
+        _ => "the drive returned no SMART data",
+    };
+    let hint = match d.bus {
+        Bus::Mmc => None,
+        Bus::Scsi | Bus::Usb if !smartctl_installed() => Some(
+            "smartmontools, if installed, is tried as a fallback (it knows vendor passthroughs such as -d sat / megaraid,N)"
+                .to_string(),
+        ),
+        _ => None,
+    };
+    (why.into(), hint)
+}
+
+fn smartctl_installed() -> bool {
+    std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|p| p.join("smartctl").is_file())
+    })
+}
+
 /// Read and evaluate health for a device (`None` when SMART is unavailable).
 pub fn health_summary(d: &Device) -> Option<health::Health> {
     device_metrics(d).map(|(_, h)| h)
@@ -619,30 +726,31 @@ fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
     if crate::enumerate::is_demo() {
         return crate::enumerate::demo_smart(d);
     }
+    // Both sources are read and merged: smartctl (when installed) knows vendor
+    // quirks, the native ioctl path fills whatever smartctl leaves out.
     let force_native = std::env::var_os("DCHECK_NATIVE").is_some();
-    let smartctl_result = if force_native {
+    let smartctl = if force_native {
         None
     } else {
         smartctl::read_smart_dev(d)
     };
+    let native = crate::native::read(d);
 
-    if let Some(s) = &smartctl_result {
-        if s.error.is_none() {
-            return smartctl_result;
+    match (smartctl, native) {
+        (Some(mut s), Some(n)) if s.error.is_none() => {
+            s.fill_from(&n);
+            Some(s)
         }
+        (Some(s), None) if s.error.is_none() => Some(s),
+        (_, Some(n)) => Some(n),
+        (Some(s), None) => Some(s),
+        // Platform-provided status (e.g. macOS `diskutil` SMART Status).
+        (None, None) => d.smart_status.map(|passed| smartctl::SmartData {
+            passed: Some(passed),
+            source: "platform".to_string(),
+            ..Default::default()
+        }),
     }
-    if let Some(native) = crate::native::read(d) {
-        return Some(native);
-    }
-    if let Some(s) = smartctl_result {
-        return Some(s);
-    }
-    // Platform-provided status (e.g. macOS `diskutil` SMART Status).
-    d.smart_status.map(|passed| smartctl::SmartData {
-        passed: Some(passed),
-        source: "platform".to_string(),
-        ..Default::default()
-    })
 }
 
 /// Basic device object (no SMART read) for list output.
@@ -716,6 +824,42 @@ pub fn device_json(d: &Device) -> crate::json::Json {
             ("warning_temp_time", opt_num(s.warning_temp_time.map(|v| v as f64))),
             ("critical_temp_time", opt_num(s.critical_temp_time.map(|v| v as f64))),
             ("rated_tbw_bytes", opt_num(h.rated_tbw_bytes.map(|v| v as f64))),
+            ("reallocated", opt_num(s.reallocated.map(|v| v as f64))),
+            ("pending", opt_num(s.pending.map(|v| v as f64))),
+            ("uncorrectable", opt_num(s.uncorrectable.map(|v| v as f64))),
+            ("non_medium_errors", opt_num(s.non_medium_errors.map(|v| v as f64))),
+            (
+                "manufactured",
+                match s.manufactured {
+                    Some((y, w)) => crate::json::string(format!("{y}-W{w:02}")),
+                    None => crate::json::Json::Null,
+                },
+            ),
+            ("start_stop_cycles_rated", opt_num(s.rated_start_stop.map(|v| v as f64))),
+            ("load_unload_cycles", opt_num(s.load_unload.map(|v| v as f64))),
+            ("load_unload_cycles_rated", opt_num(s.rated_load_unload.map(|v| v as f64))),
+            ("trip_temperature_c", opt_num(s.trip_temp_c.map(|v| v as f64))),
+            ("last_self_test", opt_json(&s.last_self_test)),
+            (
+                "sas_phy_errors",
+                match s.phy_errors {
+                    Some([inv, disp, sync, reset]) => crate::json::object(vec![
+                        ("invalid_dword", crate::json::num(inv as f64)),
+                        ("running_disparity", crate::json::num(disp as f64)),
+                        ("loss_of_dword_sync", crate::json::num(sync as f64)),
+                        ("phy_reset_problem", crate::json::num(reset as f64)),
+                    ]),
+                    None => crate::json::Json::Null,
+                },
+            ),
+            ("design_life_used_percent", opt_num(h.design_life_used.map(|v| v as f64))),
+            ("design_life_hours", opt_num(h.design_hours.map(|v| v as f64))),
+            (
+                "design_life_assumed",
+                if h.design_hours.is_some() { crate::json::Json::Bool(true) } else { crate::json::Json::Null },
+            ),
+            ("design_life_limit", opt_json(&h.design_limit.map(str::to_string))),
+            ("life_basis", opt_json(&h.life_basis.map(str::to_string))),
             ("remaining_hours", opt_num(h.remaining_poh.map(|v| v as f64))),
             ("life_days_247", opt_num(h.days_247.map(|v| v as f64))),
             ("life_days_87", opt_num(h.days_87.map(|v| v as f64))),
@@ -802,6 +946,32 @@ fn opt_bool(v: Option<bool>) -> crate::json::Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn life_left_is_capped_and_handles_zero() {
+        let d = crate::enumerate::demo_devices().remove(0);
+        let s = crate::smartctl::SmartData {
+            passed: Some(true),
+            power_on_hours: Some(2785),
+            life_percent: Some(99), // 1% wear -> ~31 y extrapolated
+            ..Default::default()
+        };
+        let h = health::evaluate(&d, &s);
+        // Not capped: 1% in 2785 h projects ~31 years at 24/7.
+        assert!(life_left(&h).unwrap().starts_with("~31."), "{:?}", life_left(&h));
+
+        let s = crate::smartctl::SmartData {
+            passed: Some(true),
+            power_on_hours: Some(91_992),
+            ..Default::default()
+        };
+        let mut hdd = d.clone();
+        hdd.kind = crate::model::MediaKind::Hdd;
+        let h = health::evaluate(&hdd, &s);
+        // 91,992 h vs a 43,800 h design life: ~5.5 y over.
+        let text = life_left(&h).unwrap();
+        assert!(text.starts_with("0 — past its rated life by ~5.5y"), "{text}");
+    }
 
     #[test]
     fn sizes_are_human_readable() {

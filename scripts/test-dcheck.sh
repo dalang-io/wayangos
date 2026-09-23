@@ -200,6 +200,7 @@ contains "$REP3" "Link speed   : 6.0 Gb/s (SATA 3.2)" "interface speed parsed"
 contains "$REP3" "Rated TBW"                  "rated endurance looked up"
 contains "$REP3" "Confidence   : medium"      "confidence computed"
 contains "$REP3" "Life left    : ~"           "remaining-life estimate"
+contains "$REP3" "Estimate from: host writes vs rated endurance" "estimate basis shown"
 
 echo
 echo "=== dcheck storage (unknown device) ==="

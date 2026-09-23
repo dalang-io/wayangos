@@ -23,6 +23,8 @@ pub struct Config {
     pub transparent: bool,
     /// Show the short boot splash when the TUI starts.
     pub splash: bool,
+    /// Assumed HDD design life in years at 24/7 (drives do not report it).
+    pub hdd_design_years: f64,
 }
 
 impl Default for Config {
@@ -35,6 +37,7 @@ impl Default for Config {
             plain: false,
             transparent: false,
             splash: true,
+            hdd_design_years: 5.0,
         }
     }
 }
@@ -113,6 +116,11 @@ pub fn parse(text: &str) -> Config {
         if let Some(v) = map.get("splash").and_then(|v| v.as_bool()) {
             cfg.splash = v;
         }
+        if let Some(v) = map.get("hdd_design_years").and_then(|v| v.as_f64()) {
+            if v > 0.0 && v < 100.0 {
+                cfg.hdd_design_years = v;
+            }
+        }
     }
     cfg
 }
@@ -139,6 +147,13 @@ mod tests {
     fn detects_light_background() {
         assert!(resolve_light(Some(true)));
         assert!(!resolve_light(Some(false)));
+    }
+
+    #[test]
+    fn parses_hdd_design_years() {
+        assert_eq!(parse("{}").hdd_design_years, 5.0);
+        assert_eq!(parse(r#"{"hdd_design_years": 3}"#).hdd_design_years, 3.0);
+        assert_eq!(parse(r#"{"hdd_design_years": -1}"#).hdd_design_years, 5.0);
     }
 
     #[test]
