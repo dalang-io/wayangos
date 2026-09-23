@@ -31,7 +31,7 @@ fn run(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
         None => {
             if interactive() {
-                run_tui(false, None, None)
+                run_tui(false, None, None, None)
             } else {
                 interactive_menu(false)
             }
@@ -52,6 +52,7 @@ fn run(args: &[String]) -> i32 {
             false,
             tui_theme_arg(&args[1..]),
             tui_mouse_arg(&args[1..]),
+            tui_plain_arg(&args[1..]),
         ),
         Some("demo") => {
             if interactive() {
@@ -59,6 +60,7 @@ fn run(args: &[String]) -> i32 {
                     true,
                     tui_theme_arg(&args[1..]),
                     tui_mouse_arg(&args[1..]),
+                    tui_plain_arg(&args[1..]),
                 )
             } else {
                 interactive_menu(true)
@@ -91,12 +93,33 @@ fn tui_mouse_arg(args: &[String]) -> Option<bool> {
     mouse
 }
 
-fn run_tui(force_demo: bool, light_override: Option<bool>, mouse_override: Option<bool>) -> i32 {
+/// Parse `--plain` / `--fancy` for the TUI.
+fn tui_plain_arg(args: &[String]) -> Option<bool> {
+    let mut plain = None;
+    for arg in args {
+        match arg.as_str() {
+            "--plain" => plain = Some(true),
+            "--fancy" | "--no-plain" => plain = Some(false),
+            _ => {}
+        }
+    }
+    plain
+}
+
+fn run_tui(
+    force_demo: bool,
+    light_override: Option<bool>,
+    mouse_override: Option<bool>,
+    plain_override: Option<bool>,
+) -> i32 {
     let light = config::resolve_light(light_override);
     let mouse = mouse_override.unwrap_or_else(|| config::load().mouse);
+    let plain = plain_override.unwrap_or_else(|| {
+        config::load().plain || std::env::var_os("DCHECK_PLAIN").is_some()
+    });
     let demo = force_demo || std::env::var_os("DCHECK_DEMO").is_some();
     let devices = load_devices(force_demo);
-    match tui::run(devices, light, demo, mouse) {
+    match tui::run(devices, light, demo, mouse, plain) {
         Ok(()) => 0,
         Err(err) => {
             eprintln!("dcheck: TUI error: {err}");
@@ -138,7 +161,7 @@ USAGE:
     dcheck storage <dev>    Report for one device (e.g. /dev/nvme0n1)
     dcheck storage <dev> --bench           Read-only speed benchmark
     dcheck storage <dev> --test short|long Start a SMART self-test
-    dcheck tui              Terminal UI (--light|--dark, --mouse)
+    dcheck tui              Terminal UI (--light|--dark, --mouse, --plain)
     dcheck check            One-shot health gate (exit code = worst verdict)
     dcheck watch            Monitor + alert (--interval, --webhook, --json)
     dcheck prometheus       Prometheus metrics for scrapers

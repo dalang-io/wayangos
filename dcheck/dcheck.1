@@ -50,10 +50,10 @@ CPU report: model, topology, clock, temperature (Linux), 1-minute load.
 .BR prometheus
 Print Prometheus metrics.
 .TP
-.BR tui " [" \-\-light | \-\-dark ]
-Terminal UI. Auto-detects a light/dark terminal (via
-.BR COLORFGBG )
-unless forced.
+.BR tui " [" \-\-light | \-\-dark "] [" \-\-mouse "] [" \-\-plain ]
+Terminal UI. Default is dark; colours come from the terminal ANSI palette.
+.B \-\-plain
+uses ASCII borders/symbols for fonts without box-drawing glyphs.
 .TP
 .BR demo ", " \-\-version ", " \-\-help
 See above.
@@ -97,6 +97,9 @@ Select the accent:
 (blue) or
 .BR dark
 (cyan, default). Colours otherwise come from the terminal palette.
+.TP
+.B DCHECK_PLAIN
+Use ASCII borders/symbols in the TUI.
 .TP
 .B COLORFGBG
 Consulted by the TUI to auto-detect a light background.

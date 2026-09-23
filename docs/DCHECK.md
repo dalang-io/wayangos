@@ -354,7 +354,10 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - Config file `~/.config/dcheck/config.json` (`temp_warn_c`, `watch_interval`,
   `theme`). ✅
 - TUI palette uses the terminal's ANSI colours (follows the terminal/OpenCode
-  theme, no hardcoded RGB); default dark, `NO_COLOR` disables colour. ✅
+  theme, no hardcoded RGB); **default dark**, `NO_COLOR` disables colour. ✅
+- Sci-fi visual style: double-line panels, status badges (`✔ OK`), header status
+  chip, text meters (RAM/CPU), breadcrumb report titles; `--plain` for ASCII
+  fonts. Lightweight (event-driven redraws only). ✅
 - TUI UX: background SMART reads with spinner, per-device health in the list,
   contextual report title with position indicator, `?` help overlay, `r` rescan,
   `Home`/`End`/`g`/`G`, `c` copy (OSC52). Text stays selectable (mouse capture

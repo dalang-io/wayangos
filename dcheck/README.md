@@ -37,10 +37,14 @@ In the UI: `↑`/`↓` move, `Enter` open, `b`/`Esc` back, `PgUp`/`PgDn` and
 `q` quit. Text stays **selectable** by default; mouse-wheel scrolling is opt-in
 with `dcheck tui --mouse` (it disables native selection). SMART reads run in the
 background with a spinner; the list shows per-device health.
+The UI uses a compact **sci-fi style** (double-line panels, status badges, text
+meters) that stays cheap to render for low-spec devices. Use `--plain` (or
+`"plain": true` / `DCHECK_PLAIN`) for ASCII-only borders/symbols on fonts without
+box-drawing glyphs.
 Colours use the terminal's **ANSI palette**, so dcheck blends with your
-terminal/OpenCode theme instead of hardcoding RGB. Default is dark (cyan accent);
-`--light` switches to a blue accent, `NO_COLOR` disables colour, and selection
-uses reverse-video. `DCHECK_THEME` / `"theme"` still select the accent.
+terminal/OpenCode theme instead of hardcoding RGB. Default is **dark** (cyan
+accent); `--light` switches to a blue accent, `NO_COLOR` disables colour, and
+selection uses reverse-video. `DCHECK_THEME` / `"theme"` still select the accent.
 
 Devices are read from `/sys/block`, so they are listed as soon as they are
 **attached**, mounted or not. Health is read **natively** (ATA `HDIO_DRIVE_CMD`,
@@ -110,7 +114,7 @@ mounted and unmounted partitions, and ignored virtual devices.
 ## Configuration
 
 - `~/.config/dcheck/config.json` (or `$DCHECK_CONFIG`):
-  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true }`
+  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false }`
 - `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`):
   `{ "model substring": TBW_in_TB }`
 - Env: `DCHECK_SYS_ROOT` (alternate fs root), `DCHECK_SMART_JSON` (parse a

@@ -29,6 +29,20 @@ fn opt(value: &Option<String>) -> &str {
     value.as_deref().unwrap_or("-")
 }
 
+/// A simple text meter, e.g. `████████░░░░░░░░░░░░`. Uses block glyphs unless
+/// `DCHECK_PLAIN`/`--plain` is set (then `#`/`-`).
+pub fn bar(percent: f64, width: usize) -> String {
+    let plain = std::env::var_os("DCHECK_PLAIN").is_some();
+    let (full, empty) = if plain { ('#', '-') } else { ('█', '░') };
+    let p = percent.clamp(0.0, 100.0);
+    let filled = ((p / 100.0) * width as f64).round() as usize;
+    let mut s = String::with_capacity(width);
+    for i in 0..width {
+        s.push(if i < filled { full } else { empty });
+    }
+    s
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         s.to_string()
@@ -313,9 +327,10 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     out.push("RAM".to_string());
     out.push(format!("  Total        : {}", human_size(r.total_bytes)));
     out.push(format!(
-        "  Used         : {} ({:.0}%)",
+        "  Used         : {} ({:.0}%)  {}",
         human_size(r.used_bytes()),
-        r.used_percent()
+        r.used_percent(),
+        bar(r.used_percent(), 20)
     ));
     out.push(format!("  Available    : {}", human_size(r.available_bytes)));
     if r.swap_total_bytes > 0 {
@@ -403,7 +418,12 @@ pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
         out.push(format!("  Temperature  : {t}°C"));
     }
     if let Some(l) = c.load1 {
-        out.push(format!("  Load (1m)    : {l:.2}"));
+        let pct = if c.cores > 0 {
+            (l / c.cores as f64 * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+        out.push(format!("  Load (1m)    : {l:.2}  {}", bar(pct, 20)));
     }
     out.push(format!("  Source       : {}", c.source));
     out.push(String::new());

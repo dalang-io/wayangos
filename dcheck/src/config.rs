@@ -17,6 +17,8 @@ pub struct Config {
     pub theme: Option<String>,
     /// Capture the mouse for wheel scrolling (disables native text selection).
     pub mouse: bool,
+    /// Use ASCII-only borders/symbols (for fonts without box-drawing glyphs).
+    pub plain: bool,
 }
 
 impl Default for Config {
@@ -26,12 +28,13 @@ impl Default for Config {
             watch_interval: 60,
             theme: None,
             mouse: false,
+            plain: false,
         }
     }
 }
 
 /// Resolve whether the TUI should use a light palette.
-/// Order: explicit CLI flag, `DCHECK_THEME`, config, `COLORFGBG`, dark default.
+/// Order: explicit CLI flag, `DCHECK_THEME`, config. **Default: dark.**
 pub fn resolve_light(cli: Option<bool>) -> bool {
     if let Some(light) = cli {
         return light;
@@ -50,17 +53,7 @@ pub fn resolve_light(cli: Option<bool>) -> bool {
             _ => {}
         }
     }
-    if let Ok(v) = std::env::var("COLORFGBG") {
-        if let Some(light) = bg_is_light(&v) {
-            return light;
-        }
-    }
     false
-}
-
-fn bg_is_light(colorfgbg: &str) -> Option<bool> {
-    let bg = colorfgbg.rsplit(';').next()?.trim();
-    bg.parse::<u8>().ok().map(|n| n == 7 || n == 15)
 }
 
 pub fn load() -> Config {
@@ -99,6 +92,9 @@ pub fn parse(text: &str) -> Config {
         if let Some(v) = map.get("mouse").and_then(|v| v.as_bool()) {
             cfg.mouse = v;
         }
+        if let Some(v) = map.get("plain").and_then(|v| v.as_bool()) {
+            cfg.plain = v;
+        }
     }
     cfg
 }
@@ -123,10 +119,8 @@ mod tests {
 
     #[test]
     fn detects_light_background() {
-        assert_eq!(bg_is_light("0;15"), Some(true)); // black on bright white
-        assert_eq!(bg_is_light("15;0"), Some(false)); // white on black
-        assert_eq!(bg_is_light("7"), Some(true));
-        assert_eq!(bg_is_light("garbage"), None);
+        assert_eq!(resolve_light(Some(true)), true);
+        assert_eq!(resolve_light(Some(false)), false);
     }
 
     #[test]

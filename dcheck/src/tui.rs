@@ -20,7 +20,8 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
-    Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap,
+    Block, BorderType, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState,
+    Wrap,
 };
 use ratatui::{Frame, Terminal};
 
@@ -72,6 +73,71 @@ impl Palette {
     }
 }
 
+/// Glyph set: fancy (Unicode box/tech) or plain ASCII for limited fonts.
+#[derive(Clone, Copy)]
+struct Ui {
+    plain: bool,
+}
+
+impl Ui {
+    fn border(self) -> BorderType {
+        if self.plain {
+            BorderType::Plain
+        } else {
+            BorderType::Double
+        }
+    }
+
+    fn cursor(self) -> &'static str {
+        if self.plain {
+            "> "
+        } else {
+            "» "
+        }
+    }
+
+    fn sep(self) -> &'static str {
+        if self.plain {
+            " | "
+        } else {
+            " · "
+        }
+    }
+
+    fn sym(self, sev: u8) -> &'static str {
+        match (self.plain, sev) {
+            (false, 0) => "✔",
+            (false, 2) => "!",
+            (false, 3) | (false, 4) => "✖",
+            (false, _) => "?",
+            (true, 0) => "",
+            (true, 2) => "!",
+            (true, 3) | (true, 4) => "X",
+            (true, _) => "?",
+        }
+    }
+
+    /// Status badge, e.g. `✔ OK` (fancy) or `OK` (plain, no symbol).
+    fn badge(self, sev: u8, label: &str) -> String {
+        let s = self.sym(sev);
+        if s.is_empty() {
+            label.to_string()
+        } else {
+            format!("{s} {label}")
+        }
+    }
+
+    fn panel<'a>(self, title: &str, accent: Color) -> Block<'a> {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(self.border())
+            .title(Span::styled(
+                format!(" {title} "),
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            ))
+    }
+}
+
 #[derive(Clone)]
 enum Screen {
     Menu,
@@ -103,6 +169,7 @@ pub struct App {
     health_rx: Option<Receiver<Vec<(String, u8)>>>,
     pending: Option<Pending>,
     mouse: bool,
+    plain: bool,
     status: Option<String>,
     ram_lines: Vec<String>,
     ram_rx: Option<Receiver<Vec<String>>>,
@@ -111,7 +178,7 @@ pub struct App {
 }
 
 impl App {
-    fn new(devices: Vec<Device>, light: bool, demo: bool, mouse: bool) -> Self {
+    fn new(devices: Vec<Device>, light: bool, demo: bool, mouse: bool, plain: bool) -> Self {
         let mut menu = ListState::default();
         menu.select(Some(0));
         let mut table = TableState::default();
@@ -124,6 +191,7 @@ impl App {
             demo,
             light,
             mouse,
+            plain,
             status: None,
             screen: Screen::Menu,
             help_prev: None,
@@ -234,6 +302,10 @@ impl App {
     fn max_scroll(&self) -> u16 {
         max_scroll_for(self.report_lines.len(), self.view_height)
     }
+
+    fn worst_severity(&self) -> u8 {
+        self.health.iter().map(|(_, s)| *s).max().unwrap_or(1)
+    }
 }
 
 fn max_scroll_for(lines: usize, view_height: u16) -> u16 {
@@ -301,7 +373,7 @@ fn reload_devices(demo: bool) -> Vec<Device> {
 }
 
 /// Run the TUI. Must be called on a real terminal.
-pub fn run(devices: Vec<Device>, light: bool, demo: bool, mouse: bool) -> io::Result<()> {
+pub fn run(devices: Vec<Device>, light: bool, demo: bool, mouse: bool, plain: bool) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -311,7 +383,7 @@ pub fn run(devices: Vec<Device>, light: bool, demo: bool, mouse: bool) -> io::Re
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = event_loop(&mut terminal, devices, light, demo, mouse);
+    let result = event_loop(&mut terminal, devices, light, demo, mouse, plain);
 
     disable_raw_mode()?;
     if mouse {
@@ -328,8 +400,9 @@ fn event_loop(
     light: bool,
     demo: bool,
     mouse: bool,
+    plain: bool,
 ) -> io::Result<()> {
-    let mut app = App::new(devices, light, demo, mouse);
+    let mut app = App::new(devices, light, demo, mouse, plain);
     loop {
         // Drain background results.
         if let Some(rx) = &app.health_rx {
@@ -553,6 +626,7 @@ fn handle_mouse(app: &mut App, kind: MouseEventKind) {
 
 fn draw(f: &mut Frame, app: &mut App) {
     let palette = Palette::for_theme(app.light);
+    let ui = Ui { plain: app.plain };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -562,17 +636,49 @@ fn draw(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    let title = Paragraph::new(Line::from(vec![
-        Span::styled(
-            "dcheck",
-            Style::default()
-                .fg(palette.accent)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(format!("  {VERSION} — device health check")),
-    ]))
-    .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
+    // Header: logotype left, live status chip right.
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ui.border());
+    let inner = block.inner(chunks[0]);
+    f.render_widget(block, chunks[0]);
+    let sev = app.worst_severity();
+    let chip = if app.health_rx.is_some() {
+        "SCANNING…".to_string()
+    } else {
+        format!(
+            "{}   {} DEVICES",
+            ui.badge(sev, severity_label(sev)),
+            app.devices.len()
+        )
+    };
+    let chip_w = (chip.chars().count() as u16 + 1).min(inner.width);
+    let hcols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(1), Constraint::Length(chip_w)])
+        .split(inner);
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                if ui.plain { "dcheck" } else { "◆ dcheck" },
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!("  {VERSION}")),
+        ])),
+        hcols[0],
+    );
+    f.render_widget(
+        Paragraph::new(chip)
+            .alignment(Alignment::Right)
+            .style(
+                Style::default()
+                    .fg(palette.severity(sev))
+                    .add_modifier(Modifier::BOLD),
+            ),
+        hcols[1],
+    );
 
     let screen = app.screen.clone();
     match screen {
@@ -582,43 +688,48 @@ fn draw(f: &mut Frame, app: &mut App) {
                 .map(|s| ListItem::new(*s))
                 .collect();
             let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title(" Menu "))
+                .block(ui.panel("COMMAND", palette.accent))
                 .highlight_style(highlight(&palette, 0))
-                .highlight_symbol("> ");
+                .highlight_symbol(ui.cursor());
             f.render_stateful_widget(list, chunks[1], &mut app.menu);
             hint(
                 f,
                 chunks[2],
                 palette.dim,
-                "↑/↓ move   Enter select   ? help   q quit",
+                &format!(
+                    "↑/↓ move{}Enter select{}? help{}q quit",
+                    ui.sep(),
+                    ui.sep(),
+                    ui.sep()
+                ),
             );
         }
-        Screen::Storage => draw_storage(f, app, chunks[1], &palette, chunks[2]),
-        Screen::Report => draw_report(f, app, chunks[1], &palette, chunks[2]),
-        Screen::Ram => draw_simple(f, app, chunks[1], chunks[2], &palette, "RAM", true),
-        Screen::Cpu => draw_simple(f, app, chunks[1], chunks[2], &palette, "CPU", false),
+        Screen::Storage => draw_storage(f, app, chunks[1], &palette, chunks[2], ui),
+        Screen::Report => draw_report(f, app, chunks[1], &palette, chunks[2], ui),
+        Screen::Ram => draw_simple(f, app, chunks[1], chunks[2], &palette, "RAM", true, ui),
+        Screen::Cpu => draw_simple(f, app, chunks[1], chunks[2], &palette, "CPU", false, ui),
         Screen::Help => {
             let lines: Vec<Line> = [
-                "Navigation",
-                "  ↑/↓ or j/k      move / scroll",
-                "  PgUp / PgDn     page",
-                "  g / G, Home/End top / bottom",
-                "  Enter           select / open report",
-                "  Esc or b        back",
-                "Actions",
-                "  r               rescan devices (Storage)",
-                "  c               copy report (OSC52)",
-                "  ?               this help",
-                "  q               quit",
-                "Mouse wheel scrolls lists and reports (with --mouse).",
-                "Tip: text is selectable when mouse capture is off (default).",
-                "Env: DCHECK_THEME, NO_COLOR, DCHECK_SMART_ARGS, DCHECK_NATIVE",
+                "NAVIGATION",
+                "  ↑/↓ or j/k       move / scroll",
+                "  PgUp / PgDn      page",
+                "  g / G, Home/End  top / bottom",
+                "  Enter            select / open",
+                "  Esc or b         back",
+                "ACTIONS",
+                "  r                rescan (Storage)",
+                "  c                copy screen (OSC52)",
+                "  ?                this help",
+                "  q                quit",
+                "",
+                "Mouse wheel scrolls (--mouse). Text is selectable by default.",
+                "Env: DCHECK_THEME, NO_COLOR, DCHECK_PLAIN, DCHECK_SMART_ARGS, DCHECK_NATIVE",
             ]
             .iter()
             .map(|l| Line::from(*l))
             .collect();
             let p = Paragraph::new(Text::from(lines))
-                .block(Block::default().borders(Borders::ALL).title(" Help "))
+                .block(ui.panel("HELP", palette.accent))
                 .wrap(Wrap { trim: false });
             f.render_widget(p, chunks[1]);
             hint(f, chunks[2], palette.dim, "any key back   q quit");
@@ -631,19 +742,35 @@ fn draw(f: &mut Frame, app: &mut App) {
     }
 }
 
+fn severity_label(sev: u8) -> &'static str {
+    match sev {
+        0 => "OK",
+        2 => "MONITOR",
+        3 => "BACKUP",
+        4 => "REPLACE",
+        _ => "UNKNOWN",
+    }
+}
+
 fn draw_storage(
     f: &mut Frame,
     app: &mut App,
     area: Rect,
     palette: &Palette,
     hint_area: Rect,
+    ui: Ui,
 ) {
     if app.devices.is_empty() {
         let p = Paragraph::new("No block devices found.")
             .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).title(" Storage "));
+            .block(ui.panel("STORAGE", palette.accent));
         f.render_widget(p, area);
-        hint(f, hint_area, palette.dim, "r rescan   Esc back   q quit");
+        hint(
+            f,
+            hint_area,
+            palette.dim,
+            &format!("r rescan{}Esc back{}q quit", ui.sep(), ui.sep()),
+        );
         return;
     }
 
@@ -677,7 +804,7 @@ fn draw_storage(
                 Span::styled(label, Style::default().fg(palette.dim))
             } else {
                 Span::styled(
-                    label,
+                    ui.badge(sev, &label),
                     Style::default()
                         .fg(palette.severity(sev))
                         .add_modifier(Modifier::BOLD),
@@ -703,24 +830,24 @@ fn draw_storage(
     }
     widths.push(Constraint::Min(16));
     widths.push(Constraint::Length(10));
-    widths.push(Constraint::Length(14));
+    widths.push(Constraint::Length(16));
     if show_mount {
         widths.push(Constraint::Length(16));
     }
 
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(" Storage "))
+        .block(ui.panel("STORAGE", palette.accent))
         .row_highlight_style(highlight(palette, 1))
-        .highlight_symbol("> ");
+        .highlight_symbol(ui.cursor());
     f.render_stateful_widget(table, area, &mut app.table);
 
     let footer = if app.health_rx.is_some() {
-        "reading health…   ↑/↓ move   Enter report   r rescan   ? help   q quit"
+        format!("SCANNING…{}↑/↓ move{}Enter report{}r rescan{}q quit", ui.sep(), ui.sep(), ui.sep(), ui.sep())
     } else {
-        "↑/↓ move   Enter report   r rescan   ? help   q quit"
+        format!("↑/↓ move{}Enter report{}r rescan{}? help{}q quit", ui.sep(), ui.sep(), ui.sep(), ui.sep())
     };
-    hint(f, hint_area, palette.dim, footer);
+    hint(f, hint_area, palette.dim, &footer);
 }
 
 fn draw_report(
@@ -729,20 +856,22 @@ fn draw_report(
     area: Rect,
     palette: &Palette,
     hint_area: Rect,
+    ui: Ui,
 ) {
     app.view_height = area.height;
     let dev = app.report_dev.clone().unwrap_or_default();
+    let arrow = if ui.plain { ">" } else { "▸" };
 
     let title = if app.pending.is_some() {
         let tick = app.pending.as_ref().map(|p| p.tick).unwrap_or(0);
         format!(
-            " Report — {dev}   loading {} ",
+            "REPORT {arrow} {dev}   SCANNING {}",
             SPINNER[(tick as usize) % SPINNER.len()]
         )
     } else {
         let total = app.report_lines.len();
         let pos = (app.scroll as usize + 1).min(total.max(1));
-        format!(" Report — {dev}   [{pos}/{total}] ")
+        format!("REPORT {arrow} {dev}   [{pos}/{total}]")
     };
 
     let body = if app.pending.is_some() {
@@ -754,11 +883,17 @@ fn draw_report(
             )),
         ])
     } else {
-        Text::from(app.report_lines.iter().cloned().map(Line::from).collect::<Vec<_>>())
+        Text::from(
+            app.report_lines
+                .iter()
+                .cloned()
+                .map(Line::from)
+                .collect::<Vec<_>>(),
+        )
     };
 
     let para = Paragraph::new(body)
-        .block(Block::default().borders(Borders::ALL).title(title))
+        .block(ui.panel(&title, palette.accent))
         .wrap(Wrap { trim: false })
         .scroll((app.scroll, 0));
     f.render_widget(para, area);
@@ -766,7 +901,12 @@ fn draw_report(
         f,
         hint_area,
         palette.dim,
-        "↑/↓ PgUp/PgDn Home/End scroll   b/Esc back   ? help   q quit",
+        &format!(
+            "↑/↓ PgUp/PgDn Home/End scroll{}c copy{}b/Esc back{}q quit",
+            ui.sep(),
+            ui.sep(),
+            ui.sep()
+        ),
     );
 }
 
@@ -778,6 +918,7 @@ fn draw_simple(
     palette: &Palette,
     name: &str,
     is_ram: bool,
+    ui: Ui,
 ) {
     app.view_height = area.height;
     let loading = if is_ram {
@@ -787,10 +928,10 @@ fn draw_simple(
     };
     let lines: &[String] = if is_ram { &app.ram_lines } else { &app.cpu_lines };
     let title = if loading {
-        format!(" {name}   loading… ")
+        format!("{name}   SCANNING…")
     } else {
         format!(
-            " {name}   [{}/{}] ",
+            "{name}   [{}/{}]",
             (app.scroll as usize + 1).min(lines.len().max(1)),
             lines.len()
         )
@@ -806,7 +947,7 @@ fn draw_simple(
         Text::from(lines.iter().cloned().map(Line::from).collect::<Vec<_>>())
     };
     let para = Paragraph::new(body)
-        .block(Block::default().borders(Borders::ALL).title(title))
+        .block(ui.panel(&title, palette.accent))
         .wrap(Wrap { trim: false })
         .scroll((app.scroll, 0));
     f.render_widget(para, area);
@@ -814,7 +955,12 @@ fn draw_simple(
         f,
         hint_area,
         palette.dim,
-        "↑/↓ PgUp/PgDn scroll   c copy   b/Esc back   ? help   q quit",
+        &format!(
+            "↑/↓ PgUp/PgDn scroll{}c copy{}b/Esc back{}q quit",
+            ui.sep(),
+            ui.sep(),
+            ui.sep()
+        ),
     );
 }
 
