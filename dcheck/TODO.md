@@ -105,7 +105,11 @@ Tugas:
 - [x] Verifikasi: 10.0.0.177 → 5 disk OK, Toshiba design life 57–59%
       (~2.1–2.2 th @24/7), exit 0; 10.0.0.251 → Toshiba 92k jam dan Seagate
       77k jam jadi MONITOR (lewat design life ~5.5 / ~3.8 th), exit 2
-- [x] Rilis 0.2.2 (+ tag `dcheck-v0.2.2`)
+- [x] Rilis 0.2.2 (+ tag `dcheck-v0.2.2`) — build aarch64 sempat gagal
+      (rustc 1.98 + zig: `--fix-cortex-a53-843419`), lalu tarball x86_64 yang
+      diupload ulang tertahan cache Cloudflare → checksum mismatch (update
+      menolak dengan aman). Diterbitkan ulang sebagai **0.2.3**; rilis kini
+      immutable (deploy menolak menimpa versi yang sudah terbit).
 
 ## E. Design life HDD: asumsi, bukan data drive
 

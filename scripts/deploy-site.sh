@@ -47,6 +47,14 @@ fi
 
 echo "=== uploading to $HOST:$REMOTE_DIR ==="
 ssh "$HOST" "mkdir -p '$REMOTE_DIR'"
+# Releases are immutable: Cloudflare caches the tarballs (max-age 4 h, per
+# PoP), so re-uploading a version makes clients see stale bytes and fail the
+# checksum. Bump the version instead (FORCE_REPUBLISH=1 to override).
+if [ -z "${SKIP_DCHECK:-}" ] && [ -z "${FORCE_REPUBLISH:-}" ] \
+    && ssh "$HOST" "test -e '$REMOTE_DIR/dcheck/v$VERSION'"; then
+    echo "ERROR: dcheck $VERSION is already published — bump the version in dcheck/Cargo.toml" >&2
+    exit 1
+fi
 # --delete keeps the server in sync with the repo, but never prunes older
 # dcheck releases (clients may pin DCHECK_VERSION), nor the whole channel when
 # it was not staged.
