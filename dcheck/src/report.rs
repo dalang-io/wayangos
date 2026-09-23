@@ -1,7 +1,7 @@
 //! Plain-text rendering of device lists and detailed reports.
 
 use crate::health;
-use crate::model::{Device, MediaKind};
+use crate::model::Device;
 use crate::smartctl;
 
 /// Format a byte count in decimal units, e.g. `465 GB`.
@@ -95,23 +95,27 @@ fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
 /// Print a full report for one device, including SMART health when available.
 pub fn print_report(d: &Device) {
     let smart = read_smart(d);
+    let nid = crate::native::identity(d);
 
     println!("dcheck report — {}", d.path);
     println!("{}", "=".repeat(60));
 
-    // Prefer SMART identity fields when they are more complete.
+    // Prefer SMART, then native identity, then sysfs.
     let vendor = d.vendor.clone();
     let model = smart
         .as_ref()
         .and_then(|s| s.model.clone())
+        .or_else(|| nid.model.clone())
         .or_else(|| d.model.clone());
     let serial = smart
         .as_ref()
         .and_then(|s| s.serial.clone())
+        .or_else(|| nid.serial.clone())
         .or_else(|| d.serial.clone());
     let firmware = smart
         .as_ref()
         .and_then(|s| s.firmware.clone())
+        .or_else(|| nid.firmware.clone())
         .or_else(|| d.firmware.clone());
 
     println!("\n[ Identity ]");
@@ -158,20 +162,22 @@ pub fn print_report(d: &Device) {
 
     println!("\n[ Interface ]");
     println!("  Transport    : {}", d.bus);
-    match smart.as_ref() {
-        Some(s) if s.interface_speed.is_some() || s.sata_version.is_some() => {
-            let link = s.interface_speed.as_deref().unwrap_or("unknown");
-            let ver = s.sata_version.as_deref().unwrap_or("");
+    let speed = smart
+        .as_ref()
+        .and_then(|s| s.interface_speed.clone())
+        .or_else(|| crate::native::link_speed(d));
+    match speed {
+        Some(sp) => {
+            let ver = smart
+                .as_ref()
+                .and_then(|s| s.sata_version.clone())
+                .unwrap_or_default();
             if ver.is_empty() {
-                println!("  Link speed   : {link}");
+                println!("  Link speed   : {sp}");
             } else {
-                println!("  Link speed   : {link} ({ver})");
+                println!("  Link speed   : {sp} ({ver})");
             }
         }
-        Some(_) if d.kind == MediaKind::Nvme => {
-            println!("  PCIe link    : (link speed available in M4)");
-        }
-        Some(_) => println!("  SATA link    : (link speed available in M4)"),
         None => println!("  Link speed   : unavailable"),
     }
 
@@ -181,7 +187,7 @@ pub fn print_report(d: &Device) {
         None => {
             println!("  SMART        : unavailable (run as root, or install smartmontools)");
             if d.bus == crate::model::Bus::Scsi {
-                println!("  Note         : native SCSI/SAS health is not implemented yet");
+                println!("  Note         : native SCSI/SAS health unavailable (controller may block LOG SENSE)");
             } else {
                 println!("  Note         : run as root for raw-device SMART access");
             }

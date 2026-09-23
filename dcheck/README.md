@@ -4,8 +4,9 @@ Device health check — inspect storage (HDD/SSD/NVMe) identity, capacity, healt
 and estimated remaining life. Terminal UI, single static binary, no mandatory
 external tools.
 
-> Status: **M1–M3** — device enumeration, native SMART (ATA via `HDIO_DRIVE_CMD`,
-> NVMe via admin ioctl), and `smartctl` enrichment when available. TUI pending.
+> Status: **M1–M4** — device enumeration; native SMART (ATA `HDIO_DRIVE_CMD`,
+> NVMe ioctl, SCSI best-effort); native identity (ATA IDENTIFY, SCSI
+> INQUIRY/VPD); link speed; `smartctl` enrichment when available. TUI pending.
 > Full plan: [`../docs/DCHECK.md`](../docs/DCHECK.md).
 
 ## Usage

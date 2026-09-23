@@ -198,6 +198,39 @@ fn rated_tbw_bytes(model: &str, capacity_bytes: u64) -> Option<u64> {
             c if c <= 1_100_000_000_000 => 360.0,
             _ => 700.0,
         }
+    } else if m.contains("wd blue") || m.contains("wd green") {
+        match capacity_bytes {
+            c if c <= 280_000_000_000 => 100.0,
+            c if c <= 560_000_000_000 => 200.0,
+            c if c <= 1_100_000_000_000 => 400.0,
+            _ => 600.0,
+        }
+    } else if m.contains("wd black") || m.contains("sn850") || m.contains("sn770") {
+        match capacity_bytes {
+            c if c <= 560_000_000_000 => 300.0,
+            c if c <= 1_100_000_000_000 => 600.0,
+            _ => 1200.0,
+        }
+    } else if m.contains("kingston") || m.contains("kc3000") || m.contains("a2000") {
+        match capacity_bytes {
+            c if c <= 280_000_000_000 => 80.0,
+            c if c <= 560_000_000_000 => 160.0,
+            c if c <= 1_100_000_000_000 => 320.0,
+            _ => 640.0,
+        }
+    } else if m.contains("sk hynix") || m.contains("shgp31") || m.contains("gold p31") {
+        match capacity_bytes {
+            c if c <= 560_000_000_000 => 250.0,
+            c if c <= 1_100_000_000_000 => 500.0,
+            _ => 750.0,
+        }
+    } else if m.contains("intel") || m.contains("ssdpe") || m.contains("d3-s") {
+        match capacity_bytes {
+            c if c <= 280_000_000_000 => 72.0,
+            c if c <= 560_000_000_000 => 144.0,
+            c if c <= 1_100_000_000_000 => 288.0,
+            _ => 576.0,
+        }
     } else {
         return None;
     };
