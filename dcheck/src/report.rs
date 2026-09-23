@@ -1,4 +1,7 @@
 //! Plain-text rendering of device lists and detailed reports.
+//!
+//! `device_report_lines` returns the report as lines so both the CLI and the
+//! TUI can render it.
 
 use crate::health;
 use crate::model::Device;
@@ -36,7 +39,8 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn mount_summary(dev: &Device) -> String {
+/// First mount point among the device's partitions, or `-`.
+pub fn mount_summary(dev: &Device) -> String {
     for p in &dev.partitions {
         if let Some(m) = &p.mountpoint {
             return m.clone();
@@ -65,9 +69,201 @@ pub fn print_list(devices: &[Device]) {
             d.bus.to_string(),
             truncate(&d.label(), 28),
             human_size(d.size_bytes),
-            "?", // per-device SMART is shown in the report, not the list
+            "?",
             truncate(&mount_summary(d), 24),
         );
+    }
+}
+
+/// Print a full report for one device, including SMART health when available.
+pub fn print_report(d: &Device) {
+    for line in device_report_lines(d) {
+        println!("{line}");
+    }
+}
+
+/// Build the full report for one device as lines.
+pub fn device_report_lines(d: &Device) -> Vec<String> {
+    let smart = read_smart(d);
+    let nid = crate::native::identity(d);
+    let mut out: Vec<String> = Vec::new();
+
+    out.push(format!("dcheck report — {}", d.path));
+    out.push("=".repeat(60));
+
+    // Prefer SMART, then native identity, then sysfs.
+    let vendor = d.vendor.clone();
+    let model = smart
+        .as_ref()
+        .and_then(|s| s.model.clone())
+        .or_else(|| nid.model.clone())
+        .or_else(|| d.model.clone());
+    let serial = smart
+        .as_ref()
+        .and_then(|s| s.serial.clone())
+        .or_else(|| nid.serial.clone())
+        .or_else(|| d.serial.clone());
+    let firmware = smart
+        .as_ref()
+        .and_then(|s| s.firmware.clone())
+        .or_else(|| nid.firmware.clone())
+        .or_else(|| d.firmware.clone());
+
+    out.push(String::new());
+    out.push("[ Identity ]".into());
+    out.push(format!("  Device       : {}", d.path));
+    out.push(format!("  Kernel name  : {}", d.name));
+    out.push(format!("  Vendor       : {}", opt(&vendor)));
+    out.push(format!("  Model        : {}", opt(&model)));
+    out.push(format!("  Serial       : {}", opt(&serial)));
+    out.push(format!("  Firmware     : {}", opt(&firmware)));
+    out.push(format!("  Bus          : {}", d.bus));
+    out.push(format!("  Type         : {}", d.kind));
+    if let Some(ff) = smart.as_ref().and_then(|s| s.form_factor.clone()) {
+        out.push(format!("  Form factor  : {ff}"));
+    }
+    if let Some(rr) = smart.as_ref().and_then(|s| s.rotation_rate) {
+        if rr > 0 {
+            out.push(format!("  Rotation     : {rr} rpm"));
+        }
+    }
+    if d.removable {
+        out.push("  Removable    : yes".into());
+    }
+
+    out.push(String::new());
+    out.push("[ Capacity ]".into());
+    out.push(format!("  Total        : {}", human_size(d.size_bytes)));
+    out.push(format!("  Raw bytes    : {} bytes", d.size_bytes));
+    out.push(format!("  Block size   : {} bytes", d.logical_block_size));
+    if d.partitions.is_empty() {
+        out.push("  Partitions   : none".into());
+    } else {
+        out.push(format!("  Partitions   : {}", d.partitions.len()));
+        for p in &d.partitions {
+            let mount = p.mountpoint.as_deref().unwrap_or("not mounted");
+            let fs = p.filesystem.as_deref().unwrap_or("-");
+            out.push(format!(
+                "    {:<16} {:>10}  {:<8} {}",
+                p.path,
+                human_size(p.size_bytes),
+                fs,
+                mount
+            ));
+        }
+    }
+
+    out.push(String::new());
+    out.push("[ Interface ]".into());
+    out.push(format!("  Transport    : {}", d.bus));
+    let speed = smart
+        .as_ref()
+        .and_then(|s| s.interface_speed.clone())
+        .or_else(|| crate::native::link_speed(d));
+    match speed {
+        Some(sp) => {
+            let ver = smart
+                .as_ref()
+                .and_then(|s| s.sata_version.clone())
+                .unwrap_or_default();
+            if ver.is_empty() {
+                out.push(format!("  Link speed   : {sp}"));
+            } else {
+                out.push(format!("  Link speed   : {sp} ({ver})"));
+            }
+        }
+        None => out.push("  Link speed   : unavailable".into()),
+    }
+
+    out.push(String::new());
+    out.push("[ Health ]".into());
+    match smart {
+        Some(s) => health_lines(d, &s, &mut out),
+        None => {
+            out.push("  SMART        : unavailable (run as root, or install smartmontools)".into());
+            if d.bus == crate::model::Bus::Scsi {
+                out.push(
+                    "  Note         : native SCSI/SAS health unavailable (controller may block LOG SENSE)"
+                        .into(),
+                );
+            } else {
+                out.push("  Note         : run as root for raw-device SMART access".into());
+            }
+        }
+    }
+
+    out
+}
+
+fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
+    let h = health::evaluate(d, s);
+
+    out.push(format!("  Verdict      : {}", h.verdict.label()));
+    if !s.source.is_empty() {
+        out.push(format!("  Source       : {}", s.source));
+    }
+    if let Some(passed) = s.passed {
+        out.push(format!(
+            "  SMART status : {}",
+            if passed { "passed" } else { "FAILED" }
+        ));
+    }
+    if s.smart_available == Some(false) {
+        out.push("  SMART        : device reports SMART as unavailable".into());
+    }
+    if let Some(t) = s.temperature_c {
+        out.push(format!("  Temperature  : {t}°C"));
+    }
+    if let Some(poh) = s.power_on_hours {
+        let cycles = s
+            .power_cycles
+            .map(|c| format!(", {c} power cycles"))
+            .unwrap_or_default();
+        out.push(format!("  Power-on     : {poh} h{cycles}"));
+    }
+    if let Some(w) = h.tbw_bytes {
+        out.push(format!("  Written      : {} (host)", human_size(w)));
+    }
+    if let Some(r) = s.bytes_read() {
+        out.push(format!("  Read         : {}", human_size(r)));
+    }
+    if let Some(used) = h.wear_used_percent {
+        out.push(format!("  Wear         : {used}% used"));
+    }
+    match h.rated_tbw_bytes {
+        Some(r) => out.push(format!("  Rated TBW    : {}", human_size(r))),
+        None => out.push("  Rated TBW    : unknown (model not in endurance table)".into()),
+    }
+
+    match (h.days_247, h.days_87, h.remaining_poh) {
+        (Some(d247), Some(d87), Some(hours)) => out.push(format!(
+            "  Life left    : ~{hours} h  (~{}y @24/7  |  ~{}y @8/7)",
+            fmt_years(d247),
+            fmt_years(d87)
+        )),
+        _ => out.push("  Life left    : unknown (insufficient endurance data)".into()),
+    }
+    out.push(format!("  Confidence   : {}", h.confidence.label()));
+
+    if !h.issues.is_empty() {
+        out.push("  Issues       :".into());
+        for i in &h.issues {
+            out.push(format!("    - {i}"));
+        }
+    }
+    for n in &h.notes {
+        out.push(format!("  Note         : {n}"));
+    }
+    if let Some(err) = &s.error {
+        out.push(format!("  Error        : {err} (run as root)"));
+    }
+}
+
+fn fmt_years(days: u64) -> String {
+    if days < 365 {
+        format!("{days}d")
+    } else {
+        format!("{:.1}", days as f64 / 365.0)
     }
 }
 
@@ -90,183 +286,6 @@ fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
         return Some(native);
     }
     smartctl_result
-}
-
-/// Print a full report for one device, including SMART health when available.
-pub fn print_report(d: &Device) {
-    let smart = read_smart(d);
-    let nid = crate::native::identity(d);
-
-    println!("dcheck report — {}", d.path);
-    println!("{}", "=".repeat(60));
-
-    // Prefer SMART, then native identity, then sysfs.
-    let vendor = d.vendor.clone();
-    let model = smart
-        .as_ref()
-        .and_then(|s| s.model.clone())
-        .or_else(|| nid.model.clone())
-        .or_else(|| d.model.clone());
-    let serial = smart
-        .as_ref()
-        .and_then(|s| s.serial.clone())
-        .or_else(|| nid.serial.clone())
-        .or_else(|| d.serial.clone());
-    let firmware = smart
-        .as_ref()
-        .and_then(|s| s.firmware.clone())
-        .or_else(|| nid.firmware.clone())
-        .or_else(|| d.firmware.clone());
-
-    println!("\n[ Identity ]");
-    println!("  Device       : {}", d.path);
-    println!("  Kernel name  : {}", d.name);
-    println!("  Vendor       : {}", opt(&vendor));
-    println!("  Model        : {}", opt(&model));
-    println!("  Serial       : {}", opt(&serial));
-    println!("  Firmware     : {}", opt(&firmware));
-    println!("  Bus          : {}", d.bus);
-    println!("  Type         : {}", d.kind);
-    if let Some(ff) = smart.as_ref().and_then(|s| s.form_factor.clone()) {
-        println!("  Form factor  : {ff}");
-    }
-    if let Some(rr) = smart.as_ref().and_then(|s| s.rotation_rate) {
-        if rr > 0 {
-            println!("  Rotation     : {rr} rpm");
-        }
-    }
-    if d.removable {
-        println!("  Removable    : yes");
-    }
-
-    println!("\n[ Capacity ]");
-    println!("  Total        : {}", human_size(d.size_bytes));
-    println!("  Raw bytes    : {} bytes", d.size_bytes);
-    println!("  Block size   : {} bytes", d.logical_block_size);
-    if d.partitions.is_empty() {
-        println!("  Partitions   : none");
-    } else {
-        println!("  Partitions   : {}", d.partitions.len());
-        for p in &d.partitions {
-            let mount = p.mountpoint.as_deref().unwrap_or("not mounted");
-            let fs = p.filesystem.as_deref().unwrap_or("-");
-            println!(
-                "    {:<16} {:>10}  {:<8} {}",
-                p.path,
-                human_size(p.size_bytes),
-                fs,
-                mount
-            );
-        }
-    }
-
-    println!("\n[ Interface ]");
-    println!("  Transport    : {}", d.bus);
-    let speed = smart
-        .as_ref()
-        .and_then(|s| s.interface_speed.clone())
-        .or_else(|| crate::native::link_speed(d));
-    match speed {
-        Some(sp) => {
-            let ver = smart
-                .as_ref()
-                .and_then(|s| s.sata_version.clone())
-                .unwrap_or_default();
-            if ver.is_empty() {
-                println!("  Link speed   : {sp}");
-            } else {
-                println!("  Link speed   : {sp} ({ver})");
-            }
-        }
-        None => println!("  Link speed   : unavailable"),
-    }
-
-    println!("\n[ Health ]");
-    match smart {
-        Some(s) => print_health(d, &s),
-        None => {
-            println!("  SMART        : unavailable (run as root, or install smartmontools)");
-            if d.bus == crate::model::Bus::Scsi {
-                println!("  Note         : native SCSI/SAS health unavailable (controller may block LOG SENSE)");
-            } else {
-                println!("  Note         : run as root for raw-device SMART access");
-            }
-        }
-    }
-
-    println!();
-}
-
-fn print_health(d: &Device, s: &smartctl::SmartData) {
-    let h = health::evaluate(d, s);
-
-    println!("  Verdict      : {}", h.verdict.label());
-    if !s.source.is_empty() {
-        println!("  Source       : {}", s.source);
-    }
-    if let Some(passed) = s.passed {
-        println!("  SMART status : {}", if passed { "passed" } else { "FAILED" });
-    }
-    if s.smart_available == Some(false) {
-        println!("  SMART        : device reports SMART as unavailable");
-    }
-    if let Some(t) = s.temperature_c {
-        println!("  Temperature  : {t}°C");
-    }
-    if let Some(poh) = s.power_on_hours {
-        let cycles = s
-            .power_cycles
-            .map(|c| format!(", {c} power cycles"))
-            .unwrap_or_default();
-        println!("  Power-on     : {poh} h{cycles}");
-    }
-    if let Some(w) = h.tbw_bytes {
-        println!("  Written      : {} (host)", human_size(w));
-    }
-    if let Some(r) = s.bytes_read() {
-        println!("  Read         : {}", human_size(r));
-    }
-    if let Some(used) = h.wear_used_percent {
-        println!("  Wear         : {used}% used");
-    }
-    match h.rated_tbw_bytes {
-        Some(r) => println!("  Rated TBW    : {}", human_size(r)),
-        None => println!("  Rated TBW    : unknown (model not in endurance table)"),
-    }
-
-    match (h.days_247, h.days_87, h.remaining_poh) {
-        (Some(d247), Some(d87), Some(hours)) => {
-            println!(
-                "  Life left    : ~{hours} h  (~{}y @24/7  |  ~{}y @8/7)",
-                fmt_years(d247),
-                fmt_years(d87)
-            );
-        }
-        _ => println!("  Life left    : unknown (insufficient endurance data)"),
-    }
-    println!("  Confidence   : {}", h.confidence.label());
-
-    if !h.issues.is_empty() {
-        println!("  Issues       :");
-        for i in &h.issues {
-            println!("    - {i}");
-        }
-    }
-    for n in &h.notes {
-        println!("  Note         : {n}");
-    }
-
-    if let Some(err) = &s.error {
-        println!("  Error        : {err} (run as root)");
-    }
-}
-
-fn fmt_years(days: u64) -> String {
-    if days < 365 {
-        format!("{days}d")
-    } else {
-        format!("{:.1}", days as f64 / 365.0)
-    }
 }
 
 #[cfg(test)]

@@ -11,6 +11,7 @@ mod model;
 mod native;
 mod report;
 mod smartctl;
+mod tui;
 
 use std::io::{self, IsTerminal, Write};
 
@@ -23,7 +24,13 @@ fn main() {
 
 fn run(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
-        None => interactive_menu(false),
+        None => {
+            if interactive() {
+                run_tui(false)
+            } else {
+                interactive_menu(false)
+            }
+        }
         Some("-h") | Some("--help") | Some("help") => {
             print_help();
             0
@@ -33,7 +40,14 @@ fn run(args: &[String]) -> i32 {
             0
         }
         Some("storage") | Some("disk") => storage_cmd(&args[1..], false),
-        Some("demo") => interactive_menu(true),
+        Some("tui") => run_tui(false),
+        Some("demo") => {
+            if interactive() {
+                run_tui(true)
+            } else {
+                interactive_menu(true)
+            }
+        }
         Some("ram") => coming_soon("RAM"),
         Some("cpu") => coming_soon("CPU"),
         Some(other) => {
@@ -44,14 +58,30 @@ fn run(args: &[String]) -> i32 {
     }
 }
 
+fn interactive() -> bool {
+    io::stdin().is_terminal() && io::stdout().is_terminal()
+}
+
+fn run_tui(force_demo: bool) -> i32 {
+    let devices = load_devices(force_demo);
+    match tui::run(devices) {
+        Ok(()) => 0,
+        Err(err) => {
+            eprintln!("dcheck: TUI error: {err}");
+            1
+        }
+    }
+}
+
 fn print_help() {
     println!(
         "dcheck {VERSION} — device health check
 
 USAGE:
-    dcheck                  Interactive menu (storage / ram / cpu)
+    dcheck                  Interactive menu (TUI on a terminal)
     dcheck storage          List attached storage devices
     dcheck storage <dev>    Report for one device (e.g. /dev/nvme0n1)
+    dcheck tui              Force the terminal UI
     dcheck demo             Run with built-in sample devices (no sysfs needed)
     dcheck ram | cpu        Coming soon
     dcheck --version

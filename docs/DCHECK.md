@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M4 done** (enumeration + native ATA/NVMe/SCSI + link speed + smartctl fallback) — TUI (M5) pending · Target MVP: **storage** · Owner: TBD
+Status: **M1–M5 done** (enumeration + native ATA/NVMe/SCSI + link speed + TUI) — FreeBSD/JSON/packaging (M6) pending · Target MVP: **storage** · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -291,7 +291,7 @@ dcheck/
 | M2 | Health via `smartctl -j` (if present) | **done** (ATA + NVMe parsing) |
 | M3 | Native NVMe ioctl + ATA `SG_IO` fallback | **done** (ATA via `HDIO_DRIVE_CMD`; NVMe ioctl, not live-tested) |
 | M4 | TBW / wear / life-estimate + vendor DB + link speed + SCSI identity | **done** (SCSI health best-effort; some HBAs/PERC block LOG SENSE) |
-| M5 | TUI polish (menu, list, report) + `storage` shorthand | MVP complete |
+| M5 | TUI polish (menu, list, report) + `storage` shorthand | **done** (ratatui; ↑/↓, Enter, b/Esc, PgUp/PgDn, q) |
 | M6 | FreeBSD backend, `--json`, packaging, CI | cross-platform |
 
 MVP = M1–M5 (Linux). RAM/CPU are post-MVP.
