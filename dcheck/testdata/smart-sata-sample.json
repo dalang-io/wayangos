@@ -1,0 +1,36 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 5],
+    "messages": []
+  },
+  "device": { "name": "/dev/sda", "info_name": "/dev/sda [SAT]", "type": "sat", "protocol": "ATA" },
+  "model_name": "Samsung SSD 870 EVO 500GB",
+  "serial_number": "S000000000000001",
+  "firmware_version": "SVT01B6Q",
+  "rotation_rate": 0,
+  "form_factor": { "ata_value": 3, "name": "2.5 inches" },
+  "logical_block_size": 512,
+  "physical_block_size": 512,
+  "sata_version": { "string": "SATA 3.2", "value": 519 },
+  "interface_speed": {
+    "max": { "string": "6.0 Gb/s" },
+    "current": { "string": "6.0 Gb/s" }
+  },
+  "smart_support": { "available": true, "enabled": true },
+  "smart_status": { "passed": true },
+  "temperature": { "current": 33 },
+  "power_on_time": { "hours": 8760 },
+  "power_cycle_count": 120,
+  "in_smartctl_database": true,
+  "ata_smart_attributes": {
+    "table": [
+      { "id": 5,   "name": "Reallocated_Sector_Ct", "value": 100, "worst": 100, "thresh": 10, "raw": { "value": 0 } },
+      { "id": 9,   "name": "Power_On_Hours",        "value": 99,  "worst": 99,  "thresh": 0,  "raw": { "value": 8760 } },
+      { "id": 12,  "name": "Power_Cycle_Count",     "value": 98,  "worst": 98,  "thresh": 0,  "raw": { "value": 120 } },
+      { "id": 199, "name": "UDMA_CRC_Error_Count",  "value": 100, "worst": 100, "thresh": 0,  "raw": { "value": 0 } },
+      { "id": 241, "name": "Total_LBAs_Written",    "value": 99,  "worst": 99,  "thresh": 0,  "raw": { "value": 312500000 } },
+      { "id": 242, "name": "Total_LBAs_Read",       "value": 99,  "worst": 99,  "thresh": 0,  "raw": { "value": 156250000 } }
+    ]
+  }
+}

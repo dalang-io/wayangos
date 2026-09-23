@@ -29,6 +29,7 @@ the base kernel (`6.19.7`).
 | `scripts/` | Build pipeline: kernel → rootfs → ISO, plus POS builds |
 | `scripts/deprecated/` | Historical build scripts, kept for reference only |
 | `wayangos-pos/` | Wayang POS source (`fbpos-v3.c`) — direct framebuffer, evdev, SQLite |
+| `dcheck/` | `dcheck` device health checker (Rust) — storage/SSD/HDD/NVMe, plan in `docs/DCHECK.md` |
 | `userspace/` | Reference init scripts (legacy — see `userspace/README.md`) |
 | `docs/` | Architecture and per-component build notes |
 | `landing-page/` | Static website (wayang.dalang.io) |
