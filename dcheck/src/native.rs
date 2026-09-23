@@ -59,6 +59,43 @@ pub fn identity(device: &Device) -> IdInfo {
     }
 }
 
+/// SMART self-test type.
+#[derive(Debug, Clone, Copy)]
+pub enum SelfTest {
+    Short,
+    Long,
+}
+
+impl SelfTest {
+    fn code(self) -> u8 {
+        match self {
+            SelfTest::Short => 1,
+            SelfTest::Long => 2,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            SelfTest::Short => "short",
+            SelfTest::Long => "long",
+        }
+    }
+}
+
+/// Start a SMART self-test and report the current execution status.
+/// Native implementation is ATA-only; callers may fall back to smartctl.
+pub fn selftest(device: &Device, kind: SelfTest) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::ata_selftest(device, kind)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (device, kind);
+        None
+    }
+}
+
 /// Negotiated interface link speed (SATA `sata_spd`, NVMe PCIe link).
 pub fn link_speed(device: &Device) -> Option<String> {
     #[cfg(target_os = "linux")]
@@ -218,7 +255,7 @@ mod linux {
     use std::path::Path;
 
     use super::{
-        nonempty, parse_ata_smart, parse_log_params, parse_nvme_health, IdInfo, SmartData,
+        nonempty, parse_ata_smart, parse_log_params, parse_nvme_health, IdInfo, SelfTest, SmartData,
     };
     use crate::model::{Bus, Device, MediaKind};
 
@@ -236,6 +273,7 @@ mod linux {
     const SMART_READ_THRESHOLDS: u8 = 0xD1;
     const SMART_ENABLE: u8 = 0xD8;
     const SMART_RETURN_STATUS: u8 = 0xDA;
+    const SMART_EXECUTE_OFFLINE: u8 = 0xD4;
 
     const SG_IO: CULong = 0x2285;
     const SG_DXFER_FROM_DEV: CInt = -3;
@@ -482,6 +520,41 @@ mod linux {
         }
         s.passed = Some(s.uncorrectable.unwrap_or(0) == 0);
         Some(s)
+    }
+
+    fn selftest_status(v: u8) -> &'static str {
+        match v {
+            0 => "completed without error",
+            1 => "aborted by host",
+            2 => "interrupted by reset",
+            3 => "fatal error",
+            4 => "unknown failure",
+            5 => "completed: failed elements",
+            0x0f => "in progress",
+            _ => "reserved",
+        }
+    }
+
+    pub fn ata_selftest(device: &Device, kind: SelfTest) -> Option<String> {
+        let file = fs::File::open(&device.path).ok()?;
+        let fd = file.as_raw_fd();
+        let mut buf = [0u8; 516];
+        if hdio_cmd(fd, WIN_SMART, SMART_EXECUTE_OFFLINE, kind.code(), &mut buf) != 0 {
+            return None;
+        }
+        let mut data = [0u8; 516];
+        if hdio_cmd(fd, WIN_SMART, SMART_READ_DATA, 1, &mut data) == 0 {
+            let status = data[4 + 363] & 0x0f;
+            let remaining = data[4 + 364];
+            Some(format!(
+                "{} self-test started; status: {} ({}% remaining)",
+                kind.label(),
+                selftest_status(status),
+                remaining
+            ))
+        } else {
+            Some(format!("{} self-test started", kind.label()))
+        }
     }
 
     pub fn ata_read(device: &Device) -> Option<SmartData> {

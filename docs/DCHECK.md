@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M7 done** (Linux + FreeBSD, native + smartctl, full ATA attributes+thresholds, link speed, TUI, `--json`, packaging) · Owner: TBD
+Status: **M1–M8 done** (Linux + FreeBSD, native + smartctl, ATA attributes+thresholds, self-test + read-only bench, link speed, TUI, `--json`, packaging) · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -328,11 +328,10 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - **AC:** verified on real SATA (attribute table + thresholds shown; verdict uses
   failing attributes).
 
-### M8 — Self-test + read-only benchmark
-- `dcheck storage <dev> --test short|long` (native or smartctl `-t`).
-- `dcheck storage <dev> --bench` read-only (sequential + 4K QD1) with a clear
-  warning; never writes.
-- JSON output; **AC:** short self-test + bench run and report on real SATA.
+### M8 — Self-test + read-only benchmark — DONE
+- `dcheck storage <dev> --test short|long` (native ATA; smartctl fallback). ✅
+- `dcheck storage <dev> --bench` read-only (sequential + 4K QD1, `O_DIRECT`). ✅
+- **AC:** verified on real SATA (self-test completed; 128 MB/s seq, ~3.3k IOPS 4K).
 
 ### M9 — Monitoring & alerts
 - `dcheck watch [--interval N] [--json] [--webhook URL]`, `--quiet`/`--exit-code`.

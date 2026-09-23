@@ -4,6 +4,7 @@
 //! Storage health (native SMART) and the TUI arrive in later milestones.
 //! See `docs/DCHECK.md`.
 
+mod bench;
 mod enumerate;
 mod health;
 mod json;
@@ -81,6 +82,8 @@ USAGE:
     dcheck                  Interactive menu (TUI on a terminal)
     dcheck storage          List attached storage devices
     dcheck storage <dev>    Report for one device (e.g. /dev/nvme0n1)
+    dcheck storage <dev> --bench           Read-only speed benchmark
+    dcheck storage <dev> --test short|long Start a SMART self-test
     dcheck tui              Force the terminal UI
     dcheck demo             Run with built-in sample devices (no sysfs needed)
     dcheck ram | cpu        Coming soon
@@ -125,12 +128,30 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
     let mut selector: Option<String> = None;
     let mut demo = session_demo;
     let mut json = false;
-    for arg in args {
-        match arg.as_str() {
+    let mut bench = false;
+    let mut test: Option<native::SelfTest> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
             "--demo" => demo = true,
             "--json" => json = true,
+            "--bench" => bench = true,
+            "--test" => {
+                i += 1;
+                test = match args.get(i).map(String::as_str) {
+                    Some("short") => Some(native::SelfTest::Short),
+                    Some("long") => Some(native::SelfTest::Long),
+                    _ => {
+                        eprintln!("dcheck: --test needs 'short' or 'long'");
+                        return 2;
+                    }
+                };
+            }
             "-h" | "--help" => {
-                println!("Usage: dcheck storage [<device>] [--demo] [--json]");
+                println!(
+                    "Usage: dcheck storage [<device>] [--demo] [--json] [--bench] [--test short|long]"
+                );
                 return 0;
             }
             flag if flag.starts_with('-') => {
@@ -143,20 +164,14 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
                 }
             }
         }
+        i += 1;
     }
 
     let devices = load_devices(demo);
 
     if let Some(sel) = selector {
-        return match enumerate::find_device(&devices, &sel) {
-            Some(dev) => {
-                if json {
-                    println!("{}", report::device_json(&dev).to_string());
-                } else {
-                    report::print_report(&dev);
-                }
-                0
-            }
+        let dev = match enumerate::find_device(&devices, &sel) {
+            Some(dev) => dev,
             None => {
                 if json {
                     println!(
@@ -171,9 +186,27 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
                     eprintln!("dcheck: device '{sel}' not found. Attached devices:");
                     report::print_list(&devices);
                 }
-                1
+                return 1;
             }
         };
+
+        if let Some(kind) = test {
+            return run_selftest(&dev, kind);
+        }
+        if bench {
+            return run_bench(&dev);
+        }
+        if json {
+            println!("{}", report::device_json(&dev).to_string());
+        } else {
+            report::print_report(&dev);
+        }
+        return 0;
+    }
+
+    if test.is_some() || bench {
+        eprintln!("dcheck: --test/--bench need a device (e.g. `dcheck storage /dev/sda --bench`)");
+        return 2;
     }
 
     if json {
@@ -190,6 +223,53 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
     }
 
     prompt_selection(&devices)
+}
+
+fn run_selftest(dev: &model::Device, kind: native::SelfTest) -> i32 {
+    if let Some(msg) = native::selftest(dev, kind) {
+        println!("{msg}");
+        println!(
+            "Note: the result appears in the SMART self-test log once complete (re-run the report)."
+        );
+        return 0;
+    }
+    // Fall back to smartctl for NVMe/SCSI or when the native path fails.
+    let t = match kind {
+        native::SelfTest::Short => "short",
+        native::SelfTest::Long => "long",
+    };
+    match std::process::Command::new("smartctl")
+        .arg("-t")
+        .arg(t)
+        .arg(&dev.path)
+        .status()
+    {
+        Ok(s) if s.success() => {
+            println!("self-test {t} started via smartctl");
+            0
+        }
+        _ => {
+            eprintln!("dcheck: could not start self-test (run as root, or install smartmontools)");
+            1
+        }
+    }
+}
+
+fn run_bench(dev: &model::Device) -> i32 {
+    eprintln!(
+        "WARNING: read-only benchmark on {} — no data is written.",
+        dev.path
+    );
+    match bench::run(&dev.path, dev.size_bytes) {
+        Some(summary) => {
+            println!("Benchmark {}: {summary}", dev.path);
+            0
+        }
+        None => {
+            eprintln!("dcheck: benchmark unavailable (needs Linux and read access to the raw device)");
+            1
+        }
+    }
 }
 
 /// Load real devices, or fall back to built-in demo data when there is no sysfs
