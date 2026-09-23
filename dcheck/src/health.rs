@@ -1,5 +1,7 @@
 //! Health verdict and remaining-life estimation from SMART data.
 
+use std::sync::OnceLock;
+
 use crate::model::Device;
 use crate::smartctl::SmartData;
 
@@ -177,10 +179,51 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
     }
 }
 
-/// Best-effort rated endurance (TBW) lookup for common consumer SSDs.
-/// Returns bytes. `None` when the model is unknown.
+/// User-provided TBW overrides, loaded once.
+fn overrides() -> &'static [(String, f64)] {
+    static OVERRIDES: OnceLock<Vec<(String, f64)>> = OnceLock::new();
+    OVERRIDES.get_or_init(load_overrides)
+}
+
+fn load_overrides() -> Vec<(String, f64)> {
+    let path = std::env::var_os("DCHECK_TBW_JSON")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| std::path::PathBuf::from(h).join(".config/dcheck/tbw.json"))
+        });
+    let Some(path) = path else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let Some(crate::json::Json::Obj(map)) = crate::json::Json::parse(&text) else {
+        return Vec::new();
+    };
+    map.into_iter()
+        .filter_map(|(k, v)| v.as_f64().map(|t| (k, t)))
+        .collect()
+}
+
+/// Rated endurance: user overrides first, then the built-in table.
+/// Overrides come from `$DCHECK_TBW_JSON` or `~/.config/dcheck/tbw.json`
+/// (`{ "model substring": tbw_in_tb, ... }`).
 fn rated_tbw_bytes(model: &str, capacity_bytes: u64) -> Option<u64> {
-    let m = model.to_ascii_lowercase();
+    let lower = model.to_ascii_lowercase();
+    if let Some(tbw_tb) = match_override(&lower, overrides()) {
+        return Some((tbw_tb * 1e12) as u64);
+    }
+    rated_tbw_table(&lower, capacity_bytes)
+}
+
+fn match_override(lower: &str, list: &[(String, f64)]) -> Option<f64> {
+    list.iter()
+        .find(|(needle, _)| !needle.is_empty() && lower.contains(&needle.to_ascii_lowercase()))
+        .map(|(_, tbw)| *tbw)
+}
+
+fn rated_tbw_table(m: &str, capacity_bytes: u64) -> Option<u64> {
     let tbw_tb: f64 = if m.contains("870 evo") || m.contains("860 evo") {
         match capacity_bytes {
             c if c <= 280_000_000_000 => 150.0,
@@ -302,6 +345,17 @@ mod tests {
         s.passed = Some(false);
         let h = evaluate(&ssd("SSD 1TB", 1_000_000_000_000), &s);
         assert_eq!(h.verdict, Verdict::Replace);
+    }
+
+    #[test]
+    fn rated_tbw_known_and_override() {
+        // Built-in table.
+        assert_eq!(rated_tbw_table("kingston sa400s37", 240_000_000_000), Some(80_000_000_000_000));
+        assert_eq!(rated_tbw_table("unknown model", 240_000_000_000), None);
+        // User override takes precedence (pure matcher).
+        let ov = vec![("sa400".to_string(), 999.0)];
+        assert_eq!(match_override("kingston sa400s37 240g", &ov), Some(999.0));
+        assert_eq!(match_override("samsung ssd 980", &ov), None);
     }
 
     #[test]

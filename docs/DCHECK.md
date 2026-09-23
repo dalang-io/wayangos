@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M9 done** (Linux + FreeBSD, native + smartctl, ATA attributes+thresholds, self-test + read-only bench, link speed, TUI, `--json`, monitoring/alerts, packaging) · Owner: TBD
+Status: **M1–M10 partial** (Linux + FreeBSD, native + smartctl, ATA attributes+thresholds, self-test + bench, link speed, TUI, `--json`, monitoring/alerts, TBW overrides) · passthrough + NVMe extras backlog · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -339,13 +339,12 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - Alerts on verdict worsening or new issues; webhook POST via `curl`. ✅
 - **AC:** verified on real SATA (check exit 0; watch alerts once on device appear).
 
-### M10 — Hardware coverage + endurance overrides
+### M10 — Hardware coverage + endurance overrides (PAUSED: override done)
+- Vendor TBW overrides from `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`). ✅
+  verified on real SATA (override changed "Rated TBW" to 600 TB).
 - Passthrough selection: USB (`-d sat`), RAID (`-d megaraid,N`, `3ware`, `areca`,
-  `cciss`); auto-probe when the default fails.
-- Vendor TBW overrides from `~/.config/dcheck/tbw.json`.
-- NVMe: error log page + per-sensor temperatures.
-- **AC:** `-d` selection wired; override file honored; best-effort tested on R630
-  PERC.
+  `cciss`); auto-probe when the default fails. ⏳ backlog
+- NVMe: error log page + per-sensor temperatures. ⏳ backlog
 
 ### M11 — Polish
 - Config file, `--prometheus`, man page, signed release artifacts.
