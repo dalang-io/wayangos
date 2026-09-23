@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M5 done** (enumeration + native ATA/NVMe/SCSI + link speed + TUI) — FreeBSD/JSON/packaging (M6) pending · Target MVP: **storage** · Owner: TBD
+Status: **M1–M6 done** (Linux + FreeBSD backend, native + smartctl, link speed, TUI, `--json`, packaging) · Target MVP: **storage** · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -255,7 +255,9 @@ spin retry > 0, SMART FAILED, temperature beyond range.
 ## 11. Output modes
 
 - TUI (default, interactive).
-- `--json` for automation/scripts (stable schema, versioned).
+- `--json` for automation/scripts (stable schema, compact, keys sorted):
+  - `dcheck storage --json` → array of devices (identity + capacity + partitions)
+  - `dcheck storage <dev> --json` → full object incl. interface and health
 - Future: `--prometheus`, `--quiet` (exit code = worst health).
 
 ## 12. Safety principles
@@ -278,9 +280,13 @@ dcheck/
   (profile: `opt-level="z"`, `lto`, `panic="abort"`, `strip`).
 - Cross-linking on a non-Linux host uses `zig cc` as the linker (or a musl
   toolchain). `scripts/build-dcheck.sh` wires this up.
+- `scripts/release-dcheck.sh` builds the matrix and tars each binary + README.
 - Matrix: linux/amd64, linux/arm64 (`aarch64-unknown-linux-musl`), freebsd/amd64.
+  (FreeBSD binaries are produced on FreeBSD or with a FreeBSD cross-linker.)
+- FreeBSD is implemented via `sysctl kern.disks` for enumeration and `smartctl`
+  for identity/health (the Linux ioctl paths are `cfg`-gated out).
 - Ship alongside WayangOS ISOs; also installable standalone.
-- CI: build matrix on push (add a `dcheck` job to `.github/workflows/ci.yml`).
+- CI: matrix build + tests + JSON smoke (`.github/workflows/ci.yml`).
 
 ## 14. Milestones
 
@@ -292,7 +298,7 @@ dcheck/
 | M3 | Native NVMe ioctl + ATA `SG_IO` fallback | **done** (ATA via `HDIO_DRIVE_CMD`; NVMe ioctl, not live-tested) |
 | M4 | TBW / wear / life-estimate + vendor DB + link speed + SCSI identity | **done** (SCSI health best-effort; some HBAs/PERC block LOG SENSE) |
 | M5 | TUI polish (menu, list, report) + `storage` shorthand | **done** (ratatui; ↑/↓, Enter, b/Esc, PgUp/PgDn, q) |
-| M6 | FreeBSD backend, `--json`, packaging, CI | cross-platform |
+| M6 | FreeBSD backend, `--json`, packaging, CI | **done** (FreeBSD via `sysctl`+smartctl; compact JSON; release script; CI matrix) |
 
 MVP = M1–M5 (Linux). RAM/CPU are post-MVP.
 

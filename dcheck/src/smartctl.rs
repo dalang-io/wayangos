@@ -25,6 +25,7 @@ pub struct SmartData {
     pub power_cycles: Option<u64>,
     pub lba_written: Option<u64>,
     pub lba_read: Option<u64>,
+    pub capacity_bytes: Option<u64>,
     pub logical_block_size: Option<u64>,
     pub reallocated: Option<u64>,
     pub pending: Option<u64>,
@@ -103,6 +104,10 @@ fn parse_smart(j: &Json) -> SmartData {
         .and_then(Json::as_u64);
     s.power_cycles = j.get("power_cycle_count").and_then(Json::as_u64);
     s.logical_block_size = j.get("logical_block_size").and_then(Json::as_u64);
+    s.capacity_bytes = j
+        .get("user_capacity")
+        .and_then(|v| v.get("bytes"))
+        .and_then(Json::as_u64);
 
     if let Some(speed) = j.get("interface_speed") {
         s.interface_speed = speed

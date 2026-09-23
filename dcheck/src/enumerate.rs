@@ -7,6 +7,9 @@
 //! The filesystem root can be overridden with `DCHECK_SYS_ROOT`, which is used
 //! by the test fixture and is also handy for inspecting a chroot/offline image.
 
+// Linux uses the sysfs helpers below; FreeBSD has its own module.
+#![cfg_attr(target_os = "freebsd", allow(dead_code, unused_imports))]
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,7 +29,19 @@ fn sys_block(root: &Path) -> PathBuf {
 }
 
 /// Enumerate whole-disk block devices.
+#[cfg(not(target_os = "freebsd"))]
 pub fn list_devices() -> Vec<Device> {
+    list_devices_sysfs()
+}
+
+/// Enumerate disks on FreeBSD (via `sysctl kern.disks` + smartctl identity).
+#[cfg(target_os = "freebsd")]
+pub fn list_devices() -> Vec<Device> {
+    freebsd::list_devices()
+}
+
+#[cfg(not(target_os = "freebsd"))]
+fn list_devices_sysfs() -> Vec<Device> {
     let root = root();
     let mut devices = Vec::new();
     let mounts = read_mounts(&root);
@@ -324,6 +339,13 @@ fn read_u64(path: PathBuf) -> Option<u64> {
 }
 
 /// Whether a (real or overridden) sysfs exists on this host.
+#[cfg(target_os = "freebsd")]
+pub fn has_sysfs() -> bool {
+    true
+}
+
+/// Whether a (real or overridden) sysfs exists on this host.
+#[cfg(not(target_os = "freebsd"))]
 pub fn has_sysfs() -> bool {
     sys_block(&root()).is_dir()
 }
@@ -400,6 +422,80 @@ pub fn demo_devices() -> Vec<Device> {
             vec![part("/dev/mmcblk0p1", 32_000_000_000, Some("/media/card"), Some("ext4"))],
         ),
     ]
+}
+
+#[cfg(target_os = "freebsd")]
+mod freebsd {
+    use crate::model::{Bus, Device, MediaKind};
+    use crate::smartctl;
+
+    /// List disks via `sysctl -n kern.disks`; identity/capacity from smartctl.
+    pub fn list_devices() -> Vec<Device> {
+        let out = match std::process::Command::new("sysctl")
+            .args(["-n", "kern.disks"])
+            .output()
+        {
+            Ok(o) if o.status.success() => o,
+            _ => return Vec::new(),
+        };
+        String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .filter(|n| !n.starts_with("cd") && !n.starts_with("md"))
+            .map(build)
+            .collect()
+    }
+
+    fn build(name: &str) -> Device {
+        let path = format!("/dev/{name}");
+        let smart = smartctl::read_smart(&path);
+        let (model, serial, firmware, capacity, rota) = match &smart {
+            Some(s) => (
+                s.model.clone(),
+                s.serial.clone(),
+                s.firmware.clone(),
+                s.capacity_bytes,
+                s.rotation_rate,
+            ),
+            None => (None, None, None, None, None),
+        };
+
+        let nvme = name.starts_with("nvme") || name.starts_with("nda");
+        let bus = if nvme {
+            Bus::Nvme
+        } else if name.starts_with("ada") {
+            Bus::Sata
+        } else if name.starts_with("da") {
+            Bus::Scsi
+        } else if name.starts_with("mmcsd") {
+            Bus::Mmc
+        } else {
+            Bus::Unknown
+        };
+        let kind = if nvme {
+            MediaKind::Nvme
+        } else {
+            match rota {
+                Some(0) => MediaKind::Ssd,
+                Some(_) => MediaKind::Hdd,
+                None => MediaKind::Unknown,
+            }
+        };
+
+        Device {
+            name: name.to_string(),
+            path,
+            vendor: None,
+            model,
+            firmware,
+            serial,
+            bus,
+            kind,
+            size_bytes: capacity.unwrap_or(0),
+            logical_block_size: 512,
+            removable: false,
+            partitions: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -124,14 +124,13 @@ fn interactive_menu(force_demo: bool) -> i32 {
 fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
     let mut selector: Option<String> = None;
     let mut demo = session_demo;
+    let mut json = false;
     for arg in args {
         match arg.as_str() {
             "--demo" => demo = true,
-            "--json" => {
-                eprintln!("dcheck: --json is not implemented yet (planned for M6).");
-            }
+            "--json" => json = true,
             "-h" | "--help" => {
-                println!("Usage: dcheck storage [<device>] [--demo]");
+                println!("Usage: dcheck storage [<device>] [--demo] [--json]");
                 return 0;
             }
             flag if flag.starts_with('-') => {
@@ -151,15 +150,37 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
     if let Some(sel) = selector {
         return match enumerate::find_device(&devices, &sel) {
             Some(dev) => {
-                report::print_report(&dev);
+                if json {
+                    println!("{}", report::device_json(&dev).to_string());
+                } else {
+                    report::print_report(&dev);
+                }
                 0
             }
             None => {
-                eprintln!("dcheck: device '{sel}' not found. Attached devices:");
-                report::print_list(&devices);
+                if json {
+                    println!(
+                        "{}",
+                        crate::json::object(vec![(
+                            "error",
+                            crate::json::string(format!("device '{sel}' not found")),
+                        )])
+                        .to_string()
+                    );
+                } else {
+                    eprintln!("dcheck: device '{sel}' not found. Attached devices:");
+                    report::print_list(&devices);
+                }
                 1
             }
         };
+    }
+
+    if json {
+        let items: Vec<crate::json::Json> =
+            devices.iter().map(report::device_json_basic).collect();
+        println!("{}", crate::json::Json::Arr(items).to_string());
+        return 0;
     }
 
     report::print_list(&devices);

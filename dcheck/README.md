@@ -4,10 +4,10 @@ Device health check — inspect storage (HDD/SSD/NVMe) identity, capacity, healt
 and estimated remaining life. Terminal UI, single static binary, no mandatory
 external tools.
 
-> Status: **M1–M5** — device enumeration; native SMART (ATA `HDIO_DRIVE_CMD`,
+> Status: **M1–M6** — device enumeration; native SMART (ATA `HDIO_DRIVE_CMD`,
 > NVMe ioctl, SCSI best-effort); native identity (ATA IDENTIFY, SCSI
-> INQUIRY/VPD); link speed; terminal UI; `smartctl` enrichment when available.
-> FreeBSD/JSON/packaging (M6) pending.
+> INQUIRY/VPD); link speed; terminal UI; `smartctl` enrichment; `--json`; and a
+> FreeBSD backend (`sysctl` + smartctl).
 > Full plan: [`../docs/DCHECK.md`](../docs/DCHECK.md).
 
 ## Usage
@@ -16,6 +16,8 @@ external tools.
 dcheck                  # terminal UI (menu -> storage -> report)
 dcheck storage          # list attached storage devices (text)
 dcheck storage <dev>    # report for one device (e.g. /dev/nvme0n1)
+dcheck storage --json   # machine-readable device list
+dcheck storage <dev> --json   # full JSON report for one device
 dcheck tui              # force the terminal UI
 dcheck demo             # run with built-in sample devices
 dcheck ram | cpu        # coming soon

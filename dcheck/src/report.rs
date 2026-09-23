@@ -288,6 +288,131 @@ fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
     smartctl_result
 }
 
+/// Basic device object (no SMART read) for list output.
+pub fn device_json_basic(d: &Device) -> crate::json::Json {
+    let mut partitions = Vec::new();
+    for p in &d.partitions {
+        partitions.push(crate::json::object(vec![
+            ("path", crate::json::string(p.path.clone())),
+            ("size_bytes", crate::json::num(p.size_bytes as f64)),
+            (
+                "filesystem",
+                opt_json(&p.filesystem),
+            ),
+            ("mountpoint", opt_json(&p.mountpoint)),
+        ]));
+    }
+    crate::json::object(vec![
+        ("device", crate::json::string(d.path.clone())),
+        ("name", crate::json::string(d.name.clone())),
+        ("vendor", opt_json(&d.vendor)),
+        ("model", opt_json(&d.model)),
+        ("bus", crate::json::string(d.bus.to_string())),
+        ("type", crate::json::string(d.kind.to_string())),
+        ("removable", crate::json::Json::Bool(d.removable)),
+        ("capacity_bytes", crate::json::num(d.size_bytes as f64)),
+        ("logical_block_size", crate::json::num(d.logical_block_size as f64)),
+        ("partitions", crate::json::Json::Arr(partitions)),
+    ])
+}
+
+/// Full device object including identity, interface and health.
+pub fn device_json(d: &Device) -> crate::json::Json {
+    let smart = read_smart(d);
+    let nid = crate::native::identity(d);
+
+    let model = smart
+        .as_ref()
+        .and_then(|s| s.model.clone())
+        .or_else(|| nid.model.clone())
+        .or_else(|| d.model.clone());
+    let serial = smart
+        .as_ref()
+        .and_then(|s| s.serial.clone())
+        .or_else(|| nid.serial.clone())
+        .or_else(|| d.serial.clone());
+    let firmware = smart
+        .as_ref()
+        .and_then(|s| s.firmware.clone())
+        .or_else(|| nid.firmware.clone())
+        .or_else(|| d.firmware.clone());
+
+    let link_speed = smart
+        .as_ref()
+        .and_then(|s| s.interface_speed.clone())
+        .or_else(|| crate::native::link_speed(d));
+
+    let health = smart.as_ref().map(|s| {
+        let h = health::evaluate(d, s);
+        crate::json::object(vec![
+            ("verdict", crate::json::string(h.verdict.label())),
+            ("source", crate::json::string(s.source.clone())),
+            ("passed", opt_bool(s.passed)),
+            ("temperature_c", opt_num(s.temperature_c.map(|v| v as f64))),
+            ("power_on_hours", opt_num(s.power_on_hours.map(|v| v as f64))),
+            ("power_cycles", opt_num(s.power_cycles.map(|v| v as f64))),
+            ("written_bytes", opt_num(h.tbw_bytes.map(|v| v as f64))),
+            ("read_bytes", opt_num(s.bytes_read().map(|v| v as f64))),
+            ("wear_used_percent", opt_num(h.wear_used_percent.map(|v| v as f64))),
+            ("rated_tbw_bytes", opt_num(h.rated_tbw_bytes.map(|v| v as f64))),
+            ("remaining_hours", opt_num(h.remaining_poh.map(|v| v as f64))),
+            ("life_days_247", opt_num(h.days_247.map(|v| v as f64))),
+            ("life_days_87", opt_num(h.days_87.map(|v| v as f64))),
+            ("confidence", crate::json::string(h.confidence.label())),
+            ("issues", {
+                let v: Vec<crate::json::Json> =
+                    h.issues.iter().map(|i| crate::json::string(i.clone())).collect();
+                crate::json::Json::Arr(v)
+            }),
+            ("notes", {
+                let v: Vec<crate::json::Json> =
+                    h.notes.iter().map(|n| crate::json::string(n.clone())).collect();
+                crate::json::Json::Arr(v)
+            }),
+        ])
+    });
+
+    // Merge basic fields with the extra full fields.
+    let basic = device_json_basic(d);
+    let mut map = match basic {
+        crate::json::Json::Obj(m) => m,
+        other => return other,
+    };
+    map.insert("serial".to_string(), opt_json(&serial));
+    map.insert("firmware".to_string(), opt_json(&firmware));
+    map.insert("model".to_string(), opt_json(&model));
+    map.insert(
+        "interface".to_string(),
+        crate::json::object(vec![
+            ("transport", crate::json::string(d.bus.to_string())),
+            ("link_speed", opt_json(&link_speed)),
+        ]),
+    );
+    map.insert("health".to_string(), health.unwrap_or(crate::json::Json::Null));
+    crate::json::Json::Obj(map)
+}
+
+fn opt_json(v: &Option<String>) -> crate::json::Json {
+    match v {
+        Some(s) => crate::json::string(s.clone()),
+        None => crate::json::Json::Null,
+    }
+}
+
+fn opt_num(v: Option<f64>) -> crate::json::Json {
+    match v {
+        Some(n) => crate::json::num(n),
+        None => crate::json::Json::Null,
+    }
+}
+
+fn opt_bool(v: Option<bool>) -> crate::json::Json {
+    match v {
+        Some(b) => crate::json::Json::Bool(b),
+        None => crate::json::Json::Null,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,5 +431,27 @@ mod tests {
     fn long_labels_are_truncated() {
         assert_eq!(truncate("short", 10), "short");
         assert_eq!(truncate("abcdefghij", 5), "abcd…");
+    }
+
+    #[test]
+    fn device_json_has_core_fields() {
+        let d = Device {
+            name: "sda".into(),
+            path: "/dev/sda".into(),
+            vendor: Some("ATA".into()),
+            model: Some("SSD 1TB".into()),
+            firmware: None,
+            serial: None,
+            bus: crate::model::Bus::Sata,
+            kind: crate::model::MediaKind::Ssd,
+            size_bytes: 500_000_000_000,
+            logical_block_size: 512,
+            removable: false,
+            partitions: vec![],
+        };
+        let s = device_json_basic(&d).to_string();
+        assert!(s.contains("\"device\":\"/dev/sda\""));
+        assert!(s.contains("\"capacity_bytes\":500000000000"));
+        assert!(s.contains("\"bus\":\"SATA\""));
     }
 }

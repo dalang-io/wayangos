@@ -89,13 +89,19 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-unknown-freebsd
 
       - name: Test
         run: cargo test --manifest-path dcheck/Cargo.toml --locked
 
-      - name: Build static binary
+      - name: Build linux/amd64 static
         run: cargo build --release --locked --target x86_64-unknown-linux-musl --manifest-path dcheck/Cargo.toml
+
+      - name: Build linux/arm64 static
+        run: cargo build --release --locked --target aarch64-unknown-linux-musl --manifest-path dcheck/Cargo.toml
+
+      - name: Check FreeBSD build
+        run: cargo check --locked --target x86_64-unknown-freebsd --manifest-path dcheck/Cargo.toml
 
       - name: Verify static ELF
         run: |
@@ -106,6 +112,13 @@ jobs:
         env:
           DCHECK_BIN: dcheck/target/x86_64-unknown-linux-musl/release/dcheck
         run: ./scripts/test-dcheck.sh
+
+      - name: JSON output smoke test
+        env:
+          DCHECK_DEMO: "1"
+        run: |
+          dcheck/target/x86_64-unknown-linux-musl/release/dcheck storage --json \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,list) and d; print("json ok:", len(d), "devices")'
 
   smoke:
     name: Rootfs smoke build

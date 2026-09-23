@@ -69,6 +69,84 @@ impl Json {
             _ => None,
         }
     }
+
+    /// Compact JSON serialization (object keys sorted).
+    pub fn to_string(&self) -> String {
+        let mut out = String::new();
+        self.write(&mut out);
+        out
+    }
+
+    fn write(&self, out: &mut String) {
+        match self {
+            Json::Null => out.push_str("null"),
+            Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Json::Num(n) => {
+                if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
+                    out.push_str(&format!("{}", *n as i64));
+                } else {
+                    out.push_str(&format!("{n}"));
+                }
+            }
+            Json::Str(s) => write_str(out, s),
+            Json::Arr(items) => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    item.write(out);
+                }
+                out.push(']');
+            }
+            Json::Obj(map) => {
+                out.push('{');
+                for (i, (k, v)) in map.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write_str(out, k);
+                    out.push(':');
+                    v.write(out);
+                }
+                out.push('}');
+            }
+        }
+    }
+}
+
+fn write_str(out: &mut String, s: &str) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+/// Build an object from key/value pairs.
+pub fn object(pairs: Vec<(&str, Json)>) -> Json {
+    let mut map = BTreeMap::new();
+    for (k, v) in pairs {
+        map.insert(k.to_string(), v);
+    }
+    Json::Obj(map)
+}
+
+/// Convenience constructors.
+pub fn string(s: impl Into<String>) -> Json {
+    Json::Str(s.into())
+}
+
+pub fn num(n: impl Into<f64>) -> Json {
+    Json::Num(n.into())
 }
 
 struct Parser<'a> {
