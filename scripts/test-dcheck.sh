@@ -140,6 +140,8 @@ fi
 [ -x "$BIN" ] || { echo "ERROR: dcheck binary not found: $BIN" >&2; exit 1; }
 
 export DCHECK_SYS_ROOT="$FAKE"
+# Each assertion must see the fixture as it is now, never a cached read.
+export DCHECK_NO_CACHE=1
 
 echo "=== dcheck storage (list) ==="
 LIST="$("$BIN" storage 2>&1 || true)"
@@ -211,6 +213,28 @@ else
     echo "  ok   : unknown device returns non-zero"
     pass=$((pass + 1))
 fi
+
+echo
+echo "=== failed SATA port from the kernel log (DCHECK_KMSG) ==="
+KMSG="$(mktemp)"
+cat > "$KMSG" <<'KMSG_EOF'
+ata5: SATA max UDMA/133 abar m2048@0xfb616000 port 0xfb616100 irq 38
+ata5: link is slow to respond, please be patient (ready=0)
+ata5: limiting SATA link speed to 3.0 Gbps
+ata5: hardreset failed
+ata5: reset failed, giving up
+KMSG_EOF
+code=0
+CHK="$(DCHECK_KMSG="$KMSG" "$BIN" check 2>&1)" || code=$?
+printf '%s\n' "$CHK"
+contains "$CHK" "ata5"                      "dead port listed by check"
+contains "$CHK" "never became ready"        "reason shown"
+contains "$CHK" "REPLACE"                   "verdict is REPLACE"
+if [ "$code" -eq 3 ]; then echo "  ok   : check exits 3"; pass=$((pass + 1)); else echo "  FAIL : check exit $code (want 3)"; fail=$((fail + 1)); fi
+PREP="$(DCHECK_KMSG="$KMSG" "$BIN" storage ata5 2>&1 || true)"
+contains "$PREP" "SATA port"                "port report"
+contains "$PREP" "never answered IDENTIFY"  "port report explains"
+rm -f "$KMSG"
 
 echo
 echo "=== RESULT: $pass passed, $fail failed ==="

@@ -27,6 +27,48 @@ fn root() -> PathBuf {
     }
 }
 
+/// SATA ports whose drive the kernel gave up on (no block device), from the
+/// kernel log. Only for the live system (or `$DCHECK_KMSG` with a fixture).
+fn failed_ata_ports(root: &Path, devices: &[Device]) -> Vec<Device> {
+    if root != Path::new("/") && std::env::var_os("DCHECK_KMSG").is_none() {
+        return Vec::new();
+    }
+    // Ports that do have a working disk: /sys/block/<dev>/device -> .../ataN/...
+    let mut live = std::collections::BTreeSet::new();
+    for d in devices {
+        let link = sys_block(root).join(&d.name).join("device");
+        if let Ok(p) = fs::canonicalize(link) {
+            for comp in p.components() {
+                let c = comp.as_os_str().to_string_lossy();
+                if let Some(n) = c.strip_prefix("ata").and_then(|n| n.parse::<u32>().ok()) {
+                    live.insert(n);
+                }
+            }
+        }
+    }
+    let messages = crate::kernlog::read_messages();
+    crate::kernlog::ata_port_states(messages.iter().map(String::as_str))
+        .into_iter()
+        .filter(|(port, st)| st.failed.is_some() && !live.contains(port))
+        .map(|(port, st)| Device {
+            name: format!("ata{port}"),
+            path: format!("ata{port}"),
+            vendor: None,
+            model: Some("unresponsive drive".into()),
+            firmware: None,
+            serial: None,
+            bus: Bus::Sata,
+            kind: MediaKind::Unknown,
+            size_bytes: 0,
+            logical_block_size: 512,
+            removable: false,
+            smart_status: None,
+            partitions: Vec::new(),
+            failure: st.failed,
+        })
+        .collect()
+}
+
 fn sys_block(root: &Path) -> PathBuf {
     root.join("sys/block")
 }
@@ -79,6 +121,7 @@ fn list_devices_sysfs() -> Vec<Device> {
             devices.push(dev);
         }
     }
+    devices.extend(failed_ata_ports(&root, &devices));
     devices
 }
 
@@ -142,6 +185,7 @@ fn build_device(root: &Path, name: &str, mounts: &Mounts) -> Option<Device> {
         removable,
         smart_status: None,
         partitions,
+        failure: None,
     })
 }
 
@@ -497,6 +541,7 @@ pub fn demo_devices() -> Vec<Device> {
             removable,
             smart_status: None,
             partitions,
+            failure: None,
         }
     }
 
@@ -628,6 +673,7 @@ mod macos {
             removable,
             smart_status: smart,
             partitions: Vec::new(),
+            failure: None,
         }
     }
 
@@ -733,6 +779,7 @@ mod freebsd {
             removable: false,
             smart_status: None,
             partitions: Vec::new(),
+            failure: None,
         }
     }
 }

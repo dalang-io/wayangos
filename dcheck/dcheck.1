@@ -135,6 +135,27 @@ Disable colour entirely.
 .B DCHECK_NO_SPLASH
 Skip the TUI start-up splash.
 .TP
+.B DCHECK_NO_CACHE
+Always read SMART from the hardware (same as
+.BR \-\-fresh ).
+Interactive views otherwise reuse reads for
+.B cache_ttl_secs
+(default 600) from
+.I /var/cache/dcheck
+(root) or
+.IR ~/.cache/dcheck ;
+.BR check ,
+.BR watch ,
+.B prometheus
+and
+.B \-\-json
+never use the cache.
+.TP
+.B DCHECK_KMSG
+Read kernel messages from this file instead of
+.I /dev/kmsg
+(used to list SATA ports whose drive never came up).
+.TP
 .B DCHECK_PLAIN
 Use ASCII borders/symbols in the TUI.
 .TP

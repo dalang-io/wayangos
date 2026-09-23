@@ -156,7 +156,16 @@ pub fn device_report(d: &Device) -> (Vec<String>, Option<(smartctl::SmartData, h
 
 /// Report lines for already-read SMART data.
 pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>) -> Vec<String> {
-    let nid = crate::native::identity(d);
+    if let Some(reason) = &d.failure {
+        return failed_port_lines(d, reason);
+    }
+    // SMART usually carries the identity; the native INQUIRY/IDENTIFY is
+    // slow on some controllers, so only ask when something is missing.
+    let nid = if smart.is_some_and(|s| s.model.is_some() && s.serial.is_some() && s.firmware.is_some()) {
+        crate::native::IdInfo::default()
+    } else {
+        crate::native::identity(d)
+    };
     let mut out: Vec<String> = Vec::new();
 
     let banner = if ui_plain() {
@@ -307,12 +316,40 @@ pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>)
     out
 }
 
+/// Report for a SATA port whose drive never came up.
+fn failed_port_lines(d: &Device, reason: &str) -> Vec<String> {
+    let banner = if ui_plain() {
+        format!("dcheck report - {} (SATA port)", d.name)
+    } else {
+        format!("▚ dcheck report · {} (SATA port)", d.name)
+    };
+    vec![
+        banner,
+        rule(),
+        String::new(),
+        section("HEALTH"),
+        "  Verdict      : REPLACE".into(),
+        "  Source       : kernel log (no block device was created)".into(),
+        format!("  Port         : {} — {reason}", d.name),
+        "  Identity     : unknown (the drive never answered IDENTIFY)".into(),
+        "  Next steps   : reseat / swap the data and power cable, try another port or".into(),
+        "                 machine; if it fails everywhere the drive is dead (common".into(),
+        "                 with counterfeit or rebranded SSDs) — replace / claim it".into(),
+    ]
+}
+
 fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
     let h = health::evaluate(d, s);
 
     out.push(format!("  Verdict      : {}", h.verdict.label()));
     if !s.source.is_empty() {
         out.push(format!("  Source       : {}", s.source));
+    }
+    if let Some(age) = crate::cache::age(d).filter(|a| *a >= 5) {
+        out.push(format!(
+            "  Data age     : read {} (cached; r in the UI or --fresh re-reads)",
+            crate::cache::fmt_age(age)
+        ));
     }
     if let Some(passed) = s.passed {
         out.push(format!(
@@ -613,6 +650,7 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     if !r.modules.is_empty() {
         out.push(String::new());
         out.push(section("MODULES (FIRMWARE / SMBIOS)"));
+        let hidden = r.populated().saturating_sub(r.modules.len());
         for m in &r.modules {
             let speed = m
                 .speed_mts
@@ -628,6 +666,11 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
                 speed,
                 vendor,
                 part
+            ));
+        }
+        if hidden > 0 {
+            out.push(format!(
+                "  (+{hidden} more module(s) installed but not described by the firmware — a BIOS table bug, not a memory fault; a BIOS update may fix it)"
             ));
         }
     }
@@ -828,11 +871,6 @@ fn smartctl_installed() -> bool {
     })
 }
 
-/// Read and evaluate health for a device (`None` when SMART is unavailable).
-pub fn health_summary(d: &Device) -> Option<health::Health> {
-    device_metrics(d).map(|(_, h)| h)
-}
-
 /// Read SMART data and the evaluated health together.
 pub fn device_metrics(d: &Device) -> Option<(smartctl::SmartData, health::Health)> {
     read_smart(d).map(|s| {
@@ -843,6 +881,7 @@ pub fn device_metrics(d: &Device) -> Option<(smartctl::SmartData, health::Health
 
 /// Prometheus text exposition for all devices.
 pub fn prometheus(devices: &[Device]) -> String {
+    let all = metrics_all(devices);
     let mut out = String::new();
     out.push_str("# HELP dcheck_capacity_bytes Device capacity in bytes.\n");
     out.push_str("# TYPE dcheck_capacity_bytes gauge\n");
@@ -851,8 +890,8 @@ pub fn prometheus(devices: &[Device]) -> String {
     }
     out.push_str("# HELP dcheck_health_severity 0=ok 1=unknown 2=monitor 3=backup/replace.\n");
     out.push_str("# TYPE dcheck_health_severity gauge\n");
-    for d in devices {
-        if let Some((_, h)) = device_metrics(d) {
+    for (d, m) in devices.iter().zip(&all) {
+        if let Some((_, h)) = m {
             let sev = match h.verdict {
                 health::Verdict::Ok => 0.0,
                 health::Verdict::Unknown => 1.0,
@@ -872,9 +911,9 @@ pub fn prometheus(devices: &[Device]) -> String {
     ];
     for (name, get) in gauges {
         out.push_str(&format!("# TYPE {name} gauge\n"));
-        for d in devices {
-            if let Some((s, _)) = device_metrics(d) {
-                if let Some(v) = get(&s) {
+        for (d, m) in devices.iter().zip(&all) {
+            if let Some((s, _)) = m {
+                if let Some(v) = get(s) {
                     out.push_str(&metric(name, &d.path, None, v));
                 }
             }
@@ -893,8 +932,29 @@ fn metric(name: &str, device: &str, label: Option<&str>, value: f64) -> String {
 /// Prefer smartctl when it works; otherwise fall back to the native reader.
 /// `DCHECK_NATIVE=1` forces the native path (used for testing).
 fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
+    crate::cache::smart(d, || read_smart_uncached(d))
+}
+
+/// SMART + health for every device, read in parallel (slow controllers answer
+/// one command at a time per disk, not per host).
+pub fn metrics_all(devices: &[Device]) -> Vec<Option<(smartctl::SmartData, health::Health)>> {
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = devices.iter().map(|d| scope.spawn(move || device_metrics(d))).collect();
+        handles.into_iter().map(|h| h.join().ok().flatten()).collect()
+    })
+}
+
+fn read_smart_uncached(d: &Device) -> Option<smartctl::SmartData> {
     if crate::enumerate::is_demo() {
         return crate::enumerate::demo_smart(d);
+    }
+    // A port the kernel gave up on: nothing to read, the log is the evidence.
+    if d.failure.is_some() {
+        return Some(smartctl::SmartData {
+            source: "kernel log".into(),
+            passed: Some(false),
+            ..Default::default()
+        });
     }
     // Both sources are read and merged: smartctl (when installed) knows vendor
     // quirks, the native ioctl path fills whatever smartctl leaves out.
@@ -954,7 +1014,11 @@ pub fn device_json_basic(d: &Device) -> crate::json::Json {
 /// Full device object including identity, interface and health.
 pub fn device_json(d: &Device) -> crate::json::Json {
     let smart = read_smart(d);
-    let nid = crate::native::identity(d);
+    let nid = if smart.as_ref().is_some_and(|s| s.model.is_some() && s.serial.is_some() && s.firmware.is_some()) {
+        crate::native::IdInfo::default()
+    } else {
+        crate::native::identity(d)
+    };
 
     let model = smart
         .as_ref()
@@ -1214,6 +1278,7 @@ mod tests {
             removable: false,
             smart_status: None,
             partitions: vec![],
+            failure: None,
         };
         let s = device_json_basic(&d).to_string();
         assert!(s.contains("\"device\":\"/dev/sda\""));

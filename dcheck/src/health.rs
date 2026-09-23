@@ -99,6 +99,9 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
     if let Some(err) = &smart.error {
         notes.push(err.clone());
     }
+    if let Some(reason) = &device.failure {
+        issues.push(format!("{}: {reason} — drive dead or incompatible", device.name));
+    }
 
     let tbw_bytes = smart.bytes_written();
     let wear_used = smart.life_percent.map(|p| 100u64.saturating_sub(p));
@@ -477,6 +480,7 @@ mod tests {
             removable: false,
             smart_status: None,
             partitions: vec![],
+            failure: None,
         }
     }
 

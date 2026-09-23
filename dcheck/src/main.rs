@@ -5,11 +5,13 @@
 //! See `docs/DCHECK.md`.
 
 mod bench;
+mod cache;
 mod config;
 mod cpu;
 mod enumerate;
 mod health;
 mod json;
+mod kernlog;
 mod model;
 mod monitor;
 mod mount;
@@ -30,6 +32,10 @@ fn main() {
 }
 
 fn run(args: &[String]) -> i32 {
+    // `--fresh` anywhere (e.g. `dcheck tui --fresh`): ignore cached reads.
+    if args.iter().any(|a| a == "--fresh") {
+        cache::set_fresh(true);
+    }
     match args.first().map(String::as_str) {
         None => {
             if interactive() {
@@ -47,9 +53,19 @@ fn run(args: &[String]) -> i32 {
             0
         }
         Some("storage") | Some("disk") => storage_cmd(&args[1..], false),
-        Some("check") => check_cmd(&args[1..], false),
-        Some("watch") => watch_cmd(&args[1..], false),
-        Some("prometheus") => prometheus_cmd(&args[1..], false),
+        // Monitoring must reflect the hardware now, never a cached read.
+        Some("check") => {
+            cache::set_fresh(true);
+            check_cmd(&args[1..], false)
+        }
+        Some("watch") => {
+            cache::set_fresh(true);
+            watch_cmd(&args[1..], false)
+        }
+        Some("prometheus") => {
+            cache::set_fresh(true);
+            prometheus_cmd(&args[1..], false)
+        }
         Some("update") | Some("self-update") => update::cmd(&args[1..]),
         Some("snapshot") => snapshot_cmd(&args[1..]),
         Some("tui") => run_tui(
@@ -194,7 +210,7 @@ fn print_help() {
 USAGE:
     dcheck                  Interactive menu (TUI on a terminal)
     dcheck storage          List attached storage devices
-    dcheck storage <dev>    Report for one device (e.g. /dev/nvme0n1)
+    dcheck storage <dev>    Report for one device (e.g. /dev/nvme0n1; --fresh skips the cache)
     dcheck storage <dev> --bench           Read-only speed benchmark
     dcheck storage <dev> --test short|long Start a SMART self-test
     dcheck tui              Terminal UI (--light|--dark, --mouse, --plain)
@@ -325,7 +341,11 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
     while i < args.len() {
         match args[i].as_str() {
             "--demo" => demo = true,
-            "--json" => json = true,
+            "--json" => {
+                json = true;
+                cache::set_fresh(true);
+            }
+            "--fresh" => cache::set_fresh(true),
             "--bench" => bench = true,
             "--test" => {
                 i += 1;

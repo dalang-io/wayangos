@@ -195,9 +195,9 @@ impl App {
         self.health = vec![DevHealth::pending(); devices.len()];
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let out: Vec<DevHealth> = devices
+            let out: Vec<DevHealth> = report::metrics_all(&devices)
                 .iter()
-                .map(|d| DevHealth::from_metrics(report::device_metrics(d).as_ref()))
+                .map(|m| DevHealth::from_metrics(m.as_ref()))
                 .collect();
             let _ = tx.send(out);
         });
@@ -253,6 +253,9 @@ impl App {
     }
 
     fn rescan(&mut self) {
+        for d in &self.devices {
+            crate::cache::invalidate(d);
+        }
         self.devices = reload_devices(self.demo);
         self.table = TableState::default();
         if !self.devices.is_empty() {
@@ -528,6 +531,9 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             KeyCode::Char('r') => match app.screen {
                 Screen::Report => {
                     if let Some(i) = app.report_dev {
+                        if let Some(d) = app.devices.get(i) {
+                            crate::cache::invalidate(d);
+                        }
                         app.start_report(i);
                     }
                 }

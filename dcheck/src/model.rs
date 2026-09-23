@@ -79,6 +79,9 @@ pub struct Device {
     /// used when no smartctl/native reader is available.
     pub smart_status: Option<bool>,
     pub partitions: Vec<Partition>,
+    /// Set for a device the kernel could not bring up (e.g. a SATA port
+    /// whose drive never answered); the reason is shown as its health issue.
+    pub failure: Option<String>,
 }
 
 impl Device {

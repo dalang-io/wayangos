@@ -34,6 +34,19 @@ impl IdInfo {
 /// Read SMART natively. Returns `None` on non-Linux or when the ioctl path
 /// fails (no privileges, unsupported device/transport).
 pub fn read(device: &Device) -> Option<SmartData> {
+    let mut s = read_raw(device)?;
+    // Keep the identity with the SMART data (and so in the cache): a separate
+    // INQUIRY/IDENTIFY costs up to ~0.75 s behind some RAID controllers.
+    if s.model.is_none() || s.serial.is_none() || s.firmware.is_none() {
+        let id = identity(device);
+        s.model = s.model.or(id.model);
+        s.serial = s.serial.or(id.serial);
+        s.firmware = s.firmware.or(id.firmware);
+    }
+    Some(s)
+}
+
+fn read_raw(device: &Device) -> Option<SmartData> {
     #[cfg(target_os = "linux")]
     {
         use crate::model::{Bus, MediaKind};

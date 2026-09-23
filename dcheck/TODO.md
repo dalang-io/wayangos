@@ -401,10 +401,38 @@ Temuan (kernel log, read-only):
   muncul di daftar sama sekali.
 
 Tugas:
-- [ ] "Unresponsive devices": deteksi port SATA dengan perangkat yang gagal
+- [x] "Unresponsive devices": deteksi port SATA dengan perangkat yang gagal
       (kernel log `ata*: reset failed`, `link is slow to respond`,
       `/sys/class/ata_link/*` / `ata_port`) dan tampilkan di storage array
       sebagai baris FAILED + alasan; `dcheck check` → exit 3
 - [ ] Setelah drive terbaca: jalankan sinyal authenticity (TODO G) dan
       tawarkan `--verify-capacity` (butuh izin eksplisit; destruktif hanya
       pada drive kosong)
+- [x] Verifikasi lab-243: `check` → "ata1 REPLACE … never became ready; 3 ×
+      link is slow to respond; link speed was reduced", exit 3; report per
+      port dengan langkah selanjutnya. User konfirmasi: kabel/port diganti
+      tetap gagal → SSD mati.
+
+## L. Cache pembacaan SMART (sda di 10.0.0.251 lambat tiap dibuka)
+
+Profil (strace) `dcheck storage /dev/sda` di .251: ~3 dtk; 13 perintah
+SG_IO, masing-masing 0.3–0.75 dtk lewat PERC (LOG SENSE per page, READ
+DEFECT, INQUIRY). Tidak ada timeout — disk SAS + controller memang lambat
+per perintah. Masalahnya pengulangan: TUI membaca semua disk saat scan, lalu
+membaca ulang disk yang sama setiap kali detail dibuka; `check` membaca 3
+disk berurutan (~5 dtk).
+
+Tugas:
+- [x] Cache di memori (per proses): hasil scan TUI dipakai saat membuka
+      detail → instan; `r` = baca ulang
+- [x] Cache di disk dengan TTL (default 10 menit, config `cache_ttl_secs`):
+      root → /var/cache/dcheck, user → ~/.cache/dcheck; kunci = device +
+      model + serial + ukuran (disk diganti = cache tidak dipakai)
+- [x] Monitoring selalu segar: `check`, `watch`, `prometheus`, `--json`
+      tidak memakai cache; `--fresh` / `DCHECK_NO_CACHE=1` untuk memaksa
+- [x] Tampilkan umur data ("cached 3 min ago") di report / TUI
+- [x] Baca disk paralel (scan TUI dan `check`)
+- [x] Terukur di .251: `storage /dev/sda` 3.4 dtk → 0.01 dtk (cache);
+      `check` 5.1 → 3.9 dtk (paralel); `prometheus` ~18 dtk (6 baca/disk)
+      → 3.6 dtk (sekali baca, paralel). Identitas (INQUIRY 0.75 dtk) ikut
+      disimpan bersama SMART. Kunci + WWID sysfs bila ada.

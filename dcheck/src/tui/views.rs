@@ -631,6 +631,19 @@ fn report_vitals(app: &App, width: u16) -> Vec<Line<'static>> {
     if !s.source.is_empty() {
         lines.push(w::field("SOURCE", LW, text(s.source.clone(), p), p));
     }
+    if let Some(age) = app
+        .report_dev
+        .and_then(|i| app.devices.get(i))
+        .and_then(crate::cache::age)
+        .filter(|a| *a >= 5)
+    {
+        lines.push(w::field(
+            "DATA",
+            LW,
+            vec![Span::styled(format!("cached, read {} (r re-reads)", crate::cache::fmt_age(age)), p.fg(p.dim))],
+            p,
+        ));
+    }
     lines.push(Line::from(""));
     life_gauges(&mut lines, s, h, app.temp_warn, cells, p, ui);
 
@@ -932,7 +945,12 @@ fn storage(f: &mut Frame, app: &mut App, area: Rect) {
                 cells.push(Cell::from(Span::styled(d.bus.to_string(), p.fg(p.dim))));
             }
             cells.push(Cell::from(d.label()));
-            cells.push(Cell::from(Line::from(human_size(d.size_bytes)).right_aligned()));
+            let cap = if d.failure.is_some() && d.size_bytes == 0 {
+                if ui.plain { "-".to_string() } else { "—".to_string() }
+            } else {
+                human_size(d.size_bytes)
+            };
+            cells.push(Cell::from(Line::from(cap).right_aligned()));
             if show_life {
                 cells.push(Cell::from(match h.life {
                     Some(l) => {
@@ -989,6 +1007,22 @@ fn storage(f: &mut Frame, app: &mut App, area: Rect) {
 fn device_detail(f: &mut Frame, d: &Device, area: Rect, p: &Palette, ui: Ui) {
     let title = format!("TARGET {} {}", ui.arrow(), d.path);
     let inner = w::panel(f, area, &title, None, p, ui);
+    if let Some(reason) = &d.failure {
+        let room = inner.width as usize;
+        let lines = vec![
+            Line::from(Span::styled(
+                w::clip(&format!("SATA port {} {} {reason}", d.name, ui.dot()), room, ui),
+                p.bold(p.bad),
+            )),
+            Line::from(Span::styled(
+                w::clip("no block device: the drive never answered — swap cable/port, else replace", room, ui),
+                p.fg(p.dim),
+            )),
+            Line::from(Span::styled(format!("enter {} details", ui.arrow()), p.fg(p.accent))),
+        ];
+        f.render_widget(Paragraph::new(Text::from(lines)), inner);
+        return;
+    }
     let dot = format!(" {} ", ui.dot());
     let mut ident = vec![d.label()];
     if let Some(s) = &d.serial {

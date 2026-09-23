@@ -83,6 +83,95 @@ impl SmartData {
         self.logical_block_size.unwrap_or(512)
     }
 
+    /// Serialize for the on-disk cache (see `cache.rs`).
+    pub fn to_json(&self) -> Json {
+        let mut m = std::collections::BTreeMap::new();
+        macro_rules! put {
+            (u64: $($f:ident),*) => { $( if let Some(v) = self.$f { m.insert(stringify!($f).into(), Json::Num(v as f64)); } )* };
+            (i64: $($f:ident),*) => { $( if let Some(v) = self.$f { m.insert(stringify!($f).into(), Json::Num(v as f64)); } )* };
+            (str: $($f:ident),*) => { $( if let Some(v) = &self.$f { m.insert(stringify!($f).into(), Json::Str(v.clone())); } )* };
+            (bool: $($f:ident),*) => { $( if let Some(v) = self.$f { m.insert(stringify!($f).into(), Json::Bool(v)); } )* };
+        }
+        put!(u64: rotation_rate, power_on_hours, power_cycles, lba_written, lba_read, capacity_bytes,
+             logical_block_size, reallocated, pending, uncorrectable, crc_errors, life_percent,
+             media_errors, available_spare, available_spare_threshold, warning_temp_time,
+             critical_temp_time, nvme_errors, rated_start_stop, load_unload, rated_load_unload,
+             non_medium_errors, power_on_resets, hardware_resets, error_log_count);
+        put!(i64: temperature_c, trip_temp_c, temp_min_c, temp_max_c, temp_rated_max_c);
+        put!(str: model, serial, firmware, form_factor, sata_version, interface_speed,
+             last_self_test, error);
+        put!(bool: passed, in_smartctl_database, smart_available, trim, write_cache);
+        m.insert("source".into(), Json::Str(self.source.clone()));
+        if let Some((y, w)) = self.manufactured {
+            m.insert("manufactured".into(), Json::Arr(vec![Json::Num(y as f64), Json::Num(w as f64)]));
+        }
+        if let Some(p) = self.phy_errors {
+            m.insert("phy_errors".into(), Json::Arr(p.iter().map(|v| Json::Num(*v as f64)).collect()));
+        }
+        let attrs = self
+            .attributes
+            .iter()
+            .map(|a| {
+                let mut o = std::collections::BTreeMap::new();
+                o.insert("id".into(), Json::Num(a.id as f64));
+                o.insert("name".into(), Json::Str(a.name.clone()));
+                o.insert("value".into(), Json::Num(a.value as f64));
+                o.insert("worst".into(), Json::Num(a.worst as f64));
+                o.insert("threshold".into(), Json::Num(a.threshold as f64));
+                o.insert("raw".into(), Json::Num(a.raw as f64));
+                o.insert("prefailure".into(), Json::Bool(a.prefailure));
+                o.insert("online".into(), Json::Bool(a.online));
+                Json::Obj(o)
+            })
+            .collect();
+        m.insert("attributes".into(), Json::Arr(attrs));
+        Json::Obj(m)
+    }
+
+    /// Inverse of [`SmartData::to_json`].
+    pub fn from_json(j: &Json) -> Option<SmartData> {
+        let mut s = SmartData {
+            source: j.get("source")?.as_str()?.to_string(),
+            ..Default::default()
+        };
+        macro_rules! get {
+            (u64: $($f:ident),*) => { $( s.$f = j.get(stringify!($f)).and_then(Json::as_u64); )* };
+            (i64: $($f:ident),*) => { $( s.$f = j.get(stringify!($f)).and_then(Json::as_i64); )* };
+            (str: $($f:ident),*) => { $( s.$f = j.get(stringify!($f)).and_then(Json::as_str).map(str::to_string); )* };
+            (bool: $($f:ident),*) => { $( s.$f = j.get(stringify!($f)).and_then(Json::as_bool); )* };
+        }
+        get!(u64: rotation_rate, power_on_hours, power_cycles, lba_written, lba_read, capacity_bytes,
+             logical_block_size, reallocated, pending, uncorrectable, crc_errors, life_percent,
+             media_errors, available_spare, available_spare_threshold, warning_temp_time,
+             critical_temp_time, nvme_errors, rated_start_stop, load_unload, rated_load_unload,
+             non_medium_errors, power_on_resets, hardware_resets, error_log_count);
+        get!(i64: temperature_c, trip_temp_c, temp_min_c, temp_max_c, temp_rated_max_c);
+        get!(str: model, serial, firmware, form_factor, sata_version, interface_speed,
+             last_self_test, error);
+        get!(bool: passed, in_smartctl_database, smart_available, trim, write_cache);
+        if let Some([y, w]) = j.get("manufactured").and_then(Json::as_array) {
+            s.manufactured = Some((y.as_u64()? as u16, w.as_u64()? as u8));
+        }
+        if let Some(p) = j.get("phy_errors").and_then(Json::as_array) {
+            if p.len() == 4 {
+                s.phy_errors = Some([p[0].as_u64()?, p[1].as_u64()?, p[2].as_u64()?, p[3].as_u64()?]);
+            }
+        }
+        for a in j.get("attributes").and_then(Json::as_array).unwrap_or(&[]) {
+            s.attributes.push(SmartAttribute {
+                id: a.get("id")?.as_u64()? as u8,
+                name: a.get("name")?.as_str()?.to_string(),
+                value: a.get("value")?.as_u64()? as u8,
+                worst: a.get("worst")?.as_u64()? as u8,
+                threshold: a.get("threshold")?.as_u64()? as u8,
+                raw: a.get("raw")?.as_u64()?,
+                prefailure: a.get("prefailure")?.as_bool()?,
+                online: a.get("online")?.as_bool()?,
+            });
+        }
+        Some(s)
+    }
+
     /// The drive speaks ATA (SATA), even when a RAID/SAS controller presents
     /// it as a SCSI disk.
     pub fn is_ata(&self) -> bool {
@@ -661,6 +750,19 @@ fn str_at(j: &Json, path: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smart_data_json_roundtrip() {
+        for text in [
+            include_str!("../testdata/smart-sas-toshiba-mbf2300rc.json"),
+            include_str!("../testdata/smart-sata-sm863a.json"),
+            include_str!("../testdata/smart-sata-sample.json"),
+        ] {
+            let s = parse_smart(&Json::parse(text).unwrap());
+            let back = SmartData::from_json(&Json::parse(&s.to_json().to_string()).unwrap()).unwrap();
+            assert_eq!(format!("{s:?}"), format!("{back:?}"));
+        }
+    }
 
     #[test]
     fn parses_sata_ssd_device_statistics() {

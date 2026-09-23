@@ -19,7 +19,8 @@ pub struct DevState {
 pub fn snapshot(devices: &[Device]) -> Vec<DevState> {
     devices
         .iter()
-        .map(|d| match report::health_summary(d) {
+        .zip(report::metrics_all(devices))
+        .map(|(d, m)| match m.map(|(_, h)| h) {
             Some(h) => DevState {
                 device: d.path.clone(),
                 severity: h.verdict.severity(),

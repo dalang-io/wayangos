@@ -157,7 +157,7 @@ mounted and unmounted partitions, and ignored virtual devices.
 ## Configuration
 
 - `~/.config/dcheck/config.json` (or `$DCHECK_CONFIG`):
-  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false, "transparent": false, "splash": true, "hdd_design_years": 5, "cpu_temp_warn_c": null }`
+  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true, "plain": false, "transparent": false, "splash": true, "hdd_design_years": 5, "cpu_temp_warn_c": null, "cache_ttl_secs": 600 }`
   (`hdd_design_years` is the **assumed** HDD design life at 24/7 used for HDD
   life estimates — drives do not report one; default 5 years = 43,800 h;
   `temp_warn_c` is the **disk** temperature warning; CPUs are judged against
@@ -168,6 +168,20 @@ mounted and unmounted partitions, and ignored virtual devices.
 - Env: `DCHECK_SYS_ROOT` (alternate fs root), `DCHECK_SMART_JSON` (parse a
   captured `smartctl -j` file), `DCHECK_SMART_ARGS` (force `-d ...`),
   `DCHECK_NATIVE` (force native SMART).
+
+## Cache and dead drives
+
+- SMART reads are cached so the UI and `dcheck storage` do not re-read slow
+  disks (a SAS disk behind a PERC answers each SCSI command in 0.3–0.75 s):
+  in-process, plus on disk for `cache_ttl_secs` (default 600) in
+  `/var/cache/dcheck` (root) or `~/.cache/dcheck`, file mode 0600. Keyed by
+  device + model + serial + size + WWID. `r` in the UI or `--fresh`
+  re-reads; `DCHECK_NO_CACHE=1` disables it. `check`, `watch`, `prometheus`
+  and `--json` always read the hardware (disks are read in parallel).
+- A SATA drive that raises the link but never answers (the kernel logs
+  "reset failed, giving up") has no `/dev/sdX`; dcheck reads the kernel log
+  (`/dev/kmsg`, root) and lists the port, e.g. `ata1  REPLACE`, so
+  `dcheck check` exits 3.
 
 ## Monitoring
 
