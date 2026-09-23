@@ -19,6 +19,8 @@ pub struct Config {
     pub mouse: bool,
     /// Use ASCII-only borders/symbols (for fonts without box-drawing glyphs).
     pub plain: bool,
+    /// Use the terminal's own background instead of a forced dark/light one.
+    pub transparent: bool,
 }
 
 impl Default for Config {
@@ -29,6 +31,7 @@ impl Default for Config {
             theme: None,
             mouse: false,
             plain: false,
+            transparent: false,
         }
     }
 }
@@ -94,6 +97,9 @@ pub fn parse(text: &str) -> Config {
         }
         if let Some(v) = map.get("plain").and_then(|v| v.as_bool()) {
             cfg.plain = v;
+        }
+        if let Some(v) = map.get("transparent").and_then(|v| v.as_bool()) {
+            cfg.transparent = v;
         }
     }
     cfg

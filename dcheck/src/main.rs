@@ -32,7 +32,7 @@ fn run(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
         None => {
             if interactive() {
-                run_tui(false, None, None, None)
+                run_tui(false, None, None, None, None)
             } else {
                 interactive_menu(false)
             }
@@ -54,6 +54,7 @@ fn run(args: &[String]) -> i32 {
             tui_theme_arg(&args[1..]),
             tui_mouse_arg(&args[1..]),
             tui_plain_arg(&args[1..]),
+            tui_transparent_arg(&args[1..]),
         ),
         Some("demo") => {
             if interactive() {
@@ -62,6 +63,7 @@ fn run(args: &[String]) -> i32 {
                     tui_theme_arg(&args[1..]),
                     tui_mouse_arg(&args[1..]),
                     tui_plain_arg(&args[1..]),
+                    tui_transparent_arg(&args[1..]),
                 )
             } else {
                 interactive_menu(true)
@@ -107,17 +109,37 @@ fn tui_plain_arg(args: &[String]) -> Option<bool> {
     plain
 }
 
+/// Parse `--transparent` / `--solid` for the TUI.
+fn tui_transparent_arg(args: &[String]) -> Option<bool> {
+    let mut t = None;
+    for arg in args {
+        match arg.as_str() {
+            "--transparent" => t = Some(true),
+            "--solid" | "--background" => t = Some(false),
+            _ => {}
+        }
+    }
+    t
+}
+
 fn run_tui(
     force_demo: bool,
     light_override: Option<bool>,
     mouse_override: Option<bool>,
     plain_override: Option<bool>,
+    transparent_override: Option<bool>,
 ) -> i32 {
     let light = config::resolve_light(light_override);
     let mouse = mouse_override.unwrap_or_else(|| config::load().mouse);
     let plain = plain_override.unwrap_or_else(|| {
         config::load().plain || std::env::var_os("DCHECK_PLAIN").is_some()
     });
+    let transparent = transparent_override.unwrap_or_else(|| config::load().transparent);
+    if transparent {
+        std::env::set_var("DCHECK_TRANSPARENT", "1");
+    } else {
+        std::env::remove_var("DCHECK_TRANSPARENT");
+    }
     let demo = force_demo || std::env::var_os("DCHECK_DEMO").is_some();
     let devices = load_devices(force_demo);
     match tui::run(devices, light, demo, mouse, plain) {

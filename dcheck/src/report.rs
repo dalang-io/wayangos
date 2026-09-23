@@ -374,7 +374,7 @@ fn fmt_years(days: u64) -> String {
 /// RAM report lines.
 pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     let mut out = Vec::new();
-    out.push("RAM".to_string());
+    out.push(section("MEMORY"));
     out.push(format!("  Total        : {}", human_size(r.total_bytes)));
     out.push(format!(
         "  Used         : {} ({:.0}%)  {}",
@@ -446,7 +446,7 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
 /// CPU report lines.
 pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
     let mut out = Vec::new();
-    out.push("CPU".to_string());
+    out.push(section("CPU"));
     let model = if c.model.is_empty() { "-" } else { &c.model };
     out.push(format!("  Model        : {model}"));
     if let Some(v) = &c.vendor {

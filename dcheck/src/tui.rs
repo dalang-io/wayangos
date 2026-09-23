@@ -39,10 +39,15 @@ struct Palette {
     ok: Color,
     warn: Color,
     bad: Color,
+    /// Forced background (dark by default, like OpenCode); `None` = terminal.
+    bg: Option<Color>,
+    /// Base foreground applied to all widgets when a background is forced.
+    fg: Color,
 }
 
 impl Palette {
     fn for_theme(light: bool) -> Self {
+        let accent = if light { Color::Blue } else { Color::Cyan };
         if std::env::var_os("NO_COLOR").is_some() {
             return Palette {
                 accent: Color::Reset,
@@ -50,17 +55,37 @@ impl Palette {
                 ok: Color::Reset,
                 warn: Color::Reset,
                 bad: Color::Reset,
+                bg: None,
+                fg: Color::Reset,
             };
         }
-        // ANSI names are mapped by the terminal theme, so both light and dark
-        // terminals (and OpenCode) stay consistent.
+        if std::env::var_os("DCHECK_TRANSPARENT").is_some() {
+            return Palette {
+                accent,
+                dim: if light { Color::DarkGray } else { Color::Gray },
+                ok: Color::Green,
+                warn: Color::Yellow,
+                bad: Color::Red,
+                bg: None,
+                fg: Color::Reset,
+            };
+        }
+        // Forced dark (default) or light background.
         Palette {
-            accent: if light { Color::Blue } else { Color::Cyan },
-            dim: Color::DarkGray,
+            accent,
+            dim: if light { Color::DarkGray } else { Color::Gray },
             ok: Color::Green,
             warn: Color::Yellow,
             bad: Color::Red,
+            bg: Some(if light { Color::White } else { Color::Black }),
+            fg: if light { Color::Black } else { Color::Gray },
         }
+    }
+
+    fn base(&self) -> Style {
+        Style::default()
+            .fg(self.fg)
+            .bg(self.bg.unwrap_or(Color::Reset))
     }
 
     fn severity(&self, sev: u8) -> Color {
@@ -127,10 +152,11 @@ impl Ui {
         }
     }
 
-    fn panel<'a>(self, title: &str, accent: Color) -> Block<'a> {
+    fn panel<'a>(self, title: &str, accent: Color, base: Style) -> Block<'a> {
         Block::default()
             .borders(Borders::ALL)
             .border_type(self.border())
+            .style(base)
             .title(Span::styled(
                 format!(" {title} "),
                 Style::default().fg(accent).add_modifier(Modifier::BOLD),
@@ -639,6 +665,15 @@ fn handle_mouse(app: &mut App, kind: MouseEventKind) {
 fn draw(f: &mut Frame, app: &mut App) {
     let palette = Palette::for_theme(app.light);
     let ui = Ui { plain: app.plain };
+
+    // Paint a full-screen background (dark by default, like OpenCode).
+    if let Some(bg) = palette.bg {
+        f.render_widget(
+            Block::default().style(Style::default().bg(bg).fg(palette.fg)),
+            f.area(),
+        );
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -651,7 +686,8 @@ fn draw(f: &mut Frame, app: &mut App) {
     // Header: logotype left, live status chip right.
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(ui.border());
+        .border_type(ui.border())
+        .style(palette.base());
     let inner = block.inner(chunks[0]);
     f.render_widget(block, chunks[0]);
     // Header chip reflects the current page.
@@ -685,7 +721,8 @@ fn draw(f: &mut Frame, app: &mut App) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(format!("  {VERSION}")),
-        ])),
+        ]))
+        .style(palette.base()),
         hcols[0],
     );
     f.render_widget(
@@ -713,13 +750,15 @@ fn draw(f: &mut Frame, app: &mut App) {
                 })
                 .collect();
             let list = List::new(items)
-                .block(ui.panel("COMMAND", palette.accent))
+                .block(ui.panel("COMMAND", palette.accent, palette.base()))
+                .style(palette.base())
                 .highlight_style(highlight(&palette, 0))
                 .highlight_symbol(ui.cursor());
             f.render_stateful_widget(list, chunks[1], &mut app.menu);
             hint(
                 f,
                 chunks[2],
+                &palette,
                 palette.dim,
                 &format!(
                     "↑/↓ move{}Enter select{}? help{}q quit",
@@ -756,12 +795,14 @@ fn draw(f: &mut Frame, app: &mut App) {
             .map(|l| colorize_line(l, &palette))
             .collect();
             let p = Paragraph::new(Text::from(lines))
-                .block(ui.panel("HELP", palette.accent))
+                .block(ui.panel("HELP", palette.accent, palette.base()))
+                .style(palette.base())
                 .wrap(Wrap { trim: false });
             f.render_widget(p, chunks[1]);
             hint(
                 f,
                 chunks[2],
+                &palette,
                 palette.dim,
                 &format!("any key back{}q quit", ui.sep()),
             );
@@ -770,7 +811,7 @@ fn draw(f: &mut Frame, app: &mut App) {
 
     // Status/toast takes over the footer until the next keypress.
     if let Some(status) = &app.status {
-        hint(f, chunks[2], palette.accent, status);
+        hint(f, chunks[2], &palette, palette.accent, status);
     }
 }
 
@@ -814,11 +855,13 @@ fn draw_storage(
     if app.devices.is_empty() {
         let p = Paragraph::new("No block devices found.")
             .alignment(Alignment::Center)
-            .block(ui.panel("STORAGE", palette.accent));
+            .block(ui.panel("STORAGE", palette.accent, palette.base()))
+            .style(palette.base());
         f.render_widget(p, area);
         hint(
             f,
             hint_area,
+            &palette,
             palette.dim,
             &format!("r rescan{}Esc back{}q quit", ui.sep(), ui.sep()),
         );
@@ -888,7 +931,8 @@ fn draw_storage(
 
     let table = Table::new(rows, widths)
         .header(header)
-        .block(ui.panel("STORAGE", palette.accent))
+        .block(ui.panel("STORAGE", palette.accent, palette.base()))
+        .style(palette.base())
         .row_highlight_style(highlight(palette, 1))
         .highlight_symbol(ui.cursor());
     f.render_stateful_widget(table, area, &mut app.table);
@@ -898,7 +942,7 @@ fn draw_storage(
     } else {
         format!("↑/↓ move{}Enter report{}r rescan{}? help{}q quit", ui.sep(), ui.sep(), ui.sep(), ui.sep())
     };
-    hint(f, hint_area, palette.dim, &footer);
+    hint(f, hint_area, &palette, palette.dim, &footer);
 }
 
 fn draw_report(
@@ -943,13 +987,15 @@ fn draw_report(
     };
 
     let para = Paragraph::new(body)
-        .block(ui.panel(&title, palette.accent))
+        .block(ui.panel(&title, palette.accent, palette.base()))
+        .style(palette.base())
         .wrap(Wrap { trim: false })
         .scroll((app.scroll, 0));
     f.render_widget(para, area);
     hint(
         f,
         hint_area,
+        &palette,
         palette.dim,
         &format!(
             "↑/↓ PgUp/PgDn Home/End scroll{}c copy{}b/Esc back{}q quit",
@@ -998,13 +1044,15 @@ fn draw_simple(
         Text::from(styled)
     };
     let para = Paragraph::new(body)
-        .block(ui.panel(&title, palette.accent))
+        .block(ui.panel(&title, palette.accent, palette.base()))
+        .style(palette.base())
         .wrap(Wrap { trim: false })
         .scroll((app.scroll, 0));
     f.render_widget(para, area);
     hint(
         f,
         hint_area,
+        &palette,
         palette.dim,
         &format!(
             "↑/↓ PgUp/PgDn scroll{}c copy{}b/Esc back{}q quit",
@@ -1025,7 +1073,7 @@ fn highlight(_palette: &Palette, kind: u8) -> Style {
     }
 }
 
-fn hint(f: &mut Frame, area: Rect, color: Color, text: &str) {
-    let p = Paragraph::new(text).style(Style::default().fg(color));
+fn hint(f: &mut Frame, area: Rect, palette: &Palette, color: Color, text: &str) {
+    let p = Paragraph::new(text).style(palette.base().fg(color));
     f.render_widget(p, area);
 }
