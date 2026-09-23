@@ -169,13 +169,15 @@ fn parse_dmi_size(v: &str) -> Option<u64> {
     let mut it = v.split_whitespace();
     let n: u64 = it.next()?.parse().ok()?;
     let unit = it.next().unwrap_or("").to_ascii_uppercase();
-    Some(match unit.as_str() {
-        "KB" => n * 1024,
-        "MB" => n * 1024 * 1024,
-        "GB" => n * 1024 * 1024 * 1024,
-        "TB" => n * 1024 * 1024 * 1024 * 1024,
+    let mult: u64 = match unit.as_str() {
+        // dmidecode prints both "GB" and "GiB".
+        "KB" | "KIB" => 1024,
+        "MB" | "MIB" => 1024 * 1024,
+        "GB" | "GIB" => 1024 * 1024 * 1024,
+        "TB" | "TIB" => 1024 * 1024 * 1024 * 1024,
         _ => return None,
-    })
+    };
+    Some(n * mult)
 }
 
 fn parse_mts(v: &str) -> Option<u32> {
@@ -466,7 +468,7 @@ mod tests {
 
     #[test]
     fn parses_dmidecode_memory() {
-        let text = "Handle 0x0001, DMI type 17, 84 bytes\nMemory Device\n\tTotal Width: 72 bits\n\tSize: 32 GB\n\tLocator: A1\n\tType: DDR4\n\tSpeed: 2133 MT/s\n\tManufacturer: 00AD00B300AD\n\tPart Number: HMA84GL7MMR4N-TF\n\tRank: 4\n\tConfigured Memory Speed: 2133 MT/s\n\nHandle 0x0002, DMI type 17, 84 bytes\nMemory Device\n\tSize: No Module Installed\n\tLocator: A2\n\tType: Unknown\n";
+        let text = "Handle 0x0001, DMI type 17, 84 bytes\nMemory Device\n\tTotal Width: 72 bits\n\tSize: 32 GiB\n\tLocator: A1\n\tType: DDR4\n\tSpeed: 2133 MT/s\n\tManufacturer: Hynix Semiconductor\n\tPart Number: HMA84GL7MMR4N-TF\n\tRank: 4\n\tConfigured Memory Speed: 2133 MT/s\n\nHandle 0x0002, DMI type 17, 84 bytes\nMemory Device\n\tSize: No Module Installed\n\tLocator: A2\n\tType: Unknown\n";
         let (modules, total) = parse_dmidecode17(text);
         assert_eq!(total, 2);
         assert_eq!(modules.len(), 1);
@@ -476,6 +478,19 @@ mod tests {
         assert_eq!(m.kind, "DDR4");
         assert_eq!(m.speed_mts, Some(2133));
         assert_eq!(m.manufacturer.as_deref(), Some("SK Hynix"));
+        // ASCII manufacturer without a known part prefix is kept as-is.
+        let (m2, _) = parse_dmidecode17(
+            "Handle 0x1, DMI type 17, 84 bytes\nMemory Device\n\tSize: 8 GB\n\tType: DDR4\n\tManufacturer: Kingston\n",
+        );
+        assert_eq!(m2[0].manufacturer.as_deref(), Some("Kingston"));
+    }
+
+    #[test]
+    fn parses_dmi_sizes() {
+        assert_eq!(parse_dmi_size("32 GiB"), Some(32 * 1024 * 1024 * 1024));
+        assert_eq!(parse_dmi_size("32 GB"), Some(32 * 1024 * 1024 * 1024));
+        assert_eq!(parse_dmi_size("512 MB"), Some(512 * 1024 * 1024));
+        assert_eq!(parse_dmi_size("No Module Installed"), None);
     }
 
     #[test]
