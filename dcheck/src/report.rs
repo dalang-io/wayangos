@@ -177,8 +177,8 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
 
     out.push(String::new());
     out.push("[ Health ]".into());
-    match smart {
-        Some(s) => health_lines(d, &s, &mut out),
+    match &smart {
+        Some(s) => health_lines(d, s, &mut out),
         None => {
             out.push("  SMART        : unavailable (run as root, or install smartmontools)".into());
             if d.bus == crate::model::Bus::Scsi {
@@ -188,6 +188,29 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
                 );
             } else {
                 out.push("  Note         : run as root for raw-device SMART access".into());
+            }
+        }
+    }
+
+    if let Some(s) = smart.as_ref() {
+        if !s.attributes.is_empty() {
+            out.push(String::new());
+            out.push("[ SMART attributes ]".into());
+            out.push(format!(
+                "  {:<4} {:<28} {:>4} {:>4} {:>4} {:>14}  {}",
+                "ID", "NAME", "VAL", "WST", "THR", "RAW", "ST"
+            ));
+            for a in &s.attributes {
+                out.push(format!(
+                    "  {:<4} {:<28} {:>4} {:>4} {:>4} {:>14}  {}",
+                    a.id,
+                    truncate(&a.name, 28),
+                    a.value,
+                    a.worst,
+                    a.threshold,
+                    a.raw,
+                    a.status()
+                ));
             }
         }
     }
@@ -389,6 +412,31 @@ pub fn device_json(d: &Device) -> crate::json::Json {
         ]),
     );
     map.insert("health".to_string(), health.unwrap_or(crate::json::Json::Null));
+
+    let attrs: Vec<crate::json::Json> = smart
+        .as_ref()
+        .map(|s| {
+            s.attributes
+                .iter()
+                .map(|a| {
+                    crate::json::object(vec![
+                        ("id", crate::json::num(a.id as f64)),
+                        ("name", crate::json::string(a.name.clone())),
+                        ("value", crate::json::num(a.value as f64)),
+                        ("worst", crate::json::num(a.worst as f64)),
+                        ("threshold", crate::json::num(a.threshold as f64)),
+                        ("raw", crate::json::num(a.raw as f64)),
+                        ("failing", crate::json::Json::Bool(a.failing())),
+                        ("prefailure", crate::json::Json::Bool(a.prefailure)),
+                        ("online", crate::json::Json::Bool(a.online)),
+                        ("status", crate::json::string(a.status())),
+                    ])
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    map.insert("attributes".to_string(), crate::json::Json::Arr(attrs));
+
     crate::json::Json::Obj(map)
 }
 

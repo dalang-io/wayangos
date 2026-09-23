@@ -33,6 +33,8 @@ pub struct SmartData {
     pub crc_errors: Option<u64>,
     /// Vendor-programmed "100 = new" wear attributes (231/233), if present.
     pub life_percent: Option<u64>,
+    /// Full ATA SMART attribute table (ATA only).
+    pub attributes: Vec<SmartAttribute>,
     pub in_smartctl_database: Option<bool>,
     pub smart_available: Option<bool>,
     /// Non-fatal error reported by smartctl (e.g. permission denied).
@@ -50,6 +52,79 @@ impl SmartData {
 
     pub fn bytes_read(&self) -> Option<u64> {
         self.lba_read.map(|l| l.saturating_mul(self.block_size()))
+    }
+}
+
+/// A single ATA SMART attribute.
+#[derive(Debug, Clone)]
+pub struct SmartAttribute {
+    pub id: u8,
+    pub name: String,
+    pub value: u8,
+    pub worst: u8,
+    pub threshold: u8,
+    pub raw: u64,
+    /// Pre-failure attribute (failure predicted when value <= threshold).
+    pub prefailure: bool,
+    /// Advisory / online attribute.
+    pub online: bool,
+}
+
+impl SmartAttribute {
+    /// True when a pre-failure attribute has reached its threshold.
+    pub fn failing(&self) -> bool {
+        self.prefailure && self.threshold > 0 && self.value <= self.threshold
+    }
+
+    pub fn status(&self) -> &'static str {
+        if self.failing() {
+            "FAIL"
+        } else if self.prefailure && self.threshold > 0 && self.value < self.threshold + 10 {
+            "warn"
+        } else {
+            "ok"
+        }
+    }
+}
+
+/// Human name for common ATA SMART attribute IDs.
+pub fn attr_name(id: u8) -> &'static str {
+    match id {
+        1 => "Raw_Read_Error_Rate",
+        3 => "Spin_Up_Time",
+        4 => "Start_Stop_Count",
+        5 => "Reallocated_Sector_Ct",
+        7 => "Seek_Error_Rate",
+        9 => "Power_On_Hours",
+        10 => "Spin_Retry_Count",
+        11 => "Calibration_Retry_Count",
+        12 => "Power_Cycle_Count",
+        13 => "Read_Soft_Error_Rate",
+        22 => "Helium_Level",
+        177 => "Wear_Leveling_Count",
+        179 => "Used_Rsvd_Blk_Cnt_Tot",
+        180 => "Unused_Rsvd_Blk_Cnt_Tot",
+        181 => "Program_Fail_Cnt_Total",
+        182 => "Erase_Fail_Count_Total",
+        183 => "Runtime_Bad_Block",
+        184 => "End-to-End_Error",
+        187 => "Reported_Uncorrect",
+        188 => "Command_Timeout",
+        190 => "Airflow_Temperature_Cel",
+        192 => "Power-Off_Retract_Count",
+        193 => "Load_Cycle_Count",
+        194 => "Temperature_Celsius",
+        195 => "Hardware_ECC_Recovered",
+        196 => "Reallocated_Event_Count",
+        197 => "Current_Pending_Sector",
+        198 => "Offline_Uncorrectable",
+        199 => "UDMA_CRC_Error_Count",
+        200 => "Multi_Zone_Error_Rate",
+        231 => "SSD_Life_Left",
+        233 => "Media_Wearout_Indicator",
+        241 => "Total_LBAs_Written",
+        242 => "Total_LBAs_Read",
+        _ => "Unknown_Attribute",
     }
 }
 
@@ -162,6 +237,36 @@ fn parse_smart(j: &Json) -> SmartData {
                 Some(241) => s.lba_written = raw,
                 Some(242) => s.lba_read = raw,
                 _ => {}
+            }
+            if let Some(id) = id {
+                let name = attr.get("name").and_then(Json::as_str).unwrap_or("");
+                let worst = attr.get("worst").and_then(Json::as_u64).unwrap_or(0) as u8;
+                let thresh = attr.get("thresh").and_then(Json::as_u64).unwrap_or(0) as u8;
+                let prefailure = attr
+                    .get("flags")
+                    .and_then(|f| f.get("prefailure"))
+                    .and_then(Json::as_bool)
+                    .unwrap_or(false);
+                let online = attr
+                    .get("flags")
+                    .and_then(|f| f.get("advisory"))
+                    .and_then(Json::as_bool)
+                    .unwrap_or(false);
+                let id = id as u8;
+                s.attributes.push(SmartAttribute {
+                    id,
+                    name: if name.is_empty() {
+                        attr_name(id).to_string()
+                    } else {
+                        name.to_string()
+                    },
+                    value: value.unwrap_or(0) as u8,
+                    worst,
+                    threshold: thresh,
+                    raw: raw.unwrap_or(0),
+                    prefailure,
+                    online,
+                });
             }
         }
     }

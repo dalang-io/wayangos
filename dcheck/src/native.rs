@@ -10,7 +10,7 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use crate::model::Device;
-use crate::smartctl::SmartData;
+use crate::smartctl::{attr_name, SmartAttribute, SmartData};
 
 /// Identity fields read natively (used to enrich the report when smartctl is
 /// absent).
@@ -113,8 +113,14 @@ pub fn parse_ata_smart(data: &[u8]) -> SmartData {
             break;
         }
         let id = data[off];
-        let value = data[off + 3] as u64;
+        if id == 0 {
+            continue; // unused attribute slot
+        }
+        let flags = u16::from_le_bytes([data[off + 1], data[off + 2]]);
+        let value = data[off + 3];
+        let worst = data[off + 4];
         let raw = le_u48(&data[off + 5..off + 11]);
+
         match id {
             5 => s.reallocated = Some(raw),
             9 => s.power_on_hours = Some(raw),
@@ -123,13 +129,40 @@ pub fn parse_ata_smart(data: &[u8]) -> SmartData {
             197 => s.pending = Some(raw),
             198 => s.uncorrectable = Some(raw),
             199 => s.crc_errors = Some(raw),
-            231 | 233 => s.life_percent = Some(value),
+            231 | 233 => s.life_percent = Some(value as u64),
             241 => s.lba_written = Some(raw),
             242 => s.lba_read = Some(raw),
             _ => {}
         }
+
+        s.attributes.push(SmartAttribute {
+            id,
+            name: attr_name(id).to_string(),
+            value,
+            worst,
+            threshold: 0,
+            raw,
+            prefailure: flags & 0x0001 != 0,
+            online: flags & 0x0002 != 0,
+        });
     }
     s
+}
+
+/// Apply thresholds (from SMART READ THRESHOLDS) to parsed attributes.
+pub fn apply_thresholds(attrs: &mut [SmartAttribute], thresholds: &[u8]) {
+    for attr in attrs.iter_mut() {
+        for i in 0..30 {
+            let off = 2 + i * 12;
+            if off + 2 > thresholds.len() {
+                break;
+            }
+            if thresholds[off] == attr.id {
+                attr.threshold = thresholds[off + 1];
+                break;
+            }
+        }
+    }
 }
 
 /// Parse the 512-byte NVMe SMART/Health information log.
@@ -200,6 +233,7 @@ mod linux {
     const HDIO_GET_IDENTITY: CULong = 0x030d;
     const WIN_SMART: u8 = 0xB0;
     const SMART_READ_DATA: u8 = 0xD0;
+    const SMART_READ_THRESHOLDS: u8 = 0xD1;
     const SMART_ENABLE: u8 = 0xD8;
     const SMART_RETURN_STATUS: u8 = 0xDA;
 
@@ -470,6 +504,12 @@ mod linux {
         }
 
         let mut smart = parse_ata_smart(&buf[4..]);
+        let mut thr = [0u8; 516];
+        if hdio_cmd(fd, WIN_SMART, SMART_READ_THRESHOLDS, 1, &mut thr) == 0
+            && thr[4..].iter().any(|b| *b != 0)
+        {
+            super::apply_thresholds(&mut smart.attributes, &thr[4..]);
+        }
         let mut status = [0u8; 516];
         if hdio_cmd(fd, WIN_SMART, SMART_RETURN_STATUS, 0, &mut status) == 0 {
             let ata_status = status[0];
@@ -593,6 +633,36 @@ mod tests {
         assert_eq!(s.power_cycles, Some(38));
         assert_eq!(s.temperature_c, Some(33));
         assert_eq!(s.lba_written, Some(500_000));
+    }
+
+    #[test]
+    fn parses_attributes_and_thresholds() {
+        let mut data = vec![0u8; 512];
+        let put = |d: &mut [u8], idx: usize, id: u8, flags: u16, value: u8, worst: u8, raw: u64| {
+            let off = 2 + idx * 12;
+            d[off] = id;
+            d[off + 1] = flags as u8;
+            d[off + 2] = (flags >> 8) as u8;
+            d[off + 3] = value;
+            d[off + 4] = worst;
+            for (i, b) in raw.to_le_bytes().iter().take(6).enumerate() {
+                d[off + 5 + i] = *b;
+            }
+        };
+        put(&mut data, 0, 5, 0x0013, 90, 95, 3);
+
+        let mut s = parse_ata_smart(&data);
+        assert_eq!(s.attributes.len(), 1);
+        assert_eq!(s.attributes[0].id, 5);
+        assert!(s.attributes[0].prefailure);
+        assert!(!s.attributes[0].failing()); // no threshold yet
+
+        let mut thr = vec![0u8; 512];
+        thr[2] = 5;
+        thr[3] = 100;
+        apply_thresholds(&mut s.attributes, &thr);
+        assert_eq!(s.attributes[0].threshold, 100);
+        assert!(s.attributes[0].failing());
     }
 
     #[test]

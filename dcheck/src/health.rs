@@ -88,6 +88,17 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         }
     }
 
+    // Attributes that have actually reached their pre-failure threshold.
+    let failing: Vec<&str> = smart
+        .attributes
+        .iter()
+        .filter(|a| a.failing())
+        .map(|a| a.name.as_str())
+        .collect();
+    for name in &failing {
+        issues.push(format!("SMART attribute {name} at/below threshold"));
+    }
+
     // Endurance / remaining life. Prefer the SMART model when it differs from
     // the sysfs one (SMART is usually the more complete string).
     let model = smart
@@ -140,7 +151,8 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         Verdict::Unknown
     } else if smart.passed == Some(false) {
         Verdict::Replace
-    } else if wear_used.map(|w| w >= 90).unwrap_or(false)
+    } else if !failing.is_empty()
+        || wear_used.map(|w| w >= 90).unwrap_or(false)
         || smart.pending.unwrap_or(0) > 0
         || smart.uncorrectable.unwrap_or(0) > 0
     {
@@ -290,5 +302,23 @@ mod tests {
         s.passed = Some(false);
         let h = evaluate(&ssd("SSD 1TB", 1_000_000_000_000), &s);
         assert_eq!(h.verdict, Verdict::Replace);
+    }
+
+    #[test]
+    fn failing_attribute_triggers_backup() {
+        let mut s = SmartData::default();
+        s.passed = Some(true);
+        s.attributes.push(crate::smartctl::SmartAttribute {
+            id: 5,
+            name: "Reallocated_Sector_Ct".into(),
+            value: 5,
+            worst: 5,
+            threshold: 10,
+            raw: 100,
+            prefailure: true,
+            online: true,
+        });
+        let h = evaluate(&ssd("SSD 1TB", 1_000_000_000_000), &s);
+        assert_eq!(h.verdict, Verdict::BackupNow);
     }
 }

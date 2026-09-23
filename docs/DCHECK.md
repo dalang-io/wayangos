@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M6 done** (Linux + FreeBSD backend, native + smartctl, link speed, TUI, `--json`, packaging) · Target MVP: **storage** · Owner: TBD
+Status: **M1–M7 done** (Linux + FreeBSD, native + smartctl, full ATA attributes+thresholds, link speed, TUI, `--json`, packaging) · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -313,7 +313,45 @@ MVP = M1–M5 (Linux). RAM/CPU are post-MVP.
    Landing/`apps.html` could promote it later.
 6. **FreeBSD depth**: smartctl/camcontrol best-effort is enough for MVP?
 
-## 16. Risks
+## 16. Roadmap to parity with CrystalDiskInfo / Hard Disk Sentinel (M7+)
+
+Goal: close the feature gap with mature tools. Ordered by value and by what we
+can verify on real hardware (Fedora SATA + Dell R630 SAS).
+
+### M7 — Full ATA SMART attributes + thresholds (accuracy) — DONE
+- Read `SMART READ THRESHOLDS` (0xD1) alongside `SMART READ DATA` (0xD0). ✅
+- Parse all 30 attributes: id, name, flags (pre-failure/advisory), value, worst,
+  threshold, raw. ✅
+- Verdict uses real pre-failure failures (`value <= threshold`, threshold > 0),
+  not just issue counts → closer to CDI "Caution/Bad". ✅
+- Show the attribute table in report, TUI and JSON. ✅
+- **AC:** verified on real SATA (attribute table + thresholds shown; verdict uses
+  failing attributes).
+
+### M8 — Self-test + read-only benchmark
+- `dcheck storage <dev> --test short|long` (native or smartctl `-t`).
+- `dcheck storage <dev> --bench` read-only (sequential + 4K QD1) with a clear
+  warning; never writes.
+- JSON output; **AC:** short self-test + bench run and report on real SATA.
+
+### M9 — Monitoring & alerts
+- `dcheck watch [--interval N] [--json] [--webhook URL]`, `--quiet`/`--exit-code`.
+- Alert (exit code / webhook) when verdict worsens or a new issue appears.
+- **AC:** watch loop runs, detects a simulated state change, exits non-zero on
+  bad health; unit-tested transition logic.
+
+### M10 — Hardware coverage + endurance overrides
+- Passthrough selection: USB (`-d sat`), RAID (`-d megaraid,N`, `3ware`, `areca`,
+  `cciss`); auto-probe when the default fails.
+- Vendor TBW overrides from `~/.config/dcheck/tbw.json`.
+- NVMe: error log page + per-sensor temperatures.
+- **AC:** `-d` selection wired; override file honored; best-effort tested on R630
+  PERC.
+
+### M11 — Polish
+- Config file, `--prometheus`, man page, signed release artifacts.
+
+## 17. Risks
 
 - ATA SMART via `SG_IO` is fiddly across controllers/USB bridges (USB-SATA often
   needs `-d sat`); native path may fail on some USB enclosures.
