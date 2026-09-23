@@ -310,7 +310,63 @@ fn fmt_years(days: u64) -> String {
 
 /// Read and evaluate health for a device (`None` when SMART is unavailable).
 pub fn health_summary(d: &Device) -> Option<health::Health> {
-    read_smart(d).map(|s| health::evaluate(d, &s))
+    device_metrics(d).map(|(_, h)| h)
+}
+
+/// Read SMART data and the evaluated health together.
+pub fn device_metrics(d: &Device) -> Option<(smartctl::SmartData, health::Health)> {
+    read_smart(d).map(|s| {
+        let h = health::evaluate(d, &s);
+        (s, h)
+    })
+}
+
+/// Prometheus text exposition for all devices.
+pub fn prometheus(devices: &[Device]) -> String {
+    let mut out = String::new();
+    out.push_str("# HELP dcheck_capacity_bytes Device capacity in bytes.\n");
+    out.push_str("# TYPE dcheck_capacity_bytes gauge\n");
+    for d in devices {
+        out.push_str(&metric("dcheck_capacity_bytes", &d.path, None, d.size_bytes as f64));
+    }
+    out.push_str("# HELP dcheck_health_severity 0=ok 1=unknown 2=monitor 3=backup/replace.\n");
+    out.push_str("# TYPE dcheck_health_severity gauge\n");
+    for d in devices {
+        if let Some((_, h)) = device_metrics(d) {
+            let sev = match h.verdict {
+                health::Verdict::Ok => 0.0,
+                health::Verdict::Unknown => 1.0,
+                health::Verdict::Monitor => 2.0,
+                _ => 3.0,
+            };
+            out.push_str(&metric("dcheck_health_severity", &d.path, Some(h.verdict.label()), sev));
+        }
+    }
+    let gauges: &[(&str, fn(&smartctl::SmartData) -> Option<f64>)] = &[
+        ("dcheck_temperature_celsius", |s| s.temperature_c.map(|v| v as f64)),
+        ("dcheck_power_on_hours", |s| s.power_on_hours.map(|v| v as f64)),
+        ("dcheck_wear_used_percent", |s| s.life_percent.map(|p| (100u64.saturating_sub(p)) as f64)),
+        ("dcheck_written_bytes", |s| s.bytes_written().map(|v| v as f64)),
+        ("dcheck_media_errors", |s| s.media_errors.map(|v| v as f64)),
+    ];
+    for (name, get) in gauges {
+        out.push_str(&format!("# TYPE {name} gauge\n"));
+        for d in devices {
+            if let Some((s, _)) = device_metrics(d) {
+                if let Some(v) = get(&s) {
+                    out.push_str(&metric(name, &d.path, None, v));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn metric(name: &str, device: &str, label: Option<&str>, value: f64) -> String {
+    match label {
+        Some(l) => format!("{name}{{device=\"{device}\",verdict=\"{l}\"}} {value}\n"),
+        None => format!("{name}{{device=\"{device}\"}} {value}\n"),
+    }
 }
 
 /// Prefer smartctl when it works; otherwise fall back to the native reader.

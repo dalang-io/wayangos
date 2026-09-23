@@ -1,0 +1,91 @@
+.\" dcheck(1) — device health check
+.TH DCHECK 1 "2026" "dcheck" "User Commands"
+.SH NAME
+dcheck \- inspect storage (SSD/HDD/NVMe) identity, health and remaining life
+.SH SYNOPSIS
+.B dcheck
+.RI [ COMMAND ]
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+.B dcheck
+reads whole-disk block devices and reports identity, capacity, interface link
+speed and SMART health (verdict, temperature, power-on hours, TBW, wear, and an
+estimated remaining life for 24/7 and 8h/day use).
+.PP
+It works natively (ATA via
+.BR HDIO_DRIVE_CMD ,
+NVMe via ioctl, SCSI best-effort) and enriches with
+.B smartctl \-a \-j
+when smartmontools is installed. It never writes to disks by default.
+.PP
+Device data is read from
+.I /sys/block
+so disks are listed as soon as they are attached, mounted or not.
+.SH COMMANDS
+.TP
+.B (none)
+Interactive terminal UI (menu, storage list, scrollable report).
+.TP
+.BR storage " [" device "] [" \-\-json "] [" \-\-bench "] [" \-\-test " short|long]"
+List devices, or report on one. Options:
+.BR \-\-json " (machine readable),"
+.BR \-\-bench " (read-only sequential + 4K benchmark),"
+.BR \-\-test " (start a SMART self-test)."
+.TP
+.BR check " [" \-\-json ]
+One-shot health gate. Exit code reflects the worst verdict.
+.TP
+.BR watch " [" \-\-interval " S] [" \-\-json "] [" \-\-quiet "] [" \-\-webhook " URL]"
+Poll and alert when a device worsens or a new issue appears.
+.TP
+.BR prometheus
+Print Prometheus metrics.
+.TP
+.BR tui ", " demo ", " ram ", " cpu ", " --version ", " --help
+See above; `ram`/`cpu` are placeholders.
+.SH EXIT STATUS
+For
+.BR check :
+0 ok, 1 unknown/needs root, 2 monitor, 3 backup or replace.
+.SH ENVIRONMENT
+.TP
+.B DCHECK_SYS_ROOT
+Use an alternate filesystem root containing
+.I sys/
+and
+.I proc/
+(for tests or offline images).
+.TP
+.B DCHECK_SMART_JSON
+Parse a captured
+.B smartctl \-j
+file instead of running smartctl.
+.TP
+.B DCHECK_SMART_ARGS
+Force a smartctl device type, e.g.
+.BR "\-d megaraid,0" .
+.TP
+.B DCHECK_NATIVE
+Force the native SMART path (skip smartctl).
+.TP
+.B DCHECK_CONFIG
+Path to a JSON config; default
+.IR ~/.config/dcheck/config.json .
+.TP
+.B DCHECK_TBW_JSON
+Path to a TBW override map; default
+.IR ~/.config/dcheck/tbw.json .
+.SH FILES
+.TP
+.I ~/.config/dcheck/config.json
+Optional settings:
+.RB { "temp_warn_c": \ 60, "watch_interval": \ 60 }.
+.TP
+.I ~/.config/dcheck/tbw.json
+Rated endurance overrides:
+.RB { "model substring": \ TBW_in_TB }.
+.SH SEE ALSO
+.BR smartctl (8),
+.BR lsblk (8)
+.SH AUTHOR
+WayangOS contributors (https://github.com/mashanz/wayangos)

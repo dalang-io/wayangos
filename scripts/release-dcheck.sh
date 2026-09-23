@@ -43,8 +43,15 @@ done
 echo ""
 echo "=== artifacts ==="
 if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$OUT_DIR" && sha256sum dcheck-*.tar.gz dcheck-*-*-linux-musl 2>/dev/null)
+    (cd "$OUT_DIR" && sha256sum dcheck-*.tar.gz > SHA256SUMS && cat SHA256SUMS)
 elif command -v shasum >/dev/null 2>&1; then
-    (cd "$OUT_DIR" && shasum -a 256 dcheck-*.tar.gz 2>/dev/null)
+    (cd "$OUT_DIR" && shasum -a 256 dcheck-*.tar.gz > SHA256SUMS && cat SHA256SUMS)
 fi
+
+# Optional GPG signing of the checksums (set GPG_KEY to the signing key id).
+if [ -n "${GPG_KEY:-}" ] && command -v gpg >/dev/null 2>&1; then
+    gpg --batch --yes --local-user "$GPG_KEY" --armor --detach-sign "$OUT_DIR/SHA256SUMS"
+    echo "  signed SHA256SUMS with key $GPG_KEY"
+fi
+
 ls -1 "$OUT_DIR"/dcheck-*.tar.gz 2>/dev/null || true

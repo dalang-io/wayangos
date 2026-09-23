@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M10 done** (Linux + FreeBSD, native + smartctl, ATA attributes+thresholds, self-test + bench, link speed, TUI, `--json`, monitoring/alerts, TBW overrides, passthrough probing, NVMe extras) · M11 polish in progress · Owner: TBD
+Status: **M1–M11 done** (Linux + FreeBSD; native + smartctl; ATA attributes+thresholds; self-test + bench; link speed; TUI; `--json`; monitoring/alerts; TBW overrides; passthrough probing; NVMe extras; config; Prometheus; man page) · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -349,8 +349,11 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
   temperature time, error-log entries — shown in report/JSON and flagged when
   spare < threshold or media errors > 0. ✅ (unit-tested)
 
-### M11 — Polish
-- Config file, `--prometheus`, man page, signed release artifacts.
+### M11 — Polish — DONE
+- Config file `~/.config/dcheck/config.json` (`temp_warn_c`, `watch_interval`). ✅
+- `dcheck prometheus` metrics. ✅
+- Man page `dcheck/dcheck.1`. ✅
+- Release artifacts: tarballs + `SHA256SUMS`, optional GPG signing via `GPG_KEY`. ✅
 
 ## 17. Risks
 

@@ -5,6 +5,7 @@
 //! See `docs/DCHECK.md`.
 
 mod bench;
+mod config;
 mod enumerate;
 mod health;
 mod json;
@@ -44,6 +45,7 @@ fn run(args: &[String]) -> i32 {
         Some("storage") | Some("disk") => storage_cmd(&args[1..], false),
         Some("check") => check_cmd(&args[1..], false),
         Some("watch") => watch_cmd(&args[1..], false),
+        Some("prometheus") => prometheus_cmd(&args[1..], false),
         Some("tui") => run_tui(false),
         Some("demo") => {
             if interactive() {
@@ -90,6 +92,7 @@ USAGE:
     dcheck tui              Force the terminal UI
     dcheck check            One-shot health gate (exit code = worst verdict)
     dcheck watch            Monitor + alert (--interval, --webhook, --json)
+    dcheck prometheus       Prometheus metrics for scrapers
     dcheck demo             Run with built-in sample devices (no sysfs needed)
     dcheck ram | cpu        Coming soon
     dcheck --version
@@ -230,6 +233,28 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
     prompt_selection(&devices)
 }
 
+/// Prometheus metrics output.
+fn prometheus_cmd(args: &[String], session_demo: bool) -> i32 {
+    let mut demo = session_demo;
+    for arg in args {
+        match arg.as_str() {
+            "--demo" => demo = true,
+            "-h" | "--help" => {
+                println!("Usage: dcheck prometheus [--demo]");
+                return 0;
+            }
+            flag if flag.starts_with('-') => {
+                eprintln!("dcheck: unknown option '{flag}'");
+                return 2;
+            }
+            _ => {}
+        }
+    }
+    let devices = load_devices(demo);
+    print!("{}", report::prometheus(&devices));
+    0
+}
+
 /// One-shot health gate: exit code = 0 ok, 1 unknown, 2 monitor, 3 backup/replace.
 fn check_cmd(args: &[String], session_demo: bool) -> i32 {
     let mut demo = session_demo;
@@ -258,7 +283,7 @@ fn watch_cmd(args: &[String], session_demo: bool) -> i32 {
     let mut demo = session_demo;
     let mut json = false;
     let mut quiet = false;
-    let mut interval: u64 = 60;
+    let mut interval: u64 = config::load().watch_interval;
     let mut webhook: Option<String> = None;
 
     let mut i = 0;

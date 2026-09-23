@@ -21,6 +21,7 @@ dcheck storage <dev> --test short|long # start a SMART self-test
 dcheck storage --json   # machine-readable device list
 dcheck check            # one-shot health gate (exit code = worst verdict)
 dcheck watch --interval 60 --webhook http://host/hook   # monitor + alert
+dcheck prometheus       # Prometheus metrics
 dcheck storage <dev> --json   # full JSON report for one device
 dcheck tui              # force the terminal UI
 dcheck demo             # run with built-in sample devices
@@ -91,6 +92,33 @@ mounted and unmounted partitions, and ignored virtual devices.
 
 | OS | Status |
 |----|--------|
-| Linux (any distro, static) | M1 enumeration; SMART in M3 |
-| WayangOS (minimal rootfs) | M1 enumeration |
-| FreeBSD | planned (M6) |
+| Linux (any distro, static) | full: enumeration, native SMART (ATA/NVMe/SCSI), TUI, JSON |
+| WayangOS (minimal rootfs) | full (native SMART — no smartctl needed) |
+| FreeBSD | enumeration + identity/health via smartctl |
+
+## Configuration
+
+- `~/.config/dcheck/config.json` (or `$DCHECK_CONFIG`):
+  `{ "temp_warn_c": 60, "watch_interval": 60 }`
+- `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`):
+  `{ "model substring": TBW_in_TB }`
+- Env: `DCHECK_SYS_ROOT` (alternate fs root), `DCHECK_SMART_JSON` (parse a
+  captured `smartctl -j` file), `DCHECK_SMART_ARGS` (force `-d ...`),
+  `DCHECK_NATIVE` (force native SMART).
+
+## Monitoring
+
+- `dcheck check` → exit 0 ok / 1 unknown / 2 monitor / 3 backup-or-replace.
+- `dcheck watch --interval 60 --webhook http://host/hook`
+- `dcheck prometheus` for scrapers.
+
+## Build & release
+
+```bash
+./scripts/build-dcheck.sh                 # one target (default linux/amd64 musl)
+TARGET=aarch64-unknown-linux-musl ./scripts/build-dcheck.sh
+./scripts/release-dcheck.sh               # matrix + tarballs + SHA256SUMS
+GPG_KEY=0x... ./scripts/release-dcheck.sh # also GPG-sign SHA256SUMS
+```
+
+Man page: `dcheck/dcheck.1`.

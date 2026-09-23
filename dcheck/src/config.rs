@@ -1,0 +1,77 @@
+//! Optional user configuration: `$DCHECK_CONFIG` or
+//! `~/.config/dcheck/config.json`.
+//!
+//! ```json
+//! { "temp_warn_c": 60, "watch_interval": 60 }
+//! ```
+
+use std::path::PathBuf;
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// Temperature (°C) at/above which health flags a warning.
+    pub temp_warn_c: i64,
+    /// Default `watch` interval in seconds.
+    pub watch_interval: u64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            temp_warn_c: 60,
+            watch_interval: 60,
+        }
+    }
+}
+
+pub fn load() -> Config {
+    let Some(path) = config_path() else {
+        return Config::default();
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(text) => parse(&text),
+        Err(_) => Config::default(),
+    }
+}
+
+fn config_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("DCHECK_CONFIG") {
+        if !p.is_empty() {
+            return Some(PathBuf::from(p));
+        }
+    }
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config/dcheck/config.json"))
+}
+
+pub fn parse(text: &str) -> Config {
+    let mut cfg = Config::default();
+    if let Some(crate::json::Json::Obj(map)) = crate::json::Json::parse(text) {
+        if let Some(v) = map.get("temp_warn_c").and_then(|v| v.as_i64()) {
+            cfg.temp_warn_c = v;
+        }
+        if let Some(v) = map.get("watch_interval").and_then(|v| v.as_u64()) {
+            if v > 0 {
+                cfg.watch_interval = v;
+            }
+        }
+    }
+    cfg
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_partial_config() {
+        let c = parse(r#"{"temp_warn_c": 55}"#);
+        assert_eq!(c.temp_warn_c, 55);
+        assert_eq!(c.watch_interval, 60); // default kept
+    }
+
+    #[test]
+    fn bad_input_uses_defaults() {
+        let c = parse("not json");
+        assert_eq!(c.temp_warn_c, 60);
+    }
+}

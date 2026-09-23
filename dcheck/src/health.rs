@@ -98,7 +98,7 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         }
     }
     if let Some(t) = smart.temperature_c {
-        if t >= 60 {
+        if t >= crate::config::load().temp_warn_c {
             issues.push(format!("temperature high ({t}°C)"));
         }
     }
