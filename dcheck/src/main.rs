@@ -29,7 +29,7 @@ fn run(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
         None => {
             if interactive() {
-                run_tui(false, None)
+                run_tui(false, None, None)
             } else {
                 interactive_menu(false)
             }
@@ -46,10 +46,18 @@ fn run(args: &[String]) -> i32 {
         Some("check") => check_cmd(&args[1..], false),
         Some("watch") => watch_cmd(&args[1..], false),
         Some("prometheus") => prometheus_cmd(&args[1..], false),
-        Some("tui") => run_tui(false, tui_theme_arg(&args[1..])),
+        Some("tui") => run_tui(
+            false,
+            tui_theme_arg(&args[1..]),
+            tui_mouse_arg(&args[1..]),
+        ),
         Some("demo") => {
             if interactive() {
-                run_tui(true, tui_theme_arg(&args[1..]))
+                run_tui(
+                    true,
+                    tui_theme_arg(&args[1..]),
+                    tui_mouse_arg(&args[1..]),
+                )
             } else {
                 interactive_menu(true)
             }
@@ -68,11 +76,25 @@ fn interactive() -> bool {
     io::stdin().is_terminal() && io::stdout().is_terminal()
 }
 
-fn run_tui(force_demo: bool, light_override: Option<bool>) -> i32 {
+/// Parse `--mouse` / `--no-mouse` for the TUI.
+fn tui_mouse_arg(args: &[String]) -> Option<bool> {
+    let mut mouse = None;
+    for arg in args {
+        match arg.as_str() {
+            "--mouse" => mouse = Some(true),
+            "--no-mouse" => mouse = Some(false),
+            _ => {}
+        }
+    }
+    mouse
+}
+
+fn run_tui(force_demo: bool, light_override: Option<bool>, mouse_override: Option<bool>) -> i32 {
     let light = config::resolve_light(light_override);
+    let mouse = mouse_override.unwrap_or_else(|| config::load().mouse);
     let demo = force_demo || std::env::var_os("DCHECK_DEMO").is_some();
     let devices = load_devices(force_demo);
-    match tui::run(devices, light, demo) {
+    match tui::run(devices, light, demo, mouse) {
         Ok(()) => 0,
         Err(err) => {
             eprintln!("dcheck: TUI error: {err}");
@@ -114,7 +136,7 @@ USAGE:
     dcheck storage <dev>    Report for one device (e.g. /dev/nvme0n1)
     dcheck storage <dev> --bench           Read-only speed benchmark
     dcheck storage <dev> --test short|long Start a SMART self-test
-    dcheck tui              Force the terminal UI
+    dcheck tui              Terminal UI (--light|--dark, --mouse)
     dcheck check            One-shot health gate (exit code = worst verdict)
     dcheck watch            Monitor + alert (--interval, --webhook, --json)
     dcheck prometheus       Prometheus metrics for scrapers

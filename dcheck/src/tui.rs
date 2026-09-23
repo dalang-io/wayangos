@@ -5,7 +5,7 @@
 //! the list shows per-device health, report has a contextual title + position
 //! indicator, there is a help overlay, mouse scrolling, and `NO_COLOR` support.
 
-use std::io::{self, Stdout};
+use std::io::{self, Stdout, Write};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
@@ -127,10 +127,12 @@ pub struct App {
     health: Vec<(String, u8)>,
     health_rx: Option<Receiver<Vec<(String, u8)>>>,
     pending: Option<Pending>,
+    mouse: bool,
+    status: Option<String>,
 }
 
 impl App {
-    fn new(devices: Vec<Device>, light: bool, demo: bool) -> Self {
+    fn new(devices: Vec<Device>, light: bool, demo: bool, mouse: bool) -> Self {
         let mut menu = ListState::default();
         menu.select(Some(0));
         let mut table = TableState::default();
@@ -142,6 +144,8 @@ impl App {
             devices,
             demo,
             light,
+            mouse,
+            status: None,
             screen: Screen::Menu,
             help_prev: None,
             menu,
@@ -228,6 +232,45 @@ impl App {
     }
 }
 
+/// Copy the current report to the clipboard via OSC 52.
+fn copy_report(app: &mut App) {
+    if app.report_lines.is_empty() {
+        app.status = Some("nothing to copy yet".to_string());
+        return;
+    }
+    let text = app.report_lines.join("\n");
+    let seq = format!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
+    let mut out = io::stdout();
+    let _ = out.write_all(seq.as_bytes());
+    let _ = out.flush();
+    app.status = Some("report copied via OSC52 (terminal must support it)".to_string());
+}
+
+/// Minimal base64 encoder for the OSC 52 clipboard sequence.
+fn base64(data: &[u8]) -> String {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(T[((n >> 6) & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(T[(n & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
 fn reload_devices(demo: bool) -> Vec<Device> {
     if demo {
         return crate::enumerate::demo_devices();
@@ -241,21 +284,23 @@ fn reload_devices(demo: bool) -> Vec<Device> {
 }
 
 /// Run the TUI. Must be called on a real terminal.
-pub fn run(devices: Vec<Device>, light: bool, demo: bool) -> io::Result<()> {
+pub fn run(devices: Vec<Device>, light: bool, demo: bool, mouse: bool) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
+    if mouse {
+        execute!(stdout, EnableMouseCapture)?;
+    }
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = event_loop(&mut terminal, devices, light, demo);
+    let result = event_loop(&mut terminal, devices, light, demo, mouse);
 
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    if mouse {
+        execute!(terminal.backend_mut(), DisableMouseCapture)?;
+    }
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     result
 }
@@ -265,8 +310,9 @@ fn event_loop(
     devices: Vec<Device>,
     light: bool,
     demo: bool,
+    mouse: bool,
 ) -> io::Result<()> {
-    let mut app = App::new(devices, light, demo);
+    let mut app = App::new(devices, light, demo, mouse);
     loop {
         // Drain background results.
         if let Some(rx) = &app.health_rx {
@@ -307,11 +353,16 @@ fn event_loop(
         }
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
+                app.status = None;
                 if handle_key(&mut app, key.code) {
                     break;
                 }
             }
-            Event::Mouse(mouse) => handle_mouse(&mut app, mouse.kind),
+            Event::Mouse(mouse) => {
+                if app.mouse {
+                    handle_mouse(&mut app, mouse.kind);
+                }
+            }
             _ => {}
         }
     }
@@ -387,6 +438,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             KeyCode::Char('q') => return true,
             KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') => app.screen = Screen::Storage,
             KeyCode::Char('?') => app.open_help(),
+            KeyCode::Char('c') => copy_report(app),
             KeyCode::Down | KeyCode::Char('j') => app.scroll = app.scroll.saturating_add(1),
             KeyCode::Up | KeyCode::Char('k') => app.scroll = app.scroll.saturating_sub(1),
             KeyCode::PageDown => app.scroll = app.scroll.saturating_add(10),
@@ -507,9 +559,11 @@ fn draw(f: &mut Frame, app: &mut App) {
                 "  Esc or b        back",
                 "Actions",
                 "  r               rescan devices (Storage)",
+                "  c               copy report (OSC52)",
                 "  ?               this help",
                 "  q               quit",
-                "Mouse wheel scrolls lists and reports.",
+                "Mouse wheel scrolls lists and reports (with --mouse).",
+                "Tip: text is selectable when mouse capture is off (default).",
                 "Env: DCHECK_THEME, NO_COLOR, DCHECK_SMART_ARGS, DCHECK_NATIVE",
             ]
             .iter()
@@ -521,6 +575,11 @@ fn draw(f: &mut Frame, app: &mut App) {
             f.render_widget(p, chunks[1]);
             hint(f, chunks[2], palette.dim, "any key back   q quit");
         }
+    }
+
+    // Status/toast takes over the footer until the next keypress.
+    if let Some(status) = &app.status {
+        hint(f, chunks[2], palette.accent, status);
     }
 }
 

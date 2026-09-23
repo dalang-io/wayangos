@@ -15,6 +15,8 @@ pub struct Config {
     pub watch_interval: u64,
     /// UI theme: "dark" (default) or "light".
     pub theme: Option<String>,
+    /// Capture the mouse for wheel scrolling (disables native text selection).
+    pub mouse: bool,
 }
 
 impl Default for Config {
@@ -23,6 +25,7 @@ impl Default for Config {
             temp_warn_c: 60,
             watch_interval: 60,
             theme: None,
+            mouse: false,
         }
     }
 }
@@ -93,6 +96,9 @@ pub fn parse(text: &str) -> Config {
         if let Some(v) = map.get("theme").and_then(|v| v.as_str()) {
             cfg.theme = Some(v.to_string());
         }
+        if let Some(v) = map.get("mouse").and_then(|v| v.as_bool()) {
+            cfg.mouse = v;
+        }
     }
     cfg
 }
@@ -126,5 +132,11 @@ mod tests {
     #[test]
     fn parses_theme() {
         assert_eq!(parse(r#"{"theme":"light"}"#).theme.as_deref(), Some("light"));
+    }
+
+    #[test]
+    fn parses_mouse_flag() {
+        assert!(!parse("{}").mouse);
+        assert!(parse(r#"{"mouse":true}"#).mouse);
     }
 }

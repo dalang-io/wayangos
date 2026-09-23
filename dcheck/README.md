@@ -30,9 +30,10 @@ dcheck --version
 ```
 
 In the UI: `↑`/`↓` move, `Enter` open, `b`/`Esc` back, `PgUp`/`PgDn` and
-`Home`/`End` (`g`/`G`) scroll, `r` rescan, `?` help, `q` quit. The mouse wheel
-scrolls. SMART reads run in the background with a spinner; the list shows
-per-device health.
+`Home`/`End` (`g`/`G`) scroll, `r` rescan, `c` copy report (OSC52), `?` help,
+`q` quit. Text stays **selectable** by default; mouse-wheel scrolling is opt-in
+with `dcheck tui --mouse` (it disables native selection). SMART reads run in the
+background with a spinner; the list shows per-device health.
 The palette adapts to a **light or dark terminal**. Force it with
 `dcheck tui --light` / `--dark`, `DCHECK_THEME=light`, or `"theme": "light"` in
 the config; otherwise it auto-detects via `COLORFGBG` (`NO_COLOR` disables color).
@@ -105,7 +106,7 @@ mounted and unmounted partitions, and ignored virtual devices.
 ## Configuration
 
 - `~/.config/dcheck/config.json` (or `$DCHECK_CONFIG`):
-  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light" }`
+  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light", "mouse": true }`
 - `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`):
   `{ "model substring": TBW_in_TB }`
 - Env: `DCHECK_SYS_ROOT` (alternate fs root), `DCHECK_SMART_JSON` (parse a

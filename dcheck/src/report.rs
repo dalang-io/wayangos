@@ -89,7 +89,6 @@ pub fn device_report_lines(d: &Device) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
 
     out.push(format!("dcheck report — {}", d.path));
-    out.push("=".repeat(60));
 
     // Prefer SMART, then native identity, then sysfs.
     let vendor = d.vendor.clone();

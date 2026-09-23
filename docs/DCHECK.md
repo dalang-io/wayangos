@@ -356,8 +356,9 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - TUI palette adapts to light/dark terminals (`--light`/`--dark`,
   `DCHECK_THEME`, auto via `COLORFGBG`; `NO_COLOR` disables color). ✅
 - TUI UX: background SMART reads with spinner, per-device health in the list,
-  contextual report title with position indicator, `?` help overlay, mouse
-  scrolling, `r` rescan, `Home`/`End`/`g`/`G`. ✅
+  contextual report title with position indicator, `?` help overlay, `r` rescan,
+  `Home`/`End`/`g`/`G`, `c` copy (OSC52). Text stays selectable (mouse capture
+  off by default; `--mouse` opts into wheel scrolling). ✅
 - `dcheck prometheus` metrics. ✅
 - Man page `dcheck/dcheck.1`. ✅
 - Release artifacts: tarballs + `SHA256SUMS`, optional GPG signing via `GPG_KEY`. ✅
