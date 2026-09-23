@@ -40,16 +40,21 @@ pub fn list_devices() -> Vec<Device> {
 /// Enumerate disks on FreeBSD (via `sysctl kern.disks` + smartctl identity).
 #[cfg(target_os = "freebsd")]
 pub fn list_devices() -> Vec<Device> {
+    if std::env::var_os("DCHECK_SYS_ROOT").is_some() {
+        return list_devices_sysfs();
+    }
     freebsd::list_devices()
 }
 
 /// Enumerate physical disks on macOS via `diskutil`.
 #[cfg(target_os = "macos")]
 pub fn list_devices() -> Vec<Device> {
+    if std::env::var_os("DCHECK_SYS_ROOT").is_some() {
+        return list_devices_sysfs();
+    }
     macos::list_devices()
 }
 
-#[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
 fn list_devices_sysfs() -> Vec<Device> {
     let root = root();
     let mut devices = Vec::new();
