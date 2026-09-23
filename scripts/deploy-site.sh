@@ -33,6 +33,11 @@ if [ -z "${SKIP_DCHECK:-}" ]; then
         RELEASE_DIR="$STAGE.release"
         OUT_DIR="$RELEASE_DIR" "$REPO_DIR/scripts/release-dcheck.sh"
     fi
+    # Never publish a LATEST that some platform cannot download.
+    for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+        pkg="$RELEASE_DIR/dcheck-$VERSION-$target.tar.gz"
+        [ -f "$pkg" ] || { echo "ERROR: missing $pkg — not publishing" >&2; exit 1; }
+    done
     echo "=== staging dcheck $VERSION ==="
     mkdir -p "$STAGE/dcheck/v$VERSION"
     cp "$RELEASE_DIR"/dcheck-"$VERSION"-*.tar.gz "$RELEASE_DIR/SHA256SUMS" "$STAGE/dcheck/v$VERSION/"

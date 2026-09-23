@@ -41,7 +41,19 @@ if [ "$(uname -s)" = "Darwin" ] && [[ "$TARGET" == *linux* ]]; then
         if [ -n "$zig_arch" ]; then
             WRAP_DIR="$(mktemp -d)"
             WRAP="$WRAP_DIR/zigcc"
-            printf '#!/bin/sh\nexec zig cc -target %s-linux-musl "$@"\n' "$zig_arch" > "$WRAP"
+            # rustc >= 1.98 passes -Wl,--fix-cortex-a53-843419 for aarch64,
+            # which zig's linker rejects; drop it (and nothing else).
+            cat > "$WRAP" <<WRAPPER
+#!/bin/sh
+for a; do
+    shift
+    case "\$a" in
+        -Wl,--fix-cortex-a53-843419) ;;
+        *) set -- "\$@" "\$a" ;;
+    esac
+done
+exec zig cc -target ${zig_arch}-linux-musl "\$@"
+WRAPPER
             chmod +x "$WRAP"
             export "${linker_var}=${WRAP}"
             # zig provides the C runtime; disable rustc's bundled one to avoid
