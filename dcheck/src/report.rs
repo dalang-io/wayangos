@@ -25,6 +25,24 @@ pub fn human_size(bytes: u64) -> String {
     }
 }
 
+/// Format a byte count in binary units, e.g. `32 GiB` (memory sizes).
+pub fn human_size_bin(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else if value.fract() < 0.05 {
+        format!("{:.0} {}", value, UNITS[unit])
+    } else {
+        format!("{:.1} {}", value, UNITS[unit])
+    }
+}
+
 fn opt(value: &Option<String>) -> &str {
     value.as_deref().unwrap_or("-")
 }
@@ -520,19 +538,19 @@ pub fn fmt_years(days: u64) -> String {
 pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     let mut out = Vec::new();
     out.push(section("MEMORY"));
-    out.push(format!("  Total        : {}", human_size(r.total_bytes)));
+    out.push(format!("  Total        : {}", human_size_bin(r.total_bytes)));
     out.push(format!(
         "  Used         : {} ({:.0}%)  {}",
-        human_size(r.used_bytes()),
+        human_size_bin(r.used_bytes()),
         r.used_percent(),
         bar(r.used_percent(), 20)
     ));
-    out.push(format!("  Available    : {}", human_size(r.available_bytes)));
+    out.push(format!("  Available    : {}", human_size_bin(r.available_bytes)));
     if r.swap_total_bytes > 0 {
         out.push(format!(
             "  Swap         : {} used of {}",
-            human_size(r.swap_total_bytes.saturating_sub(r.swap_free_bytes)),
-            human_size(r.swap_total_bytes)
+            human_size_bin(r.swap_total_bytes.saturating_sub(r.swap_free_bytes)),
+            human_size_bin(r.swap_total_bytes)
         ));
     } else {
         out.push("  Swap         : none".to_string());
@@ -540,12 +558,17 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     if let Some(t) = r.memory_type() {
         out.push(format!("  Type         : {t}"));
     }
-    if r.slots_total > 0 {
-        out.push(format!(
-            "  DIMM slots   : {} used / {}",
-            r.modules.len(),
-            r.slots_total
-        ));
+    if r.slots_total > 0 || !r.modules.is_empty() {
+        let populated = r.populated();
+        let slots = if r.slots_total > 0 { format!(" / {}", r.slots_total) } else { String::new() };
+        if populated != r.modules.len() {
+            out.push(format!(
+                "  DIMM slots   : {populated} used{slots} (firmware lists {})",
+                r.modules.len()
+            ));
+        } else {
+            out.push(format!("  DIMM slots   : {populated} used{slots}"));
+        }
     }
     if let Some(t) = r.ram_temp_c {
         out.push(format!("  Temperature  : {t}°C"));
@@ -561,12 +584,35 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
             r.ecc_correctable, r.ecc_uncorrectable
         ));
     } else {
-        out.push("  ECC          : no errors reported (or EDAC unavailable)".to_string());
+        if r.edac_dimms.is_empty() {
+            out.push("  ECC          : no errors reported (or EDAC unavailable)".to_string());
+        } else {
+            out.push(format!(
+                "  ECC          : 0 errors on {} DIMM(s) monitored by the memory controller",
+                r.edac_dimms.len()
+            ));
+        }
     }
     let _ = sev;
+    for n in r.notes() {
+        out.push(format!("  Note         : {n}"));
+    }
+    if !r.edac_dimms.is_empty() {
+        out.push(String::new());
+        out.push(section("MEMORY CONTROLLER (EDAC)"));
+        for d in &r.edac_dimms {
+            out.push(format!(
+                "  {:<34} {:>8}  CE {:<4} UE {}",
+                truncate(&d.label, 34),
+                human_size_bin(d.size_bytes),
+                d.ce,
+                d.ue
+            ));
+        }
+    }
     if !r.modules.is_empty() {
         out.push(String::new());
-        out.push(section("MODULES"));
+        out.push(section("MODULES (FIRMWARE / SMBIOS)"));
         for m in &r.modules {
             let speed = m
                 .speed_mts
@@ -577,7 +623,7 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
             out.push(format!(
                 "  {:<6} {:>6}  {:<6} {:<10} {:<12} {}",
                 m.locator,
-                human_size(m.size_bytes),
+                human_size_bin(m.size_bytes),
                 m.kind,
                 speed,
                 vendor,
@@ -666,6 +712,28 @@ pub fn ram_json(r: &crate::ram::RamInfo) -> crate::json::Json {
         ("ecc_uncorrectable", crate::json::num(r.ecc_uncorrectable as f64)),
         ("memory_type", opt_json(&r.memory_type())),
         ("slots_total", crate::json::num(r.slots_total as f64)),
+        ("slots_populated", crate::json::num(r.populated() as f64)),
+        ("estimated_modules", opt_num(r.estimated_modules().map(|v| v as f64))),
+        (
+            "edac_dimms",
+            crate::json::Json::Arr(
+                r.edac_dimms
+                    .iter()
+                    .map(|d| {
+                        crate::json::object(vec![
+                            ("label", crate::json::string(d.label.clone())),
+                            ("size_bytes", crate::json::num(d.size_bytes as f64)),
+                            ("ce", crate::json::num(d.ce as f64)),
+                            ("ue", crate::json::num(d.ue as f64)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            "notes",
+            crate::json::Json::Arr(r.notes().into_iter().map(crate::json::string).collect()),
+        ),
         ("ram_temp_c", opt_num(r.ram_temp_c.map(|v| v as f64))),
         ("modules", {
             let v: Vec<crate::json::Json> = r
@@ -1056,6 +1124,13 @@ fn opt_bool(v: Option<bool>) -> crate::json::Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_sizes_are_binary() {
+        assert_eq!(human_size_bin(32 << 30), "32 GiB");
+        assert_eq!(human_size_bin(131_727_204 * 1024), "125.6 GiB");
+        assert_eq!(human_size_bin(512 << 20), "512 MiB");
+    }
 
     #[test]
     fn in_service_and_manufacture_lines() {

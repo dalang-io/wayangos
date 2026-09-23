@@ -28,7 +28,19 @@ pub struct RamInfo {
     pub slots_total: u32,
     /// On-DIMM temperature °C (DDR5 SPD5118 / JC42 sensors), when available.
     pub ram_temp_c: Option<i64>,
+    /// DIMMs as seen by the memory controller (Linux EDAC), with per-DIMM
+    /// ECC counts. Independent of the firmware's SMBIOS table.
+    pub edac_dimms: Vec<EdacDimm>,
     pub source: String,
+}
+
+/// One DIMM reported by the EDAC memory-controller driver.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct EdacDimm {
+    pub label: String,
+    pub size_bytes: u64,
+    pub ce: u64,
+    pub ue: u64,
 }
 
 impl RamInfo {
@@ -50,6 +62,72 @@ impl RamInfo {
             .iter()
             .find(|m| !m.kind.is_empty() && m.kind != "Unknown")
             .map(|m| m.kind.clone())
+    }
+
+    /// Total size of the modules the firmware (SMBIOS) lists.
+    pub fn smbios_bytes(&self) -> u64 {
+        self.modules.iter().map(|m| m.size_bytes).sum()
+    }
+
+    /// When the OS sees clearly more memory than SMBIOS lists and all listed
+    /// modules are the same size: the likely number of installed modules.
+    pub fn estimated_modules(&self) -> Option<usize> {
+        let size = self.modules.first()?.size_bytes;
+        if size == 0 || self.modules.iter().any(|m| m.size_bytes != size) {
+            return None;
+        }
+        // MemTotal is a little below the installed amount (firmware/kernel
+        // reservations), so only trust a clear surplus.
+        if (self.total_bytes as f64) < self.smbios_bytes() as f64 * 1.05 {
+            return None;
+        }
+        let n = self.total_bytes.div_ceil(size) as usize;
+        Some(if self.slots_total > 0 { n.min(self.slots_total as usize) } else { n })
+    }
+
+    /// Best count of populated slots across SMBIOS, EDAC and the estimate.
+    pub fn populated(&self) -> usize {
+        self.modules
+            .len()
+            .max(self.edac_dimms.len())
+            .max(self.estimated_modules().unwrap_or(0))
+    }
+
+    /// Cross-checks between SMBIOS, the OS total and EDAC.
+    pub fn notes(&self) -> Vec<String> {
+        let gib = |b: u64| b as f64 / (1u64 << 30) as f64;
+        let mut notes = Vec::new();
+        let listed = self.smbios_bytes();
+        if !self.modules.is_empty() && self.total_bytes as f64 > listed as f64 * 1.05 {
+            let base = format!(
+                "the firmware (SMBIOS) lists {} module(s) = {:.0} GiB, but the OS sees {:.1} GiB — its DIMM table is incomplete",
+                self.modules.len(),
+                gib(listed),
+                gib(self.total_bytes)
+            );
+            match self.estimated_modules() {
+                Some(n) => notes.push(format!(
+                    "{base}; about {n} × {:.0} GiB are installed",
+                    gib(self.modules[0].size_bytes)
+                )),
+                None => notes.push(base),
+            }
+        }
+        if !self.edac_dimms.is_empty() && self.edac_dimms.len() != self.modules.len() && !self.modules.is_empty() {
+            notes.push(format!(
+                "the memory controller (EDAC) reports {} DIMM(s), the firmware lists {} — an incomplete firmware table, or mirrored/spare DIMMs",
+                self.edac_dimms.len(),
+                self.modules.len()
+            ));
+        }
+        if listed > 0 && (self.total_bytes as f64) < listed as f64 * 0.85 {
+            notes.push(format!(
+                "the OS sees {:.1} GiB of {:.0} GiB installed — memory mirroring/sparing, a BIOS limit, or a disabled DIMM",
+                gib(self.total_bytes),
+                gib(listed)
+            ));
+        }
+        notes
     }
 
     /// (verdict label, severity) — 0 ok, 2 monitor, 3 replace.
@@ -423,6 +501,7 @@ mod linux {
         info.ecc_correctable = ce;
         info.ecc_uncorrectable = ue;
         info.ram_temp_c = ram_temp(Path::new("/sys/class/hwmon"));
+        info.edac_dimms = edac_dimms(Path::new("/sys/devices/system/edac/mc"));
 
         // 1) dmidecode (richest).
         if std::env::var_os("DCHECK_NO_DMIDECODE").is_none() {
@@ -458,6 +537,40 @@ mod linux {
             }
         }
         info
+    }
+
+    /// DIMMs from EDAC: `mc*/dimm*/{dimm_label,size (MB),dimm_ce_count,dimm_ue_count}`.
+    pub fn edac_dimms(root: &Path) -> Vec<super::EdacDimm> {
+        let read = |p: &Path| std::fs::read_to_string(p).map(|s| s.trim().to_string()).ok();
+        let num = |p: &Path| read(p).and_then(|s| s.parse::<u64>().ok());
+        let mut out = Vec::new();
+        let Ok(mcs) = std::fs::read_dir(root) else { return out };
+        let mut mcs: Vec<_> = mcs.flatten().map(|e| e.path()).collect();
+        mcs.sort();
+        for mc in mcs {
+            let Ok(dimms) = std::fs::read_dir(&mc) else { continue };
+            let mut dimms: Vec<_> = dimms
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("dimm")))
+                .collect();
+            dimms.sort();
+            for d in dimms {
+                let size_mb = num(&d.join("size")).unwrap_or(0);
+                if size_mb == 0 {
+                    continue;
+                }
+                out.push(super::EdacDimm {
+                    label: read(&d.join("dimm_label")).unwrap_or_else(|| {
+                        format!("{}/{}", mc.file_name().unwrap().to_string_lossy(), d.file_name().unwrap().to_string_lossy())
+                    }),
+                    size_bytes: size_mb << 20,
+                    ce: num(&d.join("dimm_ce_count")).unwrap_or(0),
+                    ue: num(&d.join("dimm_ue_count")).unwrap_or(0),
+                });
+            }
+        }
+        out
     }
 
     /// Read SMBIOS type-17 structures straight from `/sys/firmware/dmi/entries`.
@@ -684,6 +797,76 @@ mod freebsd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn module(locator: &str, gib: u64) -> RamModule {
+        RamModule {
+            locator: locator.into(),
+            size_bytes: gib << 30,
+            kind: "DDR3".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn incomplete_smbios_table_is_detected() {
+        // lab-243: firmware lists 2 × 32 GiB, the OS sees 125.6 GiB.
+        let r = RamInfo {
+            total_bytes: 131_727_204 * 1024,
+            modules: vec![module("DIMM_B1", 32), module("DIMM_D1", 32)],
+            slots_total: 4,
+            ..Default::default()
+        };
+        assert_eq!(r.estimated_modules(), Some(4));
+        assert_eq!(r.populated(), 4);
+        let notes = r.notes();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("lists 2 module(s) = 64 GiB"), "{notes:?}");
+        assert!(notes[0].contains("about 4 × 32 GiB are installed"), "{notes:?}");
+    }
+
+    #[test]
+    fn complete_table_has_no_notes() {
+        let r = RamInfo {
+            total_bytes: 32_609_508 * 1024, // 31.1 GiB visible of 32 GiB
+            modules: vec![module("A1", 32)],
+            slots_total: 24,
+            ..Default::default()
+        };
+        assert_eq!(r.estimated_modules(), None);
+        assert!(r.notes().is_empty());
+    }
+
+    #[test]
+    fn edac_mismatch_is_noted() {
+        // 10.0.0.251: SMBIOS 1 module, EDAC 2 DIMMs, OS ~31 GiB.
+        let d = |l: &str| EdacDimm { label: l.into(), size_bytes: 32 << 30, ce: 0, ue: 0 };
+        let r = RamInfo {
+            total_bytes: 32_609_508 * 1024,
+            modules: vec![module("A1", 32)],
+            edac_dimms: vec![d("CPU_SrcID#0_Ha#0_Chan#0_DIMM#0"), d("CPU_SrcID#1_Ha#0_Chan#0_DIMM#0")],
+            slots_total: 24,
+            ..Default::default()
+        };
+        assert_eq!(r.populated(), 2);
+        let notes = r.notes();
+        assert!(notes.iter().any(|n| n.contains("EDAC) reports 2 DIMM(s), the firmware lists 1")), "{notes:?}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reads_edac_dimms() {
+        let root = std::env::temp_dir().join(format!("dcheck-edac-{}", std::process::id()));
+        let d = root.join("mc0/dimm0");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::create_dir_all(root.join("mc0/dimm1")).unwrap();
+        for (f, v) in [("dimm_label", "A1"), ("size", "32768"), ("dimm_ce_count", "3"), ("dimm_ue_count", "0")] {
+            std::fs::write(d.join(f), v).unwrap();
+        }
+        std::fs::write(root.join("mc0/dimm1/size"), "0").unwrap(); // empty slot
+        let dimms = linux::edac_dimms(&root);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(dimms, vec![EdacDimm { label: "A1".into(), size_bytes: 32 << 30, ce: 3, ue: 0 }]);
+    }
 
     #[test]
     fn parses_meminfo() {

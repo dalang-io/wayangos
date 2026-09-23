@@ -249,6 +249,31 @@
             <p class="text-center mt-4"><a href="apps/pos.html" class="text-w-gold no-underline text-sm">Learn more about WayangPOS — features, hardware, tech specs →</a></p>
         </div>
 
+        <!-- dcheck — disk health CLI (any Linux / macOS) -->
+        <div class="mb-12" id="dcheck">
+            <div class="flex items-center gap-3 mb-5 pb-3 border-b border-w-border">
+                <h2 class="text-xl font-bold text-w-text">🖥 dcheck — Disk Health CLI</h2>
+                <span class="text-w-dim text-sm">Linux · macOS · x86_64 / arm64</span>
+            </div>
+            <p class="text-w-text2 text-sm mb-5" data-en="Storage health for servers and PCs: native SMART for SAS, SATA and NVMe (Dell PERC / MegaRAID included), remaining-life estimates, health gate and alerts. Runs on any Linux or macOS &mdash; no WayangOS needed, no dependencies." data-id="Kesehatan storage untuk server dan PC: SMART native untuk SAS, SATA dan NVMe (termasuk Dell PERC / MegaRAID), estimasi sisa umur, health gate dan alert. Jalan di Linux atau macOS apa pun &mdash; tidak perlu WayangOS, tanpa dependensi." data-i18n-html>Storage health for servers and PCs: native SMART for SAS, SATA and NVMe (Dell PERC / MegaRAID included), remaining-life estimates, health gate and alerts. Runs on any Linux or macOS &mdash; no WayangOS needed, no dependencies.</p>
+            <div class="bg-w-card border border-w-border rounded-xl p-7 max-md:p-5 transition-all hover:border-w-gold">
+                <pre class="bg-w-bg2 border border-w-border rounded-lg p-4 text-left text-xs leading-relaxed overflow-x-auto font-mono mb-3"><code><span class="text-w-dim"># install (checksum-verified, to /usr/local/bin)</span>
+<span class="text-w-gold">curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</span>
+
+<span class="text-w-dim"># optional: also install smartmontools (apt/dnf/yum/zypper/apk/pacman/brew)</span>
+<span class="text-w-gold">curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh -s -- --with-smartmontools</span>
+
+<span class="text-w-dim"># preview without changing anything</span>
+<span class="text-w-gold">curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh -s -- --with-smartmontools --dry-run</span>
+
+<span class="text-w-dim"># run, and keep it up to date</span>
+<span class="text-w-gold">sudo dcheck</span>
+<span class="text-w-gold">sudo dcheck update</span></code></pre>
+                <p class="text-w-dim text-xs" data-en="Requirements: none at runtime (static binary). SMART needs root. Offline servers: download the tarball for your platform from the dcheck page." data-id="Kebutuhan: tidak ada saat runtime (binary statis). SMART butuh root. Server offline: unduh tarball untuk platform Anda dari halaman dcheck.">Requirements: none at runtime (static binary). SMART needs root. Offline servers: download the tarball for your platform from the dcheck page.</p>
+            </div>
+            <p class="text-center mt-4"><a href="apps/dcheck.html" class="text-w-gold no-underline text-sm" data-en="dcheck &mdash; screenshots, technician guide, manual downloads &rarr;" data-id="dcheck &mdash; screenshot, panduan teknisi, unduhan manual &rarr;" data-i18n-html>dcheck &mdash; screenshots, technician guide, manual downloads &rarr;</a></p>
+        </div>
+
         <!-- Install Guide CTA -->
         <div class="bg-gradient-to-br from-w-card to-w-gold/[.06] border border-w-border-g rounded-2xl p-9 max-md:p-6 text-center mb-12">
             <h3 class="text-w-text text-lg mb-2"><span data-id="📖 Panduan Instalasi">📖 Install Guide</span></h3>

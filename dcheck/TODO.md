@@ -352,3 +352,59 @@ Tugas:
   pabrikan) → kandidat sinyal "unbranded".
 - [ ] Tampilkan sumber Rated TBW ("override dari tbw.json" vs tabel) —
       lab-243 punya override `{"ssd 1tb":600}` yang tidak terlihat di report
+
+## J. RAM: 4 modul terpasang, terbaca 2 (lab-243, Fedora 44, X99/C610)
+
+Laporan: di lab-243 terpasang 4 modul RAM, dcheck hanya menampilkan 2.
+
+Temuan:
+- dcheck mengambil daftar modul dari **SMBIOS** (dmidecode / DMI sysfs). Di
+  board ini BIOS hanya mencatat 2 modul (DIMM_B1, DIMM_D1 — 32 GiB DDR3
+  Hynix, rank 4), dua slot lain "NO DIMM". Padahal `MemTotal` = 125.6 GiB
+  → **4 × 32 GiB** terpasang. Tabel DIMM firmware tidak lengkap (umum di
+  board X99/aftermarket); dcheck mempercayainya tanpa cek silang.
+- EDAC tidak aktif di mesin ini (sbridge tidak menemukan controller), jadi
+  tidak ada sumber per-DIMM lain; SPD via SMBus (i2c_i801) ada tapi perlu
+  modul i2c-dev.
+- 10.0.0.251 (R630): SMBIOS 1 modul, **EDAC 2 DIMM** (32 GB per socket),
+  OS ~32 GB → kemungkinan memory mirroring atau tabel firmware tidak
+  lengkap. Juga tidak terlihat di dcheck.
+- Ukuran RAM ditampilkan desimal ("34.4 GB") — seharusnya biner (32 GiB).
+
+Tugas:
+- [x] Cek silang: jumlah ukuran modul SMBIOS vs MemTotal. Bila OS melihat
+      lebih banyak → catatan "firmware DIMM table incomplete" + estimasi
+      jumlah modul (ukuran seragam: ceil(MemTotal / ukuran modul))
+- [x] Baca DIMM dari EDAC (label, ukuran, CE/UE per DIMM) bila ada;
+      tampilkan dan bandingkan dengan SMBIOS (EDAC > SMBIOS → catatan
+      mirroring/sparing atau tabel tidak lengkap)
+- [x] Satuan GiB untuk RAM (report, TUI, JSON tetap bytes)
+- [x] Peta slot TUI: tampilkan estimasi bila SMBIOS tidak lengkap
+- [x] Verifikasi: lab-243 → "4 used / 4 (firmware lists 2)" + catatan
+      ~4 × 32 GiB; 10.0.0.251 → "2 used / 24 (firmware lists 1)" + catatan
+      EDAC + daftar DIMM memory controller
+
+## K. SSD SATA baru tidak terdeteksi (lab-243, dicurigai palsu/faulty)
+
+Laporan: SSD SATA baru dipasang di lab-243, dicurigai palsu atau rusak.
+
+Temuan (kernel log, read-only):
+- Port `ata1` (AHCI C610): perangkat terdeteksi di link, tapi **tidak pernah
+  siap** — "link is slow to respond (ready=0)" ~55 detik, turun ke 3.0 Gbps,
+  lalu "hardreset failed / reset failed, giving up". IDENTIFY tidak pernah
+  dijawab → tidak ada `/dev/sdX`; boot tertahan ~60 detik.
+- Tidak ada tool (dcheck, smartctl, lsblk) yang bisa membaca drive dalam
+  kondisi ini. Kemungkinan: controller SSD mati/firmware rusak (umum pada
+  SSD palsu/rebrand), kabel data/daya, atau port. Cek: ganti kabel/port,
+  coba di mesin lain atau adapter USB.
+- Saat ini dcheck **diam** soal ini — disk yang gagal di level link tidak
+  muncul di daftar sama sekali.
+
+Tugas:
+- [ ] "Unresponsive devices": deteksi port SATA dengan perangkat yang gagal
+      (kernel log `ata*: reset failed`, `link is slow to respond`,
+      `/sys/class/ata_link/*` / `ata_port`) dan tampilkan di storage array
+      sebagai baris FAILED + alasan; `dcheck check` → exit 3
+- [ ] Setelah drive terbaca: jalankan sinyal authenticity (TODO G) dan
+      tawarkan `--verify-capacity` (butuh izin eksplisit; destruktif hanya
+      pada drive kosong)

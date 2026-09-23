@@ -14,7 +14,7 @@ use crate::cpu::CpuInfo;
 use crate::health::Health;
 use crate::model::Device;
 use crate::ram::RamInfo;
-use crate::report::{human_size, mount_summary};
+use crate::report::{human_size, human_size_bin, mount_summary};
 use crate::smartctl::SmartData;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -361,7 +361,7 @@ fn ram_card(f: &mut Frame, app: &App, area: Rect) {
     };
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(format!("enter {} memory diagnostics", ui.arrow()), p.fg(p.dim))));
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
+    f.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }), inner);
 }
 
 fn cpu_card(f: &mut Frame, app: &App, area: Rect) {
@@ -426,7 +426,7 @@ fn ram_vitals(r: &RamInfo, p: &Palette, ui: Ui, width: u16) -> Vec<Line<'static>
         used,
         cells,
         p.level(used, 75.0, 90.0),
-        &format!("{}/{}", human_size(r.used_bytes()), human_size(r.total_bytes)),
+        &format!("{}/{}", human_size_bin(r.used_bytes()), human_size_bin(r.total_bytes)),
         p,
         ui,
     ));
@@ -439,7 +439,7 @@ fn ram_vitals(r: &RamInfo, p: &Palette, ui: Ui, width: u16) -> Vec<Line<'static>
             pct,
             cells,
             p.level(pct, 50.0, 80.0),
-            &format!("{}/{}", human_size(su), human_size(r.swap_total_bytes)),
+            &format!("{}/{}", human_size_bin(su), human_size_bin(r.swap_total_bytes)),
             p,
             ui,
         ));
@@ -456,10 +456,11 @@ fn ram_vitals(r: &RamInfo, p: &Palette, ui: Ui, width: u16) -> Vec<Line<'static>
     if !kind.is_empty() {
         lines.push(w::field("TYPE", LW, text(kind.join(&format!(" {} ", ui.dot())), p), p));
     }
-    let total = (r.slots_total as usize).max(r.modules.len());
+    let used_all = r.populated();
+    let total = (r.slots_total as usize).max(used_all);
     if total > 0 {
         let (full, empty) = ui.slot_cells();
-        let used = r.modules.len().min(total);
+        let used = used_all.min(total);
         let room = (width as usize).saturating_sub(LW + 14);
         let spaced = total * 2 <= room;
         let cap = if spaced { total } else { total.min(room) };
@@ -469,7 +470,12 @@ fn ram_vitals(r: &RamInfo, p: &Palette, ui: Ui, width: u16) -> Vec<Line<'static>
             let (g, c) = if i < used { (full, p.accent) } else { (empty, p.track) };
             spans.push(Span::styled(format!("{g}{sep}"), p.bold(c)));
         }
-        spans.push(Span::styled(format!(" {used}/{total} populated"), p.fg(p.dim)));
+        let listed = if used != r.modules.len() {
+            format!(" (fw lists {})", r.modules.len())
+        } else {
+            String::new()
+        };
+        spans.push(Span::styled(format!(" {used}/{total} populated{listed}"), p.fg(p.dim)));
         lines.push(w::field("SLOTS", LW, spans, p));
     }
     let ecc_color = if r.ecc_uncorrectable > 0 {
@@ -495,6 +501,9 @@ fn ram_vitals(r: &RamInfo, p: &Palette, ui: Ui, width: u16) -> Vec<Line<'static>
     ));
     if let Some(t) = r.ram_temp_c {
         lines.push(temp_gauge(t, crate::config::load().temp_warn_c, cells, p, ui));
+    }
+    for n in r.notes() {
+        lines.push(Line::from(Span::styled(format!("{} {n}", ui.bullet()), p.fg(p.dim))));
     }
     lines
 }
@@ -1056,6 +1065,12 @@ fn report_view(f: &mut Frame, app: &mut App, area: Rect) {
 
 // ─── memory / processor ─────────────────────────────────────────────────────
 
+/// Rows `lines` take when wrapped at `width` cells.
+fn display_rows(lines: &[Line], width: u16) -> usize {
+    let w = width.max(1) as usize;
+    lines.iter().map(|l| l.width().max(1).div_ceil(w)).sum()
+}
+
 fn dashboard_split(area: Rect, lines: usize) -> (Rect, Rect) {
     let h = (lines as u16 + 2).min(area.height.saturating_sub(4)).max(3);
     let [a, b] = Layout::vertical([Constraint::Length(h), Constraint::Min(3)]).areas(area);
@@ -1069,9 +1084,10 @@ fn ram_view(f: &mut Frame, app: &mut App, area: Rect) {
         (Some(r), _) => ram_vitals(r, &p, ui, area.width.saturating_sub(2)),
         (None, _) => vec![scanning_line(app, "READING MEMORY")],
     };
-    let (top, bottom) = dashboard_split(area, lines.len());
+    let rows = display_rows(&lines, area.width.saturating_sub(2));
+    let (top, bottom) = dashboard_split(area, rows);
     let inner = w::panel(f, top, "MEMORY BANK", None, &p, ui);
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
+    f.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }), inner);
     let log = app.ram_lines.clone();
     log_pane(f, app, bottom, "MEMORY LOG", loading && app.ram.is_none(), log);
 }
