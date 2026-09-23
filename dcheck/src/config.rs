@@ -13,6 +13,8 @@ pub struct Config {
     pub temp_warn_c: i64,
     /// Default `watch` interval in seconds.
     pub watch_interval: u64,
+    /// UI theme: "dark" (default) or "light".
+    pub theme: Option<String>,
 }
 
 impl Default for Config {
@@ -20,8 +22,42 @@ impl Default for Config {
         Config {
             temp_warn_c: 60,
             watch_interval: 60,
+            theme: None,
         }
     }
+}
+
+/// Resolve whether the TUI should use a light palette.
+/// Order: explicit CLI flag, `DCHECK_THEME`, config, `COLORFGBG`, dark default.
+pub fn resolve_light(cli: Option<bool>) -> bool {
+    if let Some(light) = cli {
+        return light;
+    }
+    if let Ok(t) = std::env::var("DCHECK_THEME") {
+        match t.trim().to_ascii_lowercase().as_str() {
+            "light" => return true,
+            "dark" => return false,
+            _ => {}
+        }
+    }
+    if let Some(t) = load().theme.as_deref() {
+        match t.trim().to_ascii_lowercase().as_str() {
+            "light" => return true,
+            "dark" => return false,
+            _ => {}
+        }
+    }
+    if let Ok(v) = std::env::var("COLORFGBG") {
+        if let Some(light) = bg_is_light(&v) {
+            return light;
+        }
+    }
+    false
+}
+
+fn bg_is_light(colorfgbg: &str) -> Option<bool> {
+    let bg = colorfgbg.rsplit(';').next()?.trim();
+    bg.parse::<u8>().ok().map(|n| n == 7 || n == 15)
 }
 
 pub fn load() -> Config {
@@ -54,6 +90,9 @@ pub fn parse(text: &str) -> Config {
                 cfg.watch_interval = v;
             }
         }
+        if let Some(v) = map.get("theme").and_then(|v| v.as_str()) {
+            cfg.theme = Some(v.to_string());
+        }
     }
     cfg
 }
@@ -73,5 +112,19 @@ mod tests {
     fn bad_input_uses_defaults() {
         let c = parse("not json");
         assert_eq!(c.temp_warn_c, 60);
+        assert!(c.theme.is_none());
+    }
+
+    #[test]
+    fn detects_light_background() {
+        assert_eq!(bg_is_light("0;15"), Some(true)); // black on bright white
+        assert_eq!(bg_is_light("15;0"), Some(false)); // white on black
+        assert_eq!(bg_is_light("7"), Some(true));
+        assert_eq!(bg_is_light("garbage"), None);
+    }
+
+    #[test]
+    fn parses_theme() {
+        assert_eq!(parse(r#"{"theme":"light"}"#).theme.as_deref(), Some("light"));
     }
 }

@@ -41,7 +41,12 @@ Poll and alert when a device worsens or a new issue appears.
 .BR prometheus
 Print Prometheus metrics.
 .TP
-.BR tui ", " demo ", " ram ", " cpu ", " --version ", " --help
+.BR tui " [" \-\-light | \-\-dark ]
+Terminal UI. Auto-detects a light/dark terminal (via
+.BR COLORFGBG )
+unless forced.
+.TP
+.BR demo ", " ram ", " cpu ", " --version ", " --help
 See above; `ram`/`cpu` are placeholders.
 .SH EXIT STATUS
 For
@@ -71,6 +76,15 @@ Force the native SMART path (skip smartctl).
 .B DCHECK_CONFIG
 Path to a JSON config; default
 .IR ~/.config/dcheck/config.json .
+.TP
+.B DCHECK_THEME
+Force the TUI palette:
+.B light
+or
+.BR dark .
+.TP
+.B COLORFGBG
+Consulted by the TUI to auto-detect a light background.
 .TP
 .B DCHECK_TBW_JSON
 Path to a TBW override map; default

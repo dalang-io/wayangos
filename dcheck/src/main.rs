@@ -29,7 +29,7 @@ fn run(args: &[String]) -> i32 {
     match args.first().map(String::as_str) {
         None => {
             if interactive() {
-                run_tui(false)
+                run_tui(false, None)
             } else {
                 interactive_menu(false)
             }
@@ -46,10 +46,10 @@ fn run(args: &[String]) -> i32 {
         Some("check") => check_cmd(&args[1..], false),
         Some("watch") => watch_cmd(&args[1..], false),
         Some("prometheus") => prometheus_cmd(&args[1..], false),
-        Some("tui") => run_tui(false),
+        Some("tui") => run_tui(false, tui_theme_arg(&args[1..])),
         Some("demo") => {
             if interactive() {
-                run_tui(true)
+                run_tui(true, tui_theme_arg(&args[1..]))
             } else {
                 interactive_menu(true)
             }
@@ -68,15 +68,39 @@ fn interactive() -> bool {
     io::stdin().is_terminal() && io::stdout().is_terminal()
 }
 
-fn run_tui(force_demo: bool) -> i32 {
+fn run_tui(force_demo: bool, light_override: Option<bool>) -> i32 {
+    let light = config::resolve_light(light_override);
     let devices = load_devices(force_demo);
-    match tui::run(devices) {
+    match tui::run(devices, light) {
         Ok(()) => 0,
         Err(err) => {
             eprintln!("dcheck: TUI error: {err}");
             1
         }
     }
+}
+
+/// Parse `--light` / `--dark` / `--theme light|dark` for the TUI.
+fn tui_theme_arg(args: &[String]) -> Option<bool> {
+    let mut light = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--light" => light = Some(true),
+            "--dark" => light = Some(false),
+            "--theme" => {
+                i += 1;
+                match args.get(i).map(String::as_str) {
+                    Some("light") => light = Some(true),
+                    Some("dark") => light = Some(false),
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    light
 }
 
 fn print_help() {

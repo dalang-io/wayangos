@@ -350,7 +350,10 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
   spare < threshold or media errors > 0. ✅ (unit-tested)
 
 ### M11 — Polish — DONE
-- Config file `~/.config/dcheck/config.json` (`temp_warn_c`, `watch_interval`). ✅
+- Config file `~/.config/dcheck/config.json` (`temp_warn_c`, `watch_interval`,
+  `theme`). ✅
+- TUI palette adapts to light/dark terminals (`--light`/`--dark`,
+  `DCHECK_THEME`, auto via `COLORFGBG`). ✅
 - `dcheck prometheus` metrics. ✅
 - Man page `dcheck/dcheck.1`. ✅
 - Release artifacts: tarballs + `SHA256SUMS`, optional GPG signing via `GPG_KEY`. ✅

@@ -31,6 +31,9 @@ dcheck --version
 
 In the UI: `↑`/`↓` move, `Enter` select, `b`/`Esc` back, `PgUp`/`PgDn` scroll,
 `q` quit.
+The palette adapts to a **light or dark terminal**. Force it with
+`dcheck tui --light` / `--dark`, `DCHECK_THEME=light`, or `"theme": "light"` in
+the config; otherwise it auto-detects via `COLORFGBG`.
 
 Devices are read from `/sys/block`, so they are listed as soon as they are
 **attached**, mounted or not. Health is read **natively** (ATA `HDIO_DRIVE_CMD`,
@@ -99,7 +102,7 @@ mounted and unmounted partitions, and ignored virtual devices.
 ## Configuration
 
 - `~/.config/dcheck/config.json` (or `$DCHECK_CONFIG`):
-  `{ "temp_warn_c": 60, "watch_interval": 60 }`
+  `{ "temp_warn_c": 60, "watch_interval": 60, "theme": "light" }`
 - `~/.config/dcheck/tbw.json` (or `$DCHECK_TBW_JSON`):
   `{ "model substring": TBW_in_TB }`
 - Env: `DCHECK_SYS_ROOT` (alternate fs root), `DCHECK_SMART_JSON` (parse a
