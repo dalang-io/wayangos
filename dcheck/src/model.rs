@@ -75,6 +75,9 @@ pub struct Device {
     pub size_bytes: u64,
     pub logical_block_size: u64,
     pub removable: bool,
+    /// Pre-known SMART pass/fail from the platform (e.g. macOS `diskutil`),
+    /// used when no smartctl/native reader is available.
+    pub smart_status: Option<bool>,
     pub partitions: Vec<Partition>,
 }
 

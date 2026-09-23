@@ -387,7 +387,15 @@ fn read_smart(d: &Device) -> Option<smartctl::SmartData> {
     if let Some(native) = crate::native::read(d) {
         return Some(native);
     }
-    smartctl_result
+    if let Some(s) = smartctl_result {
+        return Some(s);
+    }
+    // Platform-provided status (e.g. macOS `diskutil` SMART Status).
+    d.smart_status.map(|passed| smartctl::SmartData {
+        passed: Some(passed),
+        source: "platform".to_string(),
+        ..Default::default()
+    })
 }
 
 /// Basic device object (no SMART read) for list output.
@@ -578,6 +586,7 @@ mod tests {
             size_bytes: 500_000_000_000,
             logical_block_size: 512,
             removable: false,
+            smart_status: None,
             partitions: vec![],
         };
         let s = device_json_basic(&d).to_string();

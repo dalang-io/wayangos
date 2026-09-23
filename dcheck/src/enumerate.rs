@@ -7,8 +7,11 @@
 //! The filesystem root can be overridden with `DCHECK_SYS_ROOT`, which is used
 //! by the test fixture and is also handy for inspecting a chroot/offline image.
 
-// Linux uses the sysfs helpers below; FreeBSD has its own module.
-#![cfg_attr(target_os = "freebsd", allow(dead_code, unused_imports))]
+// Linux uses the sysfs helpers below; FreeBSD/macOS have their own modules.
+#![cfg_attr(
+    any(target_os = "freebsd", target_os = "macos"),
+    allow(dead_code, unused_imports)
+)]
 
 use std::collections::HashMap;
 use std::fs;
@@ -29,7 +32,7 @@ fn sys_block(root: &Path) -> PathBuf {
 }
 
 /// Enumerate whole-disk block devices.
-#[cfg(not(target_os = "freebsd"))]
+#[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
 pub fn list_devices() -> Vec<Device> {
     list_devices_sysfs()
 }
@@ -40,7 +43,13 @@ pub fn list_devices() -> Vec<Device> {
     freebsd::list_devices()
 }
 
-#[cfg(not(target_os = "freebsd"))]
+/// Enumerate physical disks on macOS via `diskutil`.
+#[cfg(target_os = "macos")]
+pub fn list_devices() -> Vec<Device> {
+    macos::list_devices()
+}
+
+#[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
 fn list_devices_sysfs() -> Vec<Device> {
     let root = root();
     let mut devices = Vec::new();
@@ -121,6 +130,7 @@ fn build_device(root: &Path, name: &str, mounts: &Mounts) -> Option<Device> {
         size_bytes,
         logical_block_size,
         removable,
+        smart_status: None,
         partitions,
     })
 }
@@ -339,13 +349,19 @@ fn read_u64(path: PathBuf) -> Option<u64> {
 }
 
 /// Whether a (real or overridden) sysfs exists on this host.
+#[cfg(target_os = "macos")]
+pub fn has_sysfs() -> bool {
+    true
+}
+
+/// Whether a (real or overridden) sysfs exists on this host.
 #[cfg(target_os = "freebsd")]
 pub fn has_sysfs() -> bool {
     true
 }
 
 /// Whether a (real or overridden) sysfs exists on this host.
-#[cfg(not(target_os = "freebsd"))]
+#[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
 pub fn has_sysfs() -> bool {
     sys_block(&root()).is_dir()
 }
@@ -385,6 +401,7 @@ pub fn demo_devices() -> Vec<Device> {
             size_bytes: size,
             logical_block_size: 512,
             removable,
+            smart_status: None,
             partitions,
         }
     }
@@ -422,6 +439,133 @@ pub fn demo_devices() -> Vec<Device> {
             vec![part("/dev/mmcblk0p1", 32_000_000_000, Some("/media/card"), Some("ext4"))],
         ),
     ]
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use crate::model::{Bus, Device, MediaKind};
+
+    /// List physical whole disks via `diskutil list`, then read each with
+    /// `diskutil info` (model, size, SSD/HDD, protocol, SMART status).
+    pub fn list_devices() -> Vec<Device> {
+        let Ok(out) = std::process::Command::new("diskutil").arg("list").output() else {
+            return Vec::new();
+        };
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut devices = Vec::new();
+        for line in text.lines() {
+            if line.starts_with("/dev/disk") && line.contains(", physical)") {
+                if let Some(node) = line.split_whitespace().next() {
+                    if let Some(name) = node.strip_prefix("/dev/") {
+                        devices.push(info(name));
+                    }
+                }
+            }
+        }
+        devices
+    }
+
+    fn info(name: &str) -> Device {
+        let node = format!("/dev/{name}");
+        let (mut model, mut size, mut ssd, mut removable) = (None, 0u64, false, false);
+        let mut protocol = String::new();
+        let mut smart = None;
+
+        if let Ok(out) = std::process::Command::new("diskutil")
+            .arg("info")
+            .arg(&node)
+            .output()
+        {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                let Some((key, value)) = line.split_once(':') else {
+                    continue;
+                };
+                let key = key.trim();
+                let value = value.trim();
+                match key {
+                    "Device / Media Name" => model = nonempty(value),
+                    "Disk Size" => size = parse_size_bytes(value).unwrap_or(0),
+                    "Solid State" => ssd = value.eq_ignore_ascii_case("yes"),
+                    "Protocol" => protocol = value.to_string(),
+                    "SMART Status" => {
+                        smart = match value {
+                            "Verified" => Some(true),
+                            "Failing" => Some(false),
+                            _ => None,
+                        }
+                    }
+                    "Removable Media" => removable = value.eq_ignore_ascii_case("yes"),
+                    _ => {}
+                }
+            }
+        }
+
+        let bus = if protocol.contains("NVMe") || protocol.contains("Fabric") {
+            Bus::Nvme
+        } else if protocol.contains("SATA") {
+            Bus::Sata
+        } else if protocol.contains("USB") {
+            Bus::Usb
+        } else if protocol.contains("SCSI") || protocol.contains("SAS") {
+            Bus::Scsi
+        } else {
+            Bus::Unknown
+        };
+        let kind = if bus == Bus::Nvme {
+            MediaKind::Nvme
+        } else if ssd {
+            MediaKind::Ssd
+        } else {
+            MediaKind::Hdd
+        };
+
+        Device {
+            name: name.to_string(),
+            path: node,
+            vendor: None,
+            model,
+            firmware: None,
+            serial: None,
+            bus,
+            kind,
+            size_bytes: size,
+            logical_block_size: 512,
+            removable,
+            smart_status: smart,
+            partitions: Vec::new(),
+        }
+    }
+
+    fn nonempty(value: &str) -> Option<String> {
+        let t = value.trim();
+        if t.is_empty() || t == "-" {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    }
+
+    /// Parse `"500.3 GB (500277790720 Bytes)"` -> bytes.
+    fn parse_size_bytes(value: &str) -> Option<u64> {
+        let start = value.find('(')?;
+        let digits: String = value[start + 1..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        digits.parse().ok()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn parses_diskutil_size() {
+            assert_eq!(parse_size_bytes("500.3 GB (500277790720 Bytes)"), Some(500277790720));
+            assert_eq!(parse_size_bytes("no size here"), None);
+        }
+    }
 }
 
 #[cfg(target_os = "freebsd")]
@@ -493,6 +637,7 @@ mod freebsd {
             size_bytes: capacity.unwrap_or(0),
             logical_block_size: 512,
             removable: false,
+            smart_status: None,
             partitions: Vec::new(),
         }
     }

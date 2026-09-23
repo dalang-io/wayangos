@@ -324,6 +324,7 @@ mod tests {
             size_bytes: size,
             logical_block_size: 512,
             removable: false,
+            smart_status: None,
             partitions: vec![],
         }
     }

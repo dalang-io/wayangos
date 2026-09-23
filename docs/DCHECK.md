@@ -1,6 +1,6 @@
 # dcheck — Device Health Check (Plan)
 
-Status: **M1–M11 done** (Linux + FreeBSD; native + smartctl; ATA attributes+thresholds; self-test + bench; link speed; TUI; `--json`; monitoring/alerts; TBW overrides; passthrough probing; NVMe extras; config; Prometheus; man page) · Owner: TBD
+Status: **M1–M11 done** (Linux + FreeBSD + macOS; native + smartctl; ATA attributes+thresholds; self-test + bench; link speed; TUI; `--json`; monitoring/alerts; TBW overrides; passthrough probing; NVMe extras; config; Prometheus; man page) · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
 machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
@@ -31,6 +31,7 @@ single artifact cannot serve Linux *and* FreeBSD kernels, so we ship a matrix:
 | linux   | amd64  | Debian/Ubuntu/Fedora/Arch/Kali/WayangOS |
 | linux   | arm64  | RPi/Orange Pi WayangOS editions |
 | freebsd | amd64  | via `smartctl`/`camcontrol` |
+| macos   | arm64/amd64 | via `diskutil` (identity + SMART status); smartctl for full attributes |
 
 A static Linux binary built with `CGO_ENABLED=0` runs across glibc/musl distros
 and inside the WayangOS initramfs (no shared libraries).

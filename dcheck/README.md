@@ -97,6 +97,7 @@ mounted and unmounted partitions, and ignored virtual devices.
 |----|--------|
 | Linux (any distro, static) | full: enumeration, native SMART (ATA/NVMe/SCSI), TUI, JSON |
 | WayangOS (minimal rootfs) | full (native SMART — no smartctl needed) |
+| macOS | physical disks via `diskutil` (model, size, SSD/HDD, SMART status); full attributes via smartmontools if installed |
 | FreeBSD | enumeration + identity/health via smartctl |
 
 ## Configuration
