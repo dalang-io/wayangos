@@ -172,9 +172,11 @@ pub struct App {
     plain: bool,
     status: Option<String>,
     ram_lines: Vec<String>,
-    ram_rx: Option<Receiver<Vec<String>>>,
+    ram_rx: Option<Receiver<(Vec<String>, u8)>>,
+    ram_sev: u8,
     cpu_lines: Vec<String>,
-    cpu_rx: Option<Receiver<Vec<String>>>,
+    cpu_rx: Option<Receiver<(Vec<String>, u8)>>,
+    cpu_sev: u8,
 }
 
 impl App {
@@ -205,8 +207,10 @@ impl App {
             pending: None,
             ram_lines: Vec::new(),
             ram_rx: None,
+            ram_sev: 1,
             cpu_lines: Vec::new(),
             cpu_rx: None,
+            cpu_sev: 1,
         };
         app.spawn_health();
         app
@@ -249,9 +253,12 @@ impl App {
     fn start_ram(&mut self) {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(report::ram_report_lines(&crate::ram::read()));
+            let info = crate::ram::read();
+            let lines = report::ram_report_lines(&info);
+            let _ = tx.send((lines, info.verdict().1));
         });
         self.ram_lines.clear();
+        self.ram_sev = 1;
         self.scroll = 0;
         self.ram_rx = Some(rx);
         self.screen = Screen::Ram;
@@ -260,9 +267,12 @@ impl App {
     fn start_cpu(&mut self) {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(report::cpu_report_lines(&crate::cpu::read()));
+            let info = crate::cpu::read();
+            let lines = report::cpu_report_lines(&info);
+            let _ = tx.send((lines, info.verdict(crate::config::load().temp_warn_c).1));
         });
         self.cpu_lines.clear();
+        self.cpu_sev = 1;
         self.scroll = 0;
         self.cpu_rx = Some(rx);
         self.screen = Screen::Cpu;
@@ -430,8 +440,9 @@ fn event_loop(
         }
         if let Some(rx) = &app.ram_rx {
             match rx.try_recv() {
-                Ok(lines) => {
+                Ok((lines, sev)) => {
                     app.ram_lines = lines;
+                    app.ram_sev = sev;
                     app.ram_rx = None;
                 }
                 Err(TryRecvError::Empty) => {}
@@ -440,8 +451,9 @@ fn event_loop(
         }
         if let Some(rx) = &app.cpu_rx {
             match rx.try_recv() {
-                Ok(lines) => {
+                Ok((lines, sev)) => {
                     app.cpu_lines = lines;
+                    app.cpu_sev = sev;
                     app.cpu_rx = None;
                 }
                 Err(TryRecvError::Empty) => {}
@@ -642,15 +654,22 @@ fn draw(f: &mut Frame, app: &mut App) {
         .border_type(ui.border());
     let inner = block.inner(chunks[0]);
     f.render_widget(block, chunks[0]);
-    let sev = app.worst_severity();
-    let chip = if app.health_rx.is_some() {
-        "SCANNING…".to_string()
-    } else {
+    // Header chip reflects the current page.
+    let (sev, scanning, context) = match app.screen {
+        Screen::Ram => (app.ram_sev, app.ram_rx.is_some(), "RAM"),
+        Screen::Cpu => (app.cpu_sev, app.cpu_rx.is_some(), "CPU"),
+        _ => (app.worst_severity(), app.health_rx.is_some(), "DEVICES"),
+    };
+    let chip = if scanning {
+        format!("{context}   SCANNING…")
+    } else if context == "DEVICES" {
         format!(
             "{}   {} DEVICES",
             ui.badge(sev, severity_label(sev)),
             app.devices.len()
         )
+    } else {
+        format!("{}   {context}", ui.badge(sev, severity_label(sev)))
     };
     let chip_w = (chip.chars().count() as u16 + 1).min(inner.width);
     let hcols = Layout::default()
@@ -683,9 +702,15 @@ fn draw(f: &mut Frame, app: &mut App) {
     let screen = app.screen.clone();
     match screen {
         Screen::Menu => {
-            let items: Vec<ListItem> = ["Storage", "RAM", "CPU", "Quit"]
+            let items: Vec<ListItem> = [("▣", "Storage"), ("▤", "RAM"), ("▥", "CPU"), ("⏻", "Quit")]
                 .iter()
-                .map(|s| ListItem::new(*s))
+                .map(|(icon, name)| {
+                    ListItem::new(if ui.plain {
+                        name.to_string()
+                    } else {
+                        format!("{icon}  {name}")
+                    })
+                })
                 .collect();
             let list = List::new(items)
                 .block(ui.panel("COMMAND", palette.accent))
@@ -709,14 +734,16 @@ fn draw(f: &mut Frame, app: &mut App) {
         Screen::Ram => draw_simple(f, app, chunks[1], chunks[2], &palette, "RAM", true, ui),
         Screen::Cpu => draw_simple(f, app, chunks[1], chunks[2], &palette, "CPU", false, ui),
         Screen::Help => {
+            let nav = if ui.plain { "[ NAVIGATION ]" } else { "▐ NAVIGATION" };
+            let act = if ui.plain { "[ ACTIONS ]" } else { "▐ ACTIONS" };
             let lines: Vec<Line> = [
-                "NAVIGATION",
+                nav,
                 "  ↑/↓ or j/k       move / scroll",
                 "  PgUp / PgDn      page",
                 "  g / G, Home/End  top / bottom",
                 "  Enter            select / open",
                 "  Esc or b         back",
-                "ACTIONS",
+                act,
                 "  r                rescan (Storage)",
                 "  c                copy screen (OSC52)",
                 "  ?                this help",
@@ -726,13 +753,18 @@ fn draw(f: &mut Frame, app: &mut App) {
                 "Env: DCHECK_THEME, NO_COLOR, DCHECK_PLAIN, DCHECK_SMART_ARGS, DCHECK_NATIVE",
             ]
             .iter()
-            .map(|l| Line::from(*l))
+            .map(|l| colorize_line(l, &palette))
             .collect();
             let p = Paragraph::new(Text::from(lines))
                 .block(ui.panel("HELP", palette.accent))
                 .wrap(Wrap { trim: false });
             f.render_widget(p, chunks[1]);
-            hint(f, chunks[2], palette.dim, "any key back   q quit");
+            hint(
+                f,
+                chunks[2],
+                palette.dim,
+                &format!("any key back{}q quit", ui.sep()),
+            );
         }
     }
 
@@ -962,7 +994,8 @@ fn draw_simple(
     } else if lines.is_empty() {
         Text::from("  no data")
     } else {
-        Text::from(lines.iter().cloned().map(Line::from).collect::<Vec<_>>())
+        let styled: Vec<Line> = lines.iter().map(|l| colorize_line(l, palette)).collect();
+        Text::from(styled)
     };
     let para = Paragraph::new(body)
         .block(ui.panel(&title, palette.accent))
