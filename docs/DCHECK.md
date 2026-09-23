@@ -3,8 +3,7 @@
 Status: **M1–M13 done** (Linux + FreeBSD + macOS; storage native + smartctl; RAM + ECC + SMBIOS modules; CPU vendor/topo/temp/cache; TUI; `--json`; monitoring/alerts; TBW overrides; passthrough; NVMe extras; config; Prometheus; man page) · Owner: TBD
 
 `dcheck` is a single, self-contained command-line tool to check the health of a
-machine's hardware. MVP focuses on **storage** (HDD/SSD/NVMe), with RAM and CPU
-as follow-ups.
+machine's hardware: **storage** (HDD/SSD/NVMe), **RAM** and **CPU**.
 
 ## 1. Goal
 
@@ -15,26 +14,29 @@ as follow-ups.
 - Terminal UI (TUI), plus scriptable output.
 - Never writes to disks, never triggers destructive operations by default.
 
-### Non-goals (MVP)
+### Non-goals
 
-- RAM diagnosis and CPU benchmarks (menu entries exist, marked "coming soon").
+- RAM stress testing and CPU benchmarks (dcheck reports state, it does not load
+  the hardware).
 - Filesystem repair, partitioning, RAID reconstruction.
-- Windows/macOS support.
+- Windows support. (macOS is best-effort: `diskutil`/`sysctl`, see README.)
 
 ## 2. One codebase, per-platform binaries
 
 "One binary" = **one source tree** that cross-compiles to static binaries. A
 single artifact cannot serve Linux *and* FreeBSD kernels, so we ship a matrix:
 
-| GOOS    | GOARCH | Notes |
-|---------|--------|-------|
-| linux   | amd64  | Debian/Ubuntu/Fedora/Arch/Kali/WayangOS |
-| linux   | arm64  | RPi/Orange Pi WayangOS editions |
-| freebsd | amd64  | via `smartctl`/`camcontrol` |
-| macos   | arm64/amd64 | via `diskutil` (identity + SMART status); smartctl for full attributes |
+| Rust target | Notes |
+|-------------|-------|
+| `x86_64-unknown-linux-musl` | Debian/Ubuntu/Fedora/Arch/Kali/WayangOS |
+| `aarch64-unknown-linux-musl` | RPi/Orange Pi WayangOS editions |
+| `x86_64-unknown-freebsd` | via `sysctl` + `smartctl` |
+| macOS (`aarch64`/`x86_64-apple-darwin`) | via `diskutil` (identity + SMART status); smartctl for full attributes |
 
-A static Linux binary built with `CGO_ENABLED=0` runs across glibc/musl distros
-and inside the WayangOS initramfs (no shared libraries).
+A static musl binary runs across glibc/musl distros and inside the WayangOS
+initramfs (no shared libraries). Only 64-bit targets are supported: the raw
+ioctl/`statvfs` structs are declared for LP64 and a 32-bit Linux build fails
+with a `compile_error!`.
 
 ## 3. Language & libraries
 
@@ -44,10 +46,9 @@ Rationale: no runtime/GC and instant startup (ideal for a minimal WayangOS
 rootfs), static binaries via the `musl` targets, ergonomic native `ioctl`
 through `nix`/`libc`, a strong TUI stack, and a supported FreeBSD target.
 
-- Allocator/std: `std` only for M1 (no crates); grow later.
-- Syscalls/ioctl: `libc` (M3) or `nix`.
-- TUI: `ratatui` + `crossterm` (vendored → static).
-- Structured output: `serde_json` (M6).
+- Only dependency: `ratatui` (with its `crossterm` backend) for the TUI.
+- Syscalls/ioctl: declared directly via `extern "C"` (no `libc`/`nix` crate).
+- Structured output: a small built-in JSON reader/writer (`json.rs`).
 - Native SMART: raw ioctl (NVMe admin; ATA pass-through via `SG_IO`).
 - Enrichment: optionally shell out to `smartctl -j` when available.
 
@@ -63,7 +64,9 @@ dcheck                      # TUI: main menu
 dcheck storage              # TUI: storage device list
 dcheck storage <dev>        # direct report for one device (e.g. /dev/nvme0n1)
 dcheck storage --json       # machine-readable report for all devices
-dcheck ram | dcheck cpu     # "coming soon" placeholders (MVP)
+dcheck ram | dcheck cpu     # memory / CPU report (or --json)
+dcheck check | watch        # health gate / monitoring loop
+dcheck prometheus           # metrics
 dcheck --version
 ```
 
@@ -93,27 +96,27 @@ Keys: `↑/↓` move, `Enter` select, `b/Esc` back, `r` refresh, `q` quit.
 
 ## 5. Architecture
 
+Flat module layout (one crate, one binary):
+
 ```
 dcheck/
 ├── Cargo.toml
 ├── src/
-│   ├── main.rs                 # arg parsing → routes to TUI or report
-│   ├── model.rs                # Device, SmartData, Report structs
-│   ├── platform/
-│   │   ├── mod.rs
-│   │   ├── linux.rs            # /sys, /proc, ioctl, smartctl
-│   │   └── freebsd.rs          # camcontrol, smartctl, sysctl
-│   ├── enumerate.rs            # discover block devices (attached ≠ mounted)
-│   ├── smart/
-│   │   ├── mod.rs
-│   │   ├── smartctl.rs         # parse `smartctl -j` JSON (enrichment/fallback)
-│   │   ├── nvme_linux.rs       # NVMe SMART/Health log via ioctl (log 0x02)
-│   │   └── ata_linux.rs        # ATA SMART via SG_IO pass-through
-│   ├── health.rs               # TBW, wear, bad sectors, verdicts
-│   ├── life.rs                 # endurance → remaining-life estimates
-│   ├── speed.rs                # interface link speed (+ optional read bench)
-│   ├── tui.rs                  # ratatui screens
-│   └── report.rs               # text table + JSON emitters
+│   ├── main.rs        # arg parsing → routes to TUI, reports, check/watch
+│   ├── model.rs       # Device, Partition, Bus, MediaKind
+│   ├── enumerate.rs   # discover block devices (Linux /sys, FreeBSD, macOS)
+│   ├── mount.rs       # statvfs usage for mounted partitions
+│   ├── native.rs      # raw ioctl SMART: ATA HDIO, SCSI SG_IO, NVMe admin
+│   ├── smartctl.rs    # SmartData + `smartctl -j` parsing / passthrough
+│   ├── health.rs      # verdicts, TBW table/overrides, life estimate
+│   ├── bench.rs       # read-only O_DIRECT benchmark
+│   ├── ram.rs         # memory, ECC, SMBIOS modules
+│   ├── cpu.rs         # CPU identity, topology, temp, load
+│   ├── report.rs      # text reports, JSON, Prometheus
+│   ├── monitor.rs     # check / watch / webhook
+│   ├── config.rs      # config.json (read once per process)
+│   ├── json.rs        # minimal JSON reader/writer
+│   └── tui.rs         # ratatui screens
 └── README.md
 ```
 
@@ -259,21 +262,21 @@ spin retry > 0, SMART FAILED, temperature beyond range.
 - `--json` for automation/scripts (stable schema, compact, keys sorted):
   - `dcheck storage --json` → array of devices (identity + capacity + partitions)
   - `dcheck storage <dev> --json` → full object incl. interface and health
-- Future: `--prometheus`, `--quiet` (exit code = worst health).
+- `dcheck prometheus` metrics; `dcheck check` (exit code = worst health).
 
 ## 12. Safety principles
 
 - Read-only by default; no writes to block devices.
-- No destructive SMART self-tests by default (`--test short` may come later).
+- SMART self-tests only on explicit `--test short|long` (non-destructive).
 - Root access used only for SMART/ioctl reads.
 - Works on unmounted devices without mounting them.
 
 ## 13. Build & distribution
 
 ```
-dcheck/
-  Cargo.toml
-  scripts/build-dcheck.sh
+dcheck/Cargo.toml
+scripts/build-dcheck.sh     # repo root
+scripts/release-dcheck.sh
 ```
 
 - Static release build:
@@ -301,7 +304,7 @@ dcheck/
 | M5 | TUI polish (menu, list, report) + `storage` shorthand | **done** (ratatui; ↑/↓, Enter, b/Esc, PgUp/PgDn, q) |
 | M6 | FreeBSD backend, `--json`, packaging, CI | **done** (FreeBSD via `sysctl`+smartctl; compact JSON; release script; CI matrix) |
 
-MVP = M1–M5 (Linux). RAM/CPU are post-MVP.
+MVP = M1–M5 (Linux). RAM/CPU landed in M12–M13 (below).
 
 ## 15. Open questions
 

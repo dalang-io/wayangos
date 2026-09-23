@@ -2,6 +2,9 @@
 
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
+#[cfg(all(target_os = "linux", not(target_pointer_width = "64")))]
+compile_error!("dcheck's raw ioctl/statvfs structs assume a 64-bit Linux target");
+
 #[derive(Debug, Clone, Copy)]
 pub struct Usage {
     pub total: u64,

@@ -2,15 +2,15 @@
 
 ## A. Perbaikan dari analisa
 
-- [ ] Webhook: `devices` dikirim sebagai object JSON, bukan string (double-encoded) — `monitor.rs`
-- [ ] Satukan severity: `Verdict::severity()` vs `monitor::severity`, perbaiki doc 0–3 vs 4 — `health.rs`
-- [ ] Cache `config::load()` (sekarang baca disk per `evaluate()`) — `config.rs`
-- [ ] Estimasi umur berbasis wear: confidence turun bila wear used ≤ 2% — `health.rs`
-- [ ] Heuristik "host writes implausibly low" hanya setelah ≥ 720 jam — `health.rs`
-- [ ] Guard FFI 64-bit (`compile_error!` untuk target 32-bit) — `native.rs`, `mount.rs`
-- [ ] Menu teks non-TTY masih "RAM/CPU (coming soon)" — `main.rs`
-- [ ] Bersihkan warning `cargo clippy --all-targets`
-- [ ] Sinkronkan `docs/DCHECK.md` (status RAM/CPU/macOS, istilah Go, diagram arsitektur)
+- [x] Webhook: `devices` dikirim sebagai object JSON, bukan string (double-encoded) — `monitor.rs`
+- [x] Satukan severity: `Verdict::severity()` vs `monitor::severity`, perbaiki doc 0–3 vs 4 — `health.rs`
+- [x] Cache `config::load()` (sekarang baca disk per `evaluate()`) — `config.rs`
+- [x] Estimasi umur berbasis wear: confidence turun bila wear used ≤ 2% — `health.rs`
+- [x] Heuristik "host writes implausibly low" hanya setelah ≥ 720 jam — `health.rs`
+- [x] Guard FFI 64-bit (`compile_error!` untuk target 32-bit) — `native.rs`, `mount.rs`
+- [x] Menu teks non-TTY masih "RAM/CPU (coming soon)" — `main.rs`
+- [x] Bersihkan warning `cargo clippy --all-targets`
+- [x] Sinkronkan `docs/DCHECK.md` (status RAM/CPU/macOS, istilah Go, diagram arsitektur)
 
 ## B. Rework TUI — tema sci-fi
 

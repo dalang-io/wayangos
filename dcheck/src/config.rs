@@ -59,7 +59,13 @@ pub fn resolve_light(cli: Option<bool>) -> bool {
     false
 }
 
-pub fn load() -> Config {
+/// The user config, read once per process.
+pub fn load() -> &'static Config {
+    static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
+    CONFIG.get_or_init(read)
+}
+
+fn read() -> Config {
     let Some(path) = config_path() else {
         return Config::default();
     };
@@ -125,8 +131,8 @@ mod tests {
 
     #[test]
     fn detects_light_background() {
-        assert_eq!(resolve_light(Some(true)), true);
-        assert_eq!(resolve_light(Some(false)), false);
+        assert!(resolve_light(Some(true)));
+        assert!(!resolve_light(Some(false)));
     }
 
     #[test]

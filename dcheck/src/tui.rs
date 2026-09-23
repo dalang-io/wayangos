@@ -509,11 +509,10 @@ fn event_loop(
                     break;
                 }
             }
-            Event::Mouse(mouse) => {
-                if app.mouse {
+            Event::Mouse(mouse)
+                if app.mouse => {
                     handle_mouse(&mut app, mouse.kind);
                 }
-            }
             _ => {}
         }
     }
@@ -861,7 +860,7 @@ fn draw_storage(
         hint(
             f,
             hint_area,
-            &palette,
+            palette,
             palette.dim,
             &format!("r rescan{}Esc back{}q quit", ui.sep(), ui.sep()),
         );
@@ -942,7 +941,7 @@ fn draw_storage(
     } else {
         format!("↑/↓ move{}Enter report{}r rescan{}? help{}q quit", ui.sep(), ui.sep(), ui.sep(), ui.sep())
     };
-    hint(f, hint_area, &palette, palette.dim, &footer);
+    hint(f, hint_area, palette, palette.dim, &footer);
 }
 
 fn draw_report(
@@ -995,7 +994,7 @@ fn draw_report(
     hint(
         f,
         hint_area,
-        &palette,
+        palette,
         palette.dim,
         &format!(
             "↑/↓ PgUp/PgDn Home/End scroll{}c copy{}b/Esc back{}q quit",
@@ -1052,7 +1051,7 @@ fn draw_simple(
     hint(
         f,
         hint_area,
-        &palette,
+        palette,
         palette.dim,
         &format!(
             "↑/↓ PgUp/PgDn scroll{}c copy{}b/Esc back{}q quit",

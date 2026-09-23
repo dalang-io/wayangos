@@ -92,7 +92,7 @@ pub fn parse_meminfo(text: &str) -> RamInfo {
     let mut map: HashMap<&str, u64> = HashMap::new();
     for line in text.lines() {
         if let Some((k, rest)) = line.split_once(':') {
-            if let Some(v) = rest.trim().split_whitespace().next() {
+            if let Some(v) = rest.split_whitespace().next() {
                 if let Ok(kb) = v.parse::<u64>() {
                     map.insert(k.trim(), kb);
                 }

@@ -5,9 +5,13 @@
 //!   - SCSI/SAS: `SG_IO` for INQUIRY/VPD identity (LOG SENSE health where the
 //!     transport allows it; some RAID/JBOD controllers block it).
 //!   - NVMe: admin command ioctl for the SMART/Health log, sysfs for the link.
+//!
 //! The pure byte parsers are platform-independent and unit tested everywhere.
 
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+
+#[cfg(all(target_os = "linux", not(target_pointer_width = "64")))]
+compile_error!("dcheck's raw ioctl/statvfs structs assume a 64-bit Linux target");
 
 use crate::model::Device;
 use crate::smartctl::{attr_name, SmartAttribute, SmartData};
@@ -139,9 +143,11 @@ fn nonempty(s: String) -> Option<String> {
 
 /// Parse the 512-byte ATA SMART READ DATA structure.
 pub fn parse_ata_smart(data: &[u8]) -> SmartData {
-    let mut s = SmartData::default();
-    s.source = "native".to_string();
-    s.logical_block_size = Some(512);
+    let mut s = SmartData {
+        source: "native".to_string(),
+        logical_block_size: Some(512),
+        ..Default::default()
+    };
 
     let len = data.len();
     for i in 0..30 {
@@ -204,9 +210,11 @@ pub fn apply_thresholds(attrs: &mut [SmartAttribute], thresholds: &[u8]) {
 
 /// Parse the 512-byte NVMe SMART/Health information log.
 pub fn parse_nvme_health(data: &[u8]) -> SmartData {
-    let mut s = SmartData::default();
-    s.source = "native".to_string();
-    s.logical_block_size = Some(512);
+    let mut s = SmartData {
+        source: "native".to_string(),
+        logical_block_size: Some(512),
+        ..Default::default()
+    };
     if data.len() < 200 {
         return s;
     }

@@ -72,8 +72,8 @@ pub fn print_list(devices: &[Device]) {
     }
 
     println!(
-        "{:<14} {:<5} {:<7} {:<28} {:>10}  {:<9} {}",
-        "DEVICE", "TYPE", "BUS", "MODEL", "CAPACITY", "HEALTH", "MOUNT"
+        "{:<14} {:<5} {:<7} {:<28} {:>10}  {:<9} MOUNT",
+        "DEVICE", "TYPE", "BUS", "MODEL", "CAPACITY", "HEALTH"
     );
     for d in devices {
         println!(
@@ -574,7 +574,8 @@ pub fn prometheus(devices: &[Device]) -> String {
             out.push_str(&metric("dcheck_health_severity", &d.path, Some(h.verdict.label()), sev));
         }
     }
-    let gauges: &[(&str, fn(&smartctl::SmartData) -> Option<f64>)] = &[
+    type Gauge = (&'static str, fn(&smartctl::SmartData) -> Option<f64>);
+    let gauges: &[Gauge] = &[
         ("dcheck_temperature_celsius", |s| s.temperature_c.map(|v| v as f64)),
         ("dcheck_power_on_hours", |s| s.power_on_hours.map(|v| v as f64)),
         ("dcheck_wear_used_percent", |s| s.life_percent.map(|p| (100u64.saturating_sub(p)) as f64)),

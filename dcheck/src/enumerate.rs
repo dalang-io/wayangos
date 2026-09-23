@@ -382,6 +382,7 @@ pub fn demo_devices() -> Vec<Device> {
             filesystem: fs.map(str::to_string),
         }
     }
+    #[allow(clippy::too_many_arguments)]
     fn dev(
         name: &str,
         vendor: Option<&str>,

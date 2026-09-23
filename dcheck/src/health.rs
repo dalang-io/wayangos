@@ -28,7 +28,8 @@ impl Verdict {
         }
     }
 
-    /// 0=ok, 1=unknown, 2=monitor, 3=backup/replace.
+    /// 0=ok, 1=unknown, 2=monitor, 3=back up now, 4=replace.
+    /// (`dcheck check` caps its exit code at 3.)
     pub fn severity(self) -> u8 {
         match self {
             Verdict::Ok => 0,
@@ -135,7 +136,9 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
     let rated = rated_tbw_bytes(&model, device.size_bytes);
 
     let rate_plausible = match (tbw_bytes, smart.power_on_hours) {
-        (Some(tbw), Some(poh)) if poh >= 24 => tbw >= device.size_bytes / 100,
+        // Only judge after a month of runtime: idle archive disks legitimately
+        // write very little.
+        (Some(tbw), Some(poh)) if poh >= 720 => tbw >= device.size_bytes / 100,
         _ => true,
     };
     if !rate_plausible {
@@ -165,9 +168,10 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         }
     }
 
-    let confidence = if smart.life_percent.is_some() {
+    // Wear is reported in whole percent, so 1-2% extrapolates very noisily.
+    let confidence = if wear_used.is_some_and(|w| w > 2) {
         Confidence::High
-    } else if rated.is_some() && rate_plausible {
+    } else if wear_used.is_some() || (rated.is_some() && rate_plausible) {
         Confidence::Medium
     } else {
         Confidence::Low
@@ -318,6 +322,7 @@ fn rated_tbw_table(m: &str, capacity_bytes: u64) -> Option<u64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::model::{Bus, MediaKind};
@@ -363,6 +368,26 @@ mod tests {
         assert_eq!(h.remaining_poh, Some(9000));
         assert_eq!(h.days_247, Some(375));
         assert_eq!(h.confidence, Confidence::High);
+    }
+
+    #[test]
+    fn low_wear_lowers_confidence() {
+        let mut s = SmartData::default();
+        s.passed = Some(true);
+        s.power_on_hours = Some(100);
+        s.life_percent = Some(99);
+        let h = evaluate(&ssd("Samsung SSD 980 500GB", 500_000_000_000), &s);
+        assert_eq!(h.confidence, Confidence::Medium);
+    }
+
+    #[test]
+    fn young_idle_disk_is_not_flagged_implausible() {
+        let mut s = SmartData::default();
+        s.passed = Some(true);
+        s.power_on_hours = Some(200);
+        s.lba_written = Some(1_000); // ~0.5 MB
+        let h = evaluate(&ssd("SSD 4TB", 4_000_000_000_000), &s);
+        assert!(h.notes.iter().all(|n| !n.contains("implausibly")));
     }
 
     #[test]

@@ -202,8 +202,8 @@ fn interactive_menu(force_demo: bool) -> i32 {
     loop {
         println!("\ndcheck {VERSION} — Device Health Check");
         println!("  1) Storage");
-        println!("  2) RAM    (coming soon)");
-        println!("  3) CPU    (coming soon)");
+        println!("  2) RAM");
+        println!("  3) CPU");
         println!("  q) Quit");
         print!("Select: ");
         let _ = io::stdout().flush();
@@ -283,7 +283,6 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
                             "error",
                             crate::json::string(format!("device '{sel}' not found")),
                         )])
-                        .to_string()
                     );
                 } else {
                     eprintln!("dcheck: device '{sel}' not found. Attached devices:");
@@ -300,7 +299,7 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
             return run_bench(&dev);
         }
         if json {
-            println!("{}", report::device_json(&dev).to_string());
+            println!("{}", report::device_json(&dev));
         } else {
             report::print_report(&dev);
         }
@@ -315,7 +314,7 @@ fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
     if json {
         let items: Vec<crate::json::Json> =
             devices.iter().map(report::device_json_basic).collect();
-        println!("{}", crate::json::Json::Arr(items).to_string());
+        println!("{}", crate::json::Json::Arr(items));
         return 0;
     }
 
@@ -510,7 +509,7 @@ fn prompt_selection(devices: &[model::Device]) -> i32 {
 fn ram_cmd(args: &[String]) -> i32 {
     if args.iter().any(|a| a == "--json") {
         let info = ram::read();
-        println!("{}", report::ram_json(&info).to_string());
+        println!("{}", report::ram_json(&info));
     } else {
         for line in report::ram_report_lines(&ram::read()) {
             println!("{line}");
@@ -522,7 +521,7 @@ fn ram_cmd(args: &[String]) -> i32 {
 fn cpu_cmd(args: &[String]) -> i32 {
     if args.iter().any(|a| a == "--json") {
         let info = cpu::read();
-        println!("{}", report::cpu_json(&info).to_string());
+        println!("{}", report::cpu_json(&info));
     } else {
         for line in report::cpu_report_lines(&cpu::read()) {
             println!("{line}");

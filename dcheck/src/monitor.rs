@@ -2,20 +2,9 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::health::Verdict;
 use crate::json::{self, Json};
 use crate::model::Device;
 use crate::report;
-
-fn severity(v: Verdict) -> u8 {
-    match v {
-        Verdict::Ok => 0,
-        Verdict::Unknown => 1,
-        Verdict::Monitor => 2,
-        Verdict::BackupNow => 3,
-        Verdict::Replace => 4,
-    }
-}
 
 /// Per-device health snapshot used for diffing between cycles.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,7 +22,7 @@ pub fn snapshot(devices: &[Device]) -> Vec<DevState> {
         .map(|d| match report::health_summary(d) {
             Some(h) => DevState {
                 device: d.path.clone(),
-                severity: severity(h.verdict),
+                severity: h.verdict.severity(),
                 verdict: h.verdict.label(),
                 issues: h.issues.clone(),
                 notes: h.notes.clone(),
@@ -121,7 +110,7 @@ fn states_json(states: &[DevState]) -> Json {
 pub fn check(devices: &[Device], as_json: bool) -> i32 {
     let states = snapshot(devices);
     if as_json {
-        println!("{}", states_json(&states).to_string());
+        println!("{}", states_json(&states));
     } else {
         for s in &states {
             println!("{:<14} {:<12} {}", s.device, s.verdict, s.issues.join("; "));
@@ -152,7 +141,7 @@ pub fn watch(
                     Json::Arr(alerts.iter().map(|a| json::string(a.clone())).collect()),
                 ),
             ]);
-            println!("{}", cycle.to_string());
+            println!("{}", cycle);
         } else if !quiet {
             let ts = now_secs();
             for s in &cur {
@@ -165,7 +154,7 @@ pub fn watch(
         }
         if !alerts.is_empty() {
             if let Some(url) = webhook {
-                post_webhook(url, &states_json(&cur).to_string(), &alerts);
+                post_webhook(url, &webhook_body(&cur, &alerts));
             }
         }
 
@@ -181,14 +170,18 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// POST a JSON alert via `curl` (no TLS handling in-tree).
-fn post_webhook(url: &str, payload: &str, alerts: &[String]) {
-    let body = json::object(vec![
+/// Webhook payload: `{ "event", "alerts": [..], "devices": [..] }`.
+fn webhook_body(states: &[DevState], alerts: &[String]) -> Json {
+    json::object(vec![
         ("event", json::string("dcheck.alert")),
         ("alerts", Json::Arr(alerts.iter().map(|a| json::string(a.clone())).collect())),
-        ("devices", json::string(payload.to_string())),
+        ("devices", states_json(states)),
     ])
-    .to_string();
+}
+
+/// POST a JSON alert via `curl` (no TLS handling in-tree).
+fn post_webhook(url: &str, body: &Json) {
+    let body = body.to_string();
     match std::process::Command::new("curl")
         .args([
             "-sS",
@@ -247,5 +240,14 @@ mod tests {
         assert_eq!(exit_code(2), 2);
         assert_eq!(exit_code(3), 3);
         assert_eq!(exit_code(4), 3);
+    }
+
+    #[test]
+    fn webhook_devices_is_an_array() {
+        let body = webhook_body(&[st("/dev/sda", 2, "MONITOR", &[])], &["x".into()]);
+        let Some(Json::Obj(map)) = Json::parse(&body.to_string()) else {
+            panic!("webhook body is not an object");
+        };
+        assert!(matches!(map.get("devices"), Some(Json::Arr(a)) if a.len() == 1));
     }
 }
