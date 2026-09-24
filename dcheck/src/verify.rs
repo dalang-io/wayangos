@@ -208,10 +208,10 @@ impl Progress {
         let rate = done as f64 / t.max(0.001);
         let eta = if rate > 0.0 { (total.saturating_sub(done)) as f64 / rate } else { 0.0 };
         let line = format!(
-            "  {phase:<8} {} / {}  {:>4.0} MB/s  ETA {}",
+            "  {phase:<8} {} / {}  {:>10}  ETA {}",
             human_size_bin(done),
             human_size_bin(total),
-            rate / 1e6,
+            mbps(done, t),
             fmt_secs(eta)
         );
         if self.tty {
@@ -229,6 +229,12 @@ impl Progress {
             self.open = false;
         }
     }
+}
+
+/// Transfer speed in megabits per second, like an internet connection
+/// ("608 Mbps"); `bytes` over `secs`.
+pub fn mbps(bytes: u64, secs: f64) -> String {
+    format!("{:.0} Mbps", bytes as f64 * 8.0 / secs.max(0.001) / 1e6)
 }
 
 fn fmt_secs(s: f64) -> String {
@@ -599,17 +605,16 @@ pub fn cmd(args: &[String]) -> i32 {
 /// Result report lines and the exit status (0 pass, 3 bad data, 1 error).
 pub fn outcome_lines(target: &str, o: &Outcome, device_mode: bool) -> (Vec<String>, i32) {
     let mut out = Vec::new();
-    let mbps = |bytes: u64, secs: f64| bytes as f64 / secs.max(0.001) / 1e6;
     out.push(crate::report::section("CAPACITY VERIFICATION"));
     out.push(format!("  Target       : {target}"));
     out.push(format!(
-        "  Written      : {} of {} planned  ({:.0} MB/s)",
+        "  Written      : {} of {} planned  ({})",
         human_size_bin(o.written),
         human_size_bin(o.planned),
         mbps(o.written, o.write_secs)
     ));
     out.push(format!(
-        "  Read back    : {}{}  ({:.0} MB/s)",
+        "  Read back    : {}{}  ({})",
         human_size_bin(o.read),
         if o.early_stop { " (sampled after the early stop)" } else { "" },
         mbps(o.read, o.read_secs)
@@ -1132,6 +1137,13 @@ mod tests {
         let mut v = vec![0u8; 72 << 10];
         fill_block(&mut v[..BLOCK], 1, 0);
         assert!(data_signatures(&v).is_empty());
+    }
+
+    #[test]
+    fn speed_is_in_megabits() {
+        // 76 MB/s (lab-243 write speed) = 608 Mbps.
+        assert_eq!(mbps(76_000_000, 1.0), "608 Mbps");
+        assert_eq!(mbps(4 << 30, 56.5), "608 Mbps");
     }
 
     #[test]

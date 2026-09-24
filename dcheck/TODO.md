@@ -723,3 +723,13 @@ Tugas:
 - Belum: exFAT/FAT32 terfragmentasi (diasumsikan berurutan), NTFS
   $ATTRIBUTE_LIST (file sangat terfragmentasi), nama file NTFS dari index
   slack direktori (untuk kasus ntfs3), carving di free space saja, macOS.
+
+## R. Kecepatan uji kapasitas dalam Mbps
+
+Permintaan: kecepatan di `verify` jangan MB/s, tapi Mbps (megabit/detik)
+seperti kecepatan internet.
+- [x] Progress, hasil (Written / Read back) dan layar TUI (kecepatan live,
+      sebelumnya tidak ada) memakai Mbps: bytes × 8 / 10⁶ per detik.
+      Contoh lab-243: 76 MB/s → 608 Mbps.
+- [x] Landing page: contoh output ikut diganti.
+- Catatan: `storage --bench` (benchmark baca) masih MB/s — belum diminta.

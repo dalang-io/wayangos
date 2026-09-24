@@ -1590,6 +1590,9 @@ fn verify_view(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(w::gauge("WRITE", LW, wpct, cells, p.accent, &wval, &p, ui));
             lines.push(w::gauge("READ BACK", LW, rpct, cells, p.accent2, &rval, &p, ui));
             let secs = started.elapsed().as_secs_f64().max(0.001);
+            // Bytes moved so far in both phases, for an overall speed.
+            let moved = if *phase == "writing" { *done } else { *total + *done };
+            lines.push(w::field("SPEED", LW, text(crate::verify::mbps(moved, secs), &p), &p));
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 format!("{:LW$}{} {phase} … {:.0} s elapsed", "", ui.spinner(app.tick), secs),
