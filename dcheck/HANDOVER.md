@@ -1,8 +1,8 @@
 # dcheck — Handover
 
-Status per 2026-09-23 · versi rilis **0.2.8** (tag `dcheck-v0.2.8`, master
-`9ea72fd`).
-Catatan kerja rinci per topik ada di [`TODO.md`](TODO.md) (bagian A–L), dan
+Status per 2026-09-24 · versi rilis **0.4.1** (tag `dcheck-v0.4.1`, master
+`31224af` + commit dokumentasi ini).
+Catatan kerja rinci per topik ada di [`TODO.md`](TODO.md) (bagian A–R), dan
 desain lengkapnya di [`../docs/DCHECK.md`](../docs/DCHECK.md).
 
 ## 1. Apa itu dcheck
@@ -21,13 +21,25 @@ utamanya teknisi server:
 - Monitoring: `watch` + webhook, `prometheus`, `--json`.
 - Drive mati yang tidak pernah muncul sebagai `/dev/sdX` dideteksi dari log
   kernel (tampil sebagai `ataN REPLACE`).
+- **Keaslian disk** (report + JSON + badge ORIGIN di TUI): OUI di WWN vs
+  merek di model, vendor controller NVMe, model/serial generik → CONSISTENT
+  / UNVERIFIED / UNBRANDED / SUSPICIOUS / LIKELY FAKE.
+- **`dcheck verify`**: uji kapasitas asli (disk palsu) dengan data berlabel
+  alamat; mode free space (default) dan `--destructive` (CLI saja, konfirmasi
+  `ERASE <nama>`). Kecepatan dalam Mbps.
+- **`dcheck recover`** (read-only): peluang file terhapus bisa kembali (HDD
+  vs SSD+TRIM, discard, fstrim, filesystem) + langkah + peta disk sampling.
+- **`dcheck undelete`**: daftar dan pulihkan file terhapus di NTFS / FAT32 /
+  exFAT (nama tetap), `--carve` untuk filesystem lain; tujuan wajib di disk
+  lain.
 - TUI bertema "sci-fi HUD", dengan fallback ANSI / `--plain` / `NO_COLOR`.
+  Di disk: `u` RECOVERY → `d` DELETED FILES (peta blok), `v` CAPACITY TEST.
 - Self-update: `dcheck update` (verifikasi SHA-256).
 
 Landing page: <https://wayang.dalang.io/apps/dcheck.html> (juga ada bagian di
 `download.html`).
 
-## 2. Peta kode (`dcheck/src`, ±11.8k baris)
+## 2. Peta kode (`dcheck/src`, ±19.3k baris)
 
 | File | Isi |
 |---|---|
@@ -60,7 +72,7 @@ Linux dari macOS memakai `zig cc`.
 
 ```bash
 cd dcheck
-cargo test                                  # ±96 unit test
+cargo test                                  # ±136 unit test (termasuk render TUI)
 cargo clippy --all-targets                  # harus bersih
 cargo clippy --target x86_64-unknown-linux-musl --all-targets   # modul linux
 ../scripts/test-dcheck.sh                   # e2e fixture (40 assertion)
@@ -69,7 +81,7 @@ cargo clippy --target x86_64-unknown-linux-musl --all-targets   # modul linux
 Rilis (jalankan dari Mac, supaya build macOS ikut):
 
 1. Naikkan `version` di `dcheck/Cargo.toml`. Samakan juga string versi di
-   `landing-page/apps/dcheck.html` (`sed -i '' 's/0\.2\.8/0.2.9/g' …`).
+   `landing-page/apps/dcheck.html` (`sed -i '' 's/0\.4\.1/0.4.2/g' …`).
 2. `./scripts/deploy-site.sh`: build 4 target (Linux x86_64/aarch64, macOS
    arm64/x86_64), upload `v<ver>/`, set `LATEST`, sinkronkan landing page.
    Hanya landing page: `SKIP_DCHECK=1 ./scripts/deploy-site.sh`.
@@ -106,9 +118,23 @@ Rilis (jalankan dari Mac, supaya build macOS ikut):
   produksi (mis. host landing page); uji di lab-243. Untuk simulasi drive
   palsu pakai device-mapper (lihat TODO N), bukan disk asli.
 - **Screenshot landing page** dibuat dengan
-  `dcheck snapshot DIR --host dell-r630 --mask-serials` di server asli.
+  `dcheck snapshot DIR --host dell-r630 --mask-serials [--tools DEV]` di
+  server asli. **Selalu pakai `--host`**, juga untuk `--demo`: tanpa itu
+  nama host mesin pembuat ikut tercetak (pernah terjadi dengan nama Mac).
   Output CLI **tidak** otomatis dimask; samarkan serial secara manual sebelum
   ditempel ke halaman publik.
+
+- **Fixture undelete** (`testdata/undelete/*.sparse`): image asli yang
+  dibuat di Linux (mkfs → tulis → hapus → tulis lagi), disimpan sebagai teks
+  "sparse" (hanya sektor tidak nol). NTFS dipangkas ke MFT terpakai,
+  `$Bitmap` dan data file supaya ~120 KB. Test mengecek isi file byte per
+  byte, jadi jangan diedit tangan; buat ulang dengan cara yang sama.
+- **ntfs3 (driver NTFS Linux) membuang `$FILE_NAME`** saat file dihapus;
+  Windows/ntfs-3g tidak. Karena itu ada dua fixture NTFS (`ntfs` dan
+  `ntfs3`).
+- **Uji TUI di mesin asli lewat pty**: ratatui hanya mengirim sel yang
+  berubah, jadi teks di stream pty bisa terpotong; cek hasil (file, exit
+  code) atau pakai `dcheck snapshot`, bukan grep teks layar.
 
 ## 5. Infrastruktur rilis (ringkas)
 
@@ -135,24 +161,26 @@ minta langsung ke pemilik.
 
 ## 7. Pekerjaan terbuka (prioritas)
 
-1. **Keaslian disk (TODO G/K).** Modul `authenticity.rs` sudah jadi (OUI
-   WWN vs merek, NVMe PCI VID, model/serial generik) dan `dcheck verify`
-   (uji kapasitas, TODO N). Sisa: SMART yang tidak masuk akal, jam FARM
-   Seagate vs SMART, `verify` di macOS. Tabel OUI diperbarui dengan
-   `scripts/gen-dcheck-oui.sh`.
-2. **Kesehatan RAM (TODO G):** ECC per DIMM + label slot (EDAC sudah
+1. **Keaslian disk (TODO G/K/N).** `authenticity.rs` dan `dcheck verify`
+   sudah jadi. Sisa: SMART yang tidak masuk akal, jam FARM Seagate vs SMART,
+   `verify` di macOS. Tabel OUI diperbarui dengan `scripts/gen-dcheck-oui.sh`.
+2. **Recover / undelete (TODO O/Q).** Sisa: FAT32/exFAT terfragmentasi
+   (sekarang diasumsikan berurutan), NTFS `$ATTRIBUTE_LIST`, nama file
+   ntfs3 dari index slack direktori, carving hanya di free space, macOS.
+3. **Kesehatan RAM (TODO G):** ECC per DIMM + label slot (EDAC sudah
    terbaca), `HardwareCorrupted`, riwayat rasdaemon, SPD, IPMI SEL. Di R630
    "b", SEL berisi event "Power Supply AC lost" yang belum pernah
    ditindaklanjuti.
-3. **Kesehatan CPU (TODO G):** MCE, counter throttling, core offline,
+4. **Kesehatan CPU (TODO G):** MCE, counter throttling, core offline,
    microcode/vulnerabilities.
-4. **Kecil:**
+5. **Kecil:**
    - `dcheck storage` (daftar teks) masih menampilkan HEALTH "?".
+   - `storage --bench` masih MB/s (verify sudah Mbps, TODO R).
    - `prometheus` belum mengekspor metrik baru (design life, overdue, grown
      defects, phy errors, suhu lifetime, port gagal).
    - Error ATA runtime per port (sudah dihitung di `kernlog::PortState.errors`)
      belum ditampilkan untuk disk yang masih hidup.
-5. **Verifikasi hardware yang belum pernah dilakukan:** NVMe native di mesin
+6. **Verifikasi hardware yang belum pernah dilakukan:** NVMe native di mesin
    Linux asli, aarch64 di hardware asli (baru dicek dengan `file`), USB
    bridge lewat SAT, FreeBSD.
 
@@ -164,3 +192,7 @@ minta langsung ke pemilik.
   lalu uji `dcheck update` di mesin nyata sebelum melapor selesai.
 - Commit berbahasa Inggris dengan co-author; catatan (`TODO.md`) berbahasa
   Indonesia.
+- Fitur yang menulis ke disk: pengaman dulu (lihat `verify` dan
+  `undelete`), uji di lab-243, tidak pernah di server produksi.
+- Rilis: naikkan versi, `deploy-site.sh`, cek `LATEST` + `dcheck update` di
+  Mac dan lab-243, lalu tag `dcheck-vX.Y.Z` dan push.

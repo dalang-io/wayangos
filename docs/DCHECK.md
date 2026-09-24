@@ -67,17 +67,22 @@ dcheck storage --json       # machine-readable report for all devices
 dcheck ram | dcheck cpu     # memory / CPU report (or --json)
 dcheck check | watch        # health gate / monitoring loop
 dcheck prometheus           # metrics
+dcheck verify <dev>         # prove the real capacity (writes test files; asks)
+dcheck recover <dev|path>   # deleted a file? chance, steps, disk map (read-only)
+dcheck undelete <dev|image> # list / recover deleted files (--to DIR, --carve)
+dcheck update               # self-update (SHA-256 verified)
+dcheck snapshot DIR         # every TUI screen as SVG
 dcheck --version
 ```
 
 ### TUI screens
 
 ```
-Screen 1 — Main menu
+Screen 1 — Command deck
   ┌ dcheck ──────────────────────┐
-  │  ▸ Storage                   │
-  │    RAM          (coming soon)│
-  │    CPU          (coming soon)│
+  │  ▸ Storage                   │   (card: disks + worst verdict)
+  │    Memory                    │   (card: usage, slots, ECC)
+  │    Processor                 │   (card: load, temperature)
   │    Quit                      │
   └──────────────────────────────┘
 
@@ -88,11 +93,21 @@ Screen 2 — Storage list (includes unmounted, as long as attached)
   /dev/sdb     HDD    WDC WD10SPZX-00Z     931 GB SATA   WARN    -
   /dev/sdc     USB    Generic Flash Disk     14 GB USB    ?       -
 
-Screen 3 — Report (scroll: j/k, b=back, r=refresh, q=quit)
-  [ Identity ] [ Capacity ] [ Interface ] [ Health ] [ Life estimate ]
+Screen 3 — Report: VITALS (verdict, gauges, ORIGIN badge) + TELEMETRY LOG
+  [ Identity ] [ Authenticity ] [ Capacity ] [ Interface ] [ Health ]
+
+On a disk (list or report):
+  u → RECOVERY: chance per filesystem, coloured disk map, steps (read-only)
+      d → DELETED FILES: block map (in use / free / deleted intact /
+          reused / marked / selected), file list, space marks, w recovers
+          into a folder on another disk
+  v → CAPACITY TEST: plan + warnings → y starts → live progress (Mbps),
+      Esc stops and removes the test files → PASS / FAIL (+ real size)
+      (the destructive whole-disk test is CLI-only)
 ```
 
-Keys: `↑/↓` move, `Enter` select, `b/Esc` back, `r` refresh, `q` quit.
+Keys: `↑/↓` move, `Enter` select, `b/Esc` back, `r` refresh, `c` copy,
+`u` recovery, `v` capacity test, `?` help, `q` quit.
 
 ## 5. Architecture
 
@@ -116,7 +131,15 @@ dcheck/
 │   ├── monitor.rs     # check / watch / webhook
 │   ├── config.rs      # config.json (read once per process)
 │   ├── json.rs        # minimal JSON reader/writer
-│   └── tui.rs         # ratatui screens
+│   ├── cache.rs       # SMART read cache (memory + disk, TTL)
+│   ├── kernlog.rs     # dead SATA ports from the kernel log
+│   ├── authenticity.rs# WWN / OUI / NVMe vendor vs brand
+│   ├── oui_table.rs   # IEEE OUIs of drive makers (generated)
+│   ├── verify.rs      # capacity test (free space / destructive)
+│   ├── recover.rs     # deleted-file recovery chance + disk map
+│   ├── undelete.rs    # NTFS / FAT32 / exFAT undelete, carving
+│   ├── update.rs      # self-update
+│   └── tui/           # mod (state/keys), views, widgets, theme, snapshot
 └── README.md
 ```
 
@@ -277,6 +300,13 @@ spin retry > 0, SMART FAILED, temperature beyond range.
 ## 12. Safety principles
 
 - Read-only by default; no writes to block devices.
+- Writes happen only when asked, each with its own guard:
+  - `verify`: test files in free space, deleted afterwards; a system disk
+    needs `--size`/`--full`; `--destructive` (CLI only) is refused on
+    mounted / swap / LVM-held disks and needs the name typed (or
+    `ERASE <name>` when the disk holds data).
+  - `undelete --to DIR`: the source is only read; DIR must be on another
+    disk; existing files are never overwritten.
 - SMART self-tests only on explicit `--test short|long` (non-destructive).
 - Root access used only for SMART/ioctl reads.
 - Works on unmounted devices without mounting them.
@@ -400,12 +430,29 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - On-DIMM temperature (DDR5 `spd5118` / `jc42` hwmon).
 - CPU vendor (`GenuineIntel`/`AuthenticAMD`/Apple), max clock (`cpuinfo_max_freq`
   / `hw.cpufrequency_max`), cache size.
-- macOS: memory modules via `system_profiler SPMemoryDataType` (Intel only).
+- macOS: memory modules via `system_profiler SPMemoryDataType` (Intel DIMMs
+  and Apple Silicon on-package memory), swap from `vm.swapusage`.
 - Disk report is styled (banner, `▐` sections, rules) and shows a **usage meter**
   for every mounted partition (`statvfs`: used%/used/total).
 - **AC:** verified — Dell R630 shows DDR4 2133 MT/s SK Hynix HMA84GL7…, 1/24
   slots; CPU GenuineIntel, 80 threads, cache 50 MB. sysfs fallback verified on
   both Fedora and R630.
+
+### M14 — Fake drives — DONE (0.2.9)
+- Authenticity from WWN / IEEE OUI (full registry extract for the major
+  makers), NVMe PCI vendor and generic identities; `dcheck verify` capacity
+  test with address-tagged blocks and early re-checks.
+- **AC:** verified — generic "SSD 1TB" → UNBRANDED; Samsung / Seagate /
+  Toshiba → CONSISTENT; a device-mapper fake (1 GiB on 256 MiB) fails with
+  "Real size: about 256 MiB".
+
+### M15 — Deleted files — DONE (0.3.0, 0.4.0)
+- `dcheck recover`: chance from media / TRIM / discard / fstrim /
+  filesystem, steps, sampled disk map; `dcheck undelete`: NTFS, FAT32,
+  exFAT, carving; UI screens with a block map.
+- **AC:** verified — HDD ext4 → MEDIUM, ~92% of free space holds old data;
+  SSD with discard → ALMOST NONE, ~0%; recovered files from real FAT32 /
+  exFAT / NTFS images match the originals' SHA-256.
 
 ## 17. Risks
 
