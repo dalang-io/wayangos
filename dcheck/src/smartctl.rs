@@ -74,6 +74,11 @@ pub struct SmartData {
     /// Feature state: TRIM supported, volatile write cache enabled.
     pub trim: Option<bool>,
     pub write_cache: Option<bool>,
+    /// World Wide Name as 16 hex digits (NAA + IEEE OUI + id); all zeros when
+    /// the drive reports an empty WWN. See `authenticity.rs`.
+    pub wwn: Option<String>,
+    /// NVMe: PCI vendor ID of the controller.
+    pub pci_vendor: Option<u64>,
     /// Non-fatal error reported by smartctl (e.g. permission denied).
     pub error: Option<String>,
 }
@@ -96,10 +101,10 @@ impl SmartData {
              logical_block_size, reallocated, pending, uncorrectable, crc_errors, life_percent,
              media_errors, available_spare, available_spare_threshold, warning_temp_time,
              critical_temp_time, nvme_errors, rated_start_stop, load_unload, rated_load_unload,
-             non_medium_errors, power_on_resets, hardware_resets, error_log_count);
+             non_medium_errors, power_on_resets, hardware_resets, error_log_count, pci_vendor);
         put!(i64: temperature_c, trip_temp_c, temp_min_c, temp_max_c, temp_rated_max_c);
         put!(str: model, serial, firmware, form_factor, sata_version, interface_speed,
-             last_self_test, error);
+             last_self_test, wwn, error);
         put!(bool: passed, in_smartctl_database, smart_available, trim, write_cache);
         m.insert("source".into(), Json::Str(self.source.clone()));
         if let Some((y, w)) = self.manufactured {
@@ -144,10 +149,10 @@ impl SmartData {
              logical_block_size, reallocated, pending, uncorrectable, crc_errors, life_percent,
              media_errors, available_spare, available_spare_threshold, warning_temp_time,
              critical_temp_time, nvme_errors, rated_start_stop, load_unload, rated_load_unload,
-             non_medium_errors, power_on_resets, hardware_resets, error_log_count);
+             non_medium_errors, power_on_resets, hardware_resets, error_log_count, pci_vendor);
         get!(i64: temperature_c, trip_temp_c, temp_min_c, temp_max_c, temp_rated_max_c);
         get!(str: model, serial, firmware, form_factor, sata_version, interface_speed,
-             last_self_test, error);
+             last_self_test, wwn, error);
         get!(bool: passed, in_smartctl_database, smart_available, trim, write_cache);
         if let Some([y, w]) = j.get("manufactured").and_then(Json::as_array) {
             s.manufactured = Some((y.as_u64()? as u16, w.as_u64()? as u8));
@@ -195,7 +200,7 @@ impl SmartData {
             critical_temp_time, nvme_errors, manufactured, rated_start_stop, load_unload,
             rated_load_unload, non_medium_errors, trip_temp_c, last_self_test, phy_errors,
             power_on_resets, temp_min_c, temp_max_c, temp_rated_max_c, hardware_resets,
-            error_log_count, trim, write_cache,
+            error_log_count, trim, write_cache, wwn, pci_vendor,
         );
         if self.attributes.is_empty() {
             self.attributes = other.attributes.clone();
@@ -376,6 +381,19 @@ fn candidates_for(bus: Option<Bus>, explicit: Option<&str>) -> Vec<Option<String
     }
 }
 
+/// ATA `"wwn": {"naa", "oui", "id"}` or SCSI `"logical_unit_id": "0x5000..."`.
+fn parse_wwn(j: &Json) -> Option<String> {
+    if let Some(w) = j.get("wwn") {
+        let naa = w.get("naa").and_then(Json::as_u64)?;
+        let oui = w.get("oui").and_then(Json::as_u64)?;
+        let id = w.get("id").and_then(Json::as_u64)?;
+        return Some(format!("{:x}{:06x}{:09x}", naa & 0xf, oui & 0xff_ffff, id & 0xf_ffff_ffff));
+    }
+    let lu = j.get("logical_unit_id").and_then(Json::as_str)?;
+    let hex = lu.trim().trim_start_matches("0x").to_ascii_lowercase();
+    (hex.len() >= 16 && hex.chars().all(|c| c.is_ascii_hexdigit())).then_some(hex)
+}
+
 fn parse_smart(j: &Json) -> SmartData {
     let mut s = SmartData {
         source: "smartctl".to_string(),
@@ -389,6 +407,8 @@ fn parse_smart(j: &Json) -> SmartData {
     s.form_factor = str_at(j, &["form_factor", "name"]);
     s.sata_version = str_at(j, &["sata_version", "string"]);
     s.in_smartctl_database = j.get("in_smartctl_database").and_then(Json::as_bool);
+    s.wwn = parse_wwn(j);
+    s.pci_vendor = j.get("nvme_pci_vendor").and_then(|v| v.get("id")).and_then(Json::as_u64);
     s.smart_available = j
         .get("smart_support")
         .and_then(|v| v.get("available"))

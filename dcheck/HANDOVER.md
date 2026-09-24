@@ -37,11 +37,13 @@ Landing page: <https://wayang.dalang.io/apps/dcheck.html> (juga ada bagian di
 | `smartctl.rs` | `SmartData` (model data SMART), parser `smartctl -x -j`, `fill_from` (menggabungkan sumber), codec JSON untuk cache, ATA Device Statistics |
 | `health.rs` | Verdict, TBW (tabel + override `tbw.json`), model umur HDD (`hdd_design_hours`) |
 | `report.rs` | Report teks, JSON, Prometheus, `read_smart` (cache → smartctl + native), `metrics_all` (baca paralel) |
+| `authenticity.rs` | Cek keaslian: WWN/OUI vs merek, NVMe PCI VID, model/serial generik; `oui_table.rs` (generated, jangan diedit) |
 | `cache.rs` | Cache SMART: di memori + di disk dengan TTL; mode fresh |
 | `kernlog.rs` | Membaca `/dev/kmsg` / `$DCHECK_KMSG` → status port ATA |
 | `ram.rs` | meminfo, EDAC (total + per-DIMM), SMBIOS (dmidecode → sysfs DMI → lshw), cek silang firmware vs OS vs EDAC |
 | `cpu.rs` | Topologi, clock, sensor suhu per socket beserta batas dari sensor |
 | `monitor.rs` | `check`, `watch`, webhook (lewat curl) |
+| `verify.rs` | `dcheck verify`: tulis data berlabel alamat lalu baca ulang (kapasitas palsu); mode free space dan `--destructive` |
 | `update.rs` | Self-update dari `https://wayang.dalang.io/dcheck` |
 | `tui/` | `mod.rs` (state/event), `views.rs` (layar), `widgets.rs`, `theme.rs`, `snapshot.rs` (render layar ke SVG), `tests.rs` |
 | `config.rs` | `~/.config/dcheck/config.json` (dibaca sekali per proses) |
@@ -98,6 +100,9 @@ Rilis (jalankan dari Mac, supaya build macOS ikut):
   `<style>` lokal. i18n memakai atribut `data-en` + `data-id`.
 - **Test e2e** memakai `DCHECK_NO_CACHE=1`. Tanpa itu cache mengacaukan
   assertion.
+- **`dcheck verify` menulis ke disk.** Jangan dijalankan di server
+  produksi (mis. host landing page); uji di lab-243. Untuk simulasi drive
+  palsu pakai device-mapper (lihat TODO N), bukan disk asli.
 - **Screenshot landing page** dibuat dengan
   `dcheck snapshot DIR --host dell-r630 --mask-serials` di server asli.
   Output CLI **tidak** otomatis dimask; samarkan serial secara manual sebelum
@@ -128,11 +133,11 @@ minta langsung ke pemilik.
 
 ## 7. Pekerjaan terbuka (prioritas)
 
-1. **Keaslian disk (TODO G/K).** Sinyal "mencurigakan": OUI di WWN vs merek,
-   model/serial generik, NVMe vendor ID, SMART yang tidak masuk akal, jam
-   FARM Seagate vs SMART. Kandidat uji nyata: SSD "SSD 1TB" di lab-243.
-   Setelah itu `--verify-capacity`: non-destruktif di free space; mode
-   destruktif hanya dengan izin eksplisit.
+1. **Keaslian disk (TODO G/K).** Modul `authenticity.rs` sudah jadi (OUI
+   WWN vs merek, NVMe PCI VID, model/serial generik) dan `dcheck verify`
+   (uji kapasitas, TODO N). Sisa: SMART yang tidak masuk akal, jam FARM
+   Seagate vs SMART, `verify` di macOS. Tabel OUI diperbarui dengan
+   `scripts/gen-dcheck-oui.sh`.
 2. **Kesehatan RAM (TODO G):** ECC per DIMM + label slot (EDAC sudah
    terbaca), `HardwareCorrupted`, riwayat rasdaemon, SPD, IPMI SEL. Di R630
    "b", SEL berisi event "Power Supply AC lost" yang belum pernah
@@ -143,7 +148,6 @@ minta langsung ke pemilik.
    - `dcheck storage` (daftar teks) masih menampilkan HEALTH "?".
    - `prometheus` belum mengekspor metrik baru (design life, overdue, grown
      defects, phy errors, suhu lifetime, port gagal).
-   - Sumber Rated TBW (override vs tabel) belum ditampilkan (TODO I).
    - Error ATA runtime per port (sudah dihitung di `kernlog::PortState.errors`)
      belum ditampilkan untuk disk yang masih hidup.
 5. **Verifikasi hardware yang belum pernah dilakukan:** NVMe native di mesin

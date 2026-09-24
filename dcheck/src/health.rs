@@ -74,6 +74,8 @@ pub struct Health {
     pub issues: Vec<String>,
     pub tbw_bytes: Option<u64>,
     pub rated_tbw_bytes: Option<u64>,
+    /// Where the rated TBW came from: "tbw.json override" or "built-in table".
+    pub rated_tbw_source: Option<&'static str>,
     pub wear_used_percent: Option<u64>,
     pub remaining_poh: Option<u64>,
     /// HDD: share of the design life / rated cycles already used (may exceed
@@ -156,7 +158,10 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         .clone()
         .or_else(|| device.model.clone())
         .unwrap_or_default();
-    let rated = rated_tbw_bytes(&model, device.size_bytes);
+    let (rated, rated_tbw_source) = match rated_tbw_bytes(&model, device.size_bytes) {
+        Some((b, src)) => (Some(b), Some(src)),
+        None => (None, None),
+    };
 
     let rate_plausible = match (tbw_bytes, smart.power_on_hours) {
         // Only judge after a month of runtime: idle archive disks legitimately
@@ -266,6 +271,7 @@ pub fn evaluate(device: &Device, smart: &SmartData) -> Health {
         issues,
         tbw_bytes,
         rated_tbw_bytes: rated,
+        rated_tbw_source,
         wear_used_percent: wear_used,
         remaining_poh,
         design_life_used,
@@ -330,12 +336,12 @@ fn load_overrides() -> Vec<(String, f64)> {
 /// Rated endurance: user overrides first, then the built-in table.
 /// Overrides come from `$DCHECK_TBW_JSON` or `~/.config/dcheck/tbw.json`
 /// (`{ "model substring": tbw_in_tb, ... }`).
-fn rated_tbw_bytes(model: &str, capacity_bytes: u64) -> Option<u64> {
+fn rated_tbw_bytes(model: &str, capacity_bytes: u64) -> Option<(u64, &'static str)> {
     let lower = model.to_ascii_lowercase();
     if let Some(tbw_tb) = match_override(&lower, overrides()) {
-        return Some((tbw_tb * 1e12) as u64);
+        return Some(((tbw_tb * 1e12) as u64, "tbw.json override"));
     }
-    rated_tbw_table(&lower, capacity_bytes)
+    rated_tbw_table(&lower, capacity_bytes).map(|b| (b, "built-in table"))
 }
 
 fn match_override(lower: &str, list: &[(String, f64)]) -> Option<f64> {

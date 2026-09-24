@@ -86,6 +86,11 @@ impl RamInfo {
     }
 
     /// Best count of populated slots across SMBIOS, EDAC and the estimate.
+    /// Apple Silicon: memory is part of the SoC package, there are no slots.
+    pub fn on_package(&self) -> bool {
+        self.modules.iter().any(|m| m.locator == "on-package")
+    }
+
     pub fn populated(&self) -> usize {
         self.modules
             .len()
@@ -486,6 +491,79 @@ fn infer_vendor(manufacturer: &str, part: Option<&str>) -> String {
     manufacturer.to_string()
 }
 
+/// Memory from `system_profiler SPMemoryDataType -json`. Intel Macs list
+/// DIMMs under `_items`; Apple Silicon has one flat entry for the on-package
+/// memory (`"SPMemoryDataType": "16 GB"`, `dimm_manufacturer`, `dimm_type`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn parse_sp_memory(text: &str) -> Vec<RamModule> {
+    use crate::json::Json;
+    let Some(Json::Obj(root)) = Json::parse(text) else { return Vec::new() };
+    let Some(Json::Arr(items)) = root.get("SPMemoryDataType") else { return Vec::new() };
+    let module = |d: &Json, on_package: bool| {
+        let get = |k: &str| d.get(k).and_then(|v| v.as_str()).and_then(nonempty);
+        let size = ["dimm_size", "size", "SPMemoryDataType"]
+            .iter()
+            .find_map(|k| get(k).and_then(|s| parse_sp_size(&s)))
+            .unwrap_or(0);
+        let part = get("dimm_part_number").or_else(|| get("part_number"));
+        let mf = get("dimm_manufacturer").or_else(|| get("manufacturer"));
+        RamModule {
+            locator: get("_name").unwrap_or_else(|| if on_package { "on-package".into() } else { String::new() }),
+            size_bytes: size,
+            kind: get("dimm_type").or_else(|| get("type")).unwrap_or_default(),
+            speed_mts: get("dimm_speed")
+                .or_else(|| get("speed"))
+                .and_then(|s| s.split_whitespace().next().unwrap_or("").parse().ok()),
+            manufacturer: mf.map(|m| infer_vendor(&m, part.as_deref())),
+            part_number: part,
+            serial: get("dimm_serial_number").or_else(|| get("serial_number")),
+            configured_mts: None,
+            rank: None,
+        }
+    };
+    let mut modules = Vec::new();
+    for item in items {
+        match item.get("_items") {
+            Some(Json::Arr(dimms)) => modules.extend(dimms.iter().map(|d| module(d, false))),
+            _ => modules.push(module(item, true)),
+        }
+    }
+    // Intel Macs report empty slots as "Empty" with no size.
+    modules.retain(|m| m.size_bytes > 0);
+    modules
+}
+
+fn parse_sp_size(s: &str) -> Option<u64> {
+    let mut it = s.split_whitespace();
+    let n: f64 = it.next()?.parse().ok()?;
+    let mul: u64 = match it.next().unwrap_or("").to_ascii_uppercase().as_str() {
+        "TB" => 1 << 40,
+        "GB" => 1 << 30,
+        "MB" => 1 << 20,
+        _ => return None,
+    };
+    Some((n * mul as f64) as u64)
+}
+
+/// `sysctl -n vm.swapusage`: "total = 8192.00M  used = 7327.94M  free = 864.06M
+/// (encrypted)" -> (total, free) in bytes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn parse_swapusage(text: &str) -> Option<(u64, u64)> {
+    let field = |name: &str| -> Option<u64> {
+        let rest = text.split(&format!("{name} = ")).nth(1)?;
+        let tok = rest.split_whitespace().next()?;
+        let (num, unit) = tok.split_at(tok.find(|c: char| c.is_ascii_alphabetic())?);
+        let mul: f64 = match unit {
+            "K" => 1024.0,
+            "M" => 1024.0 * 1024.0,
+            "G" => 1024.0 * 1024.0 * 1024.0,
+            _ => return None,
+        };
+        Some((num.parse::<f64>().ok()? * mul) as u64)
+    };
+    Some((field("total")?, field("free")?))
+}
+
 #[cfg(target_os = "linux")]
 mod linux {
     use std::path::Path;
@@ -652,7 +730,7 @@ mod linux {
 mod macos {
     use std::process::Command;
 
-    use super::{infer_vendor, RamInfo, RamModule};
+    use super::{parse_sp_memory, parse_swapusage, RamInfo, RamModule};
 
     fn sysctl(key: &str) -> Option<u64> {
         let out = Command::new("sysctl").arg("-n").arg(key).output().ok()?;
@@ -671,9 +749,17 @@ mod macos {
         .map(|pages| pages * page)
         .unwrap_or(0);
         let modules = system_profiler_memory();
+        let (swap_total, swap_free) = Command::new("sysctl")
+            .args(["-n", "vm.swapusage"])
+            .output()
+            .ok()
+            .and_then(|o| parse_swapusage(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or((0, 0));
         RamInfo {
             total_bytes: total,
             available_bytes: free,
+            swap_total_bytes: swap_total,
+            swap_free_bytes: swap_free,
             modules,
             source: "sysctl".to_string(),
             ..RamInfo::default()
@@ -709,64 +795,12 @@ mod macos {
         }
     }
 
-    /// DIMM details from `system_profiler SPMemoryDataType` (Intel Macs only).
+    /// DIMM details from `system_profiler SPMemoryDataType -json`.
     fn system_profiler_memory() -> Vec<RamModule> {
-        let Ok(out) = Command::new("system_profiler")
-            .args(["SPMemoryDataType", "-json"])
-            .output()
-        else {
-            return Vec::new();
-        };
-        if !out.status.success() {
-            return Vec::new();
+        match Command::new("system_profiler").args(["SPMemoryDataType", "-json"]).output() {
+            Ok(out) if out.status.success() => parse_sp_memory(&String::from_utf8_lossy(&out.stdout)),
+            _ => Vec::new(),
         }
-        let Some(crate::json::Json::Obj(root)) =
-            crate::json::Json::parse(&String::from_utf8_lossy(&out.stdout))
-        else {
-            return Vec::new();
-        };
-        let Some(crate::json::Json::Arr(items)) = root.get("SPMemoryDataType") else {
-            return Vec::new();
-        };
-        let mut modules = Vec::new();
-        for item in items {
-            let Some(crate::json::Json::Arr(dimms)) = item.get("_items") else {
-                continue;
-            };
-            for d in dimms {
-                let get = |k: &str| d.get(k).and_then(|v| v.as_str()).map(str::to_string);
-                let size = get("dimm_size")
-                    .or_else(|| get("size"))
-                    .and_then(|s| parse_size(&s))
-                    .unwrap_or(0);
-                let mf = get("dimm_manufacturer").or_else(|| get("manufacturer"));
-                let part = get("dimm_part_number").or_else(|| get("part_number"));
-                modules.push(RamModule {
-                    locator: get("_name").unwrap_or_default(),
-                    size_bytes: size,
-                    kind: get("dimm_type").or_else(|| get("type")).unwrap_or_default(),
-                    speed_mts: get("dimm_speed")
-                        .or_else(|| get("speed"))
-                        .and_then(|s| s.split_whitespace().next().unwrap_or("").parse().ok()),
-                    manufacturer: mf.map(|m| infer_vendor(&m, part.as_deref())),
-                    part_number: part,
-                    serial: get("dimm_serial_number").or_else(|| get("serial_number")),
-                    configured_mts: None,
-                    rank: None,
-                });
-            }
-        }
-        modules
-    }
-
-    fn parse_size(s: &str) -> Option<u64> {
-        let mut it = s.split_whitespace();
-        let n: u64 = it.next()?.parse().ok()?;
-        Some(match it.next().unwrap_or("").to_ascii_uppercase().as_str() {
-            "GB" => n * 1024 * 1024 * 1024,
-            "MB" => n * 1024 * 1024,
-            _ => return None,
-        })
     }
 }
 
@@ -866,6 +900,41 @@ mod tests {
         let dimms = linux::edac_dimms(&root);
         let _ = std::fs::remove_dir_all(&root);
         assert_eq!(dimms, vec![EdacDimm { label: "A1".into(), size_bytes: 32 << 30, ce: 3, ue: 0 }]);
+    }
+
+    #[test]
+    fn parses_system_profiler_apple_silicon() {
+        let m = parse_sp_memory(
+            r#"{"SPMemoryDataType":[{"dimm_manufacturer":"Hynix","dimm_type":"LPDDR5","SPMemoryDataType":"16 GB"}]}"#,
+        );
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].locator, "on-package");
+        assert_eq!(m[0].size_bytes, 16 << 30);
+        assert_eq!(m[0].kind, "LPDDR5");
+        assert_eq!(m[0].manufacturer.as_deref(), Some("Hynix"));
+    }
+
+    #[test]
+    fn parses_system_profiler_intel() {
+        let m = parse_sp_memory(
+            r#"{"SPMemoryDataType":[{"_name":"Memory Slots","_items":[
+              {"_name":"BANK 0/ChannelA-DIMM0","dimm_size":"8 GB","dimm_type":"DDR4","dimm_speed":"2667 MHz",
+               "dimm_manufacturer":"0x802C","dimm_part_number":"8ATF1G64HZ-2G6E1","dimm_serial_number":"1234"},
+              {"_name":"BANK 1/ChannelB-DIMM0","dimm_size":"Empty"}]}]}"#,
+        );
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].locator, "BANK 0/ChannelA-DIMM0");
+        assert_eq!(m[0].size_bytes, 8 << 30);
+        assert_eq!(m[0].speed_mts, Some(2667));
+    }
+
+    #[test]
+    fn parses_macos_swapusage() {
+        let (total, free) =
+            parse_swapusage("total = 8192.00M  used = 7327.94M  free = 864.06M  (encrypted)").unwrap();
+        assert_eq!(total, 8192 << 20);
+        assert_eq!(free / (1 << 20), 864);
+        assert_eq!(parse_swapusage("total = 0.00M  used = 0.00M  free = 0.00M"), Some((0, 0)));
     }
 
     #[test]

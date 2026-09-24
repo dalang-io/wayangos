@@ -143,7 +143,7 @@
             d<span class="text-w-gold">check</span>
         </h1>
         <p class="text-[clamp(0.95rem,2vw,1.1rem)] text-w-text2 max-w-[700px] mx-auto mb-4 relative z-[1]"><span data-en="Storage health for server technicians &mdash; know which disk is dying before it takes the RAID with it." data-id="Kesehatan storage untuk teknisi server &mdash; tahu disk mana yang sekarat sebelum ikut menjatuhkan RAID." data-i18n-html>Storage health for server technicians &mdash; know which disk is dying before it takes the RAID with it.</span></p>
-        <p class="text-w-dim max-w-3xl mx-auto mb-8 relative z-[1]" data-en="SAS, SATA and NVMe SMART read natively (Dell PERC / LSI MegaRAID included), remaining-life estimates, a health gate for scripts, Prometheus metrics and webhook alerts &mdash; plus RAM and CPU. One static Linux binary, no dependencies." data-id="SMART SAS, SATA dan NVMe dibaca secara native (termasuk Dell PERC / LSI MegaRAID), estimasi sisa umur, health gate untuk script, metrik Prometheus dan alert webhook &mdash; plus RAM dan CPU. Satu binary Linux statis, tanpa dependensi." data-i18n-html>SAS, SATA and NVMe SMART read natively (Dell PERC / LSI MegaRAID included), remaining-life estimates, a health gate for scripts, Prometheus metrics and webhook alerts &mdash; plus RAM and CPU. One static Linux binary, no dependencies.</p>
+        <p class="text-w-dim max-w-3xl mx-auto mb-8 relative z-[1]" data-en="SAS, SATA and NVMe SMART read natively (Dell PERC / LSI MegaRAID included), remaining-life estimates, a health gate for scripts, Prometheus metrics and webhook alerts &mdash; plus RAM and CPU, and checks for fake or rebranded drives. One static Linux binary, no dependencies." data-id="SMART SAS, SATA dan NVMe dibaca secara native (termasuk Dell PERC / LSI MegaRAID), estimasi sisa umur, health gate untuk script, metrik Prometheus dan alert webhook &mdash; plus RAM dan CPU, serta cek disk palsu atau rebrand. Satu binary Linux statis, tanpa dependensi." data-i18n-html>SAS, SATA and NVMe SMART read natively (Dell PERC / LSI MegaRAID included), remaining-life estimates, a health gate for scripts, Prometheus metrics and webhook alerts &mdash; plus RAM and CPU, and checks for fake or rebranded drives. One static Linux binary, no dependencies.</p>
         <div class="relative z-[1] mb-6">
             <div class="dc-install dc-mono">
                 <span class="text-w-dim">$</span>
@@ -151,7 +151,7 @@
                 <button class="dc-copy" style="position:static" data-copy="#install-cmd">copy</button>
             </div>
             <p class="text-w-dim text-xs mt-3 dc-mono"><span data-en="+ smartmontools (optional):" data-id="+ smartmontools (opsional):">+ smartmontools (optional):</span> <span class="text-w-text2">… | sh -s -- --with-smartmontools</span></p>
-            <p class="text-w-dim text-xs mt-3"><span data-en="Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release" data-id="Linux &amp; macOS &middot; x86_64 / arm64 &middot; rilis terbaru" data-i18n-html>Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.2.8</span></p>
+            <p class="text-w-dim text-xs mt-3"><span data-en="Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release" data-id="Linux &amp; macOS &middot; x86_64 / arm64 &middot; rilis terbaru" data-i18n-html>Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.2.9</span></p>
         </div>
         <div class="flex flex-wrap justify-center gap-4 relative z-[1]">
             <a href="#install" class="bg-w-gold text-w-bg px-6 py-3 rounded-lg font-bold no-underline hover:bg-w-gold-b transition-all"><span data-en="Install guide" data-id="Panduan instalasi">Install guide</span></a>
@@ -212,14 +212,24 @@
                 <p class="text-w-dim text-sm" data-en="Memory usage, ECC errors (EDAC), DIMM slot map with vendor / type / speed from SMBIOS, DDR5 temperature. CPU model, topology, clock, cache, load, and per-socket temperatures judged against each CPU's own limits." data-id="Pemakaian memori, error ECC (EDAC), peta slot DIMM dengan vendor / tipe / kecepatan dari SMBIOS, suhu DDR5. Model CPU, topologi, clock, cache, load, dan suhu per socket dibandingkan dengan batas CPU itu sendiri.">Memory usage, ECC errors (EDAC), DIMM slot map with vendor / type / speed from SMBIOS, DDR5 temperature. CPU model, topology, clock, cache, load, and per-socket temperatures judged against each CPU's own limits.</p>
             </div>
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#128269;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Fake or rebranded drive?" data-id="Disk palsu atau rebrand?">Fake or rebranded drive?</h3>
+                <p class="text-w-dim text-sm" data-en="Every SATA / SAS drive carries a WWN with its maker's IEEE OUI. dcheck checks it against the brand in the model name (all 1,662 OUIs of the major makers, from the IEEE registry), checks NVMe controller vendors (a &quot;Samsung 980&quot; on a Maxio controller), and flags generic names like &quot;SSD 1TB&quot;." data-id="Setiap disk SATA / SAS membawa WWN berisi OUI IEEE pabrikannya. dcheck mencocokkannya dengan merek di nama model (1.662 OUI pabrikan besar dari registry IEEE), mengecek vendor controller NVMe (&quot;Samsung 980&quot; dengan controller Maxio), dan menandai nama generik seperti &quot;SSD 1TB&quot;.">Every SATA / SAS drive carries a WWN with its maker's IEEE OUI. dcheck checks it against the brand in the model name (all 1,662 OUIs of the major makers, from the IEEE registry), checks NVMe controller vendors (a &quot;Samsung 980&quot; on a Maxio controller), and flags generic names like &quot;SSD 1TB&quot;.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#129514;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Real capacity test" data-id="Uji kapasitas asli">Real capacity test</h3>
+                <p class="text-w-dim text-sm" data-en="Counterfeit flash reports more space than it has. dcheck verify writes address-tagged data and reads it back with the OS cache dropped; a fake fails as soon as the writes pass its real capacity, and dcheck tells you the real size." data-id="Flash palsu mengaku punya ruang lebih besar dari aslinya. dcheck verify menulis data berlabel alamat lalu membacanya kembali tanpa cache OS; disk palsu gagal begitu tulisan melewati kapasitas aslinya, dan dcheck menyebutkan ukuran aslinya.">Counterfeit flash reports more space than it has. dcheck verify writes address-tagged data and reads it back with the OS cache dropped; a fake fails as soon as the writes pass its real capacity, and dcheck tells you the real size.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#128223;</div>
                 <h3 class="text-lg font-bold text-w-text mb-2" data-en="A terminal UI that works anywhere" data-id="Terminal UI yang jalan di mana saja">A terminal UI that works anywhere</h3>
                 <p class="text-w-dim text-sm" data-en="Neon truecolor in modern terminals, the ANSI palette on a Linux console or iDRAC/iLO virtual console, --plain for ASCII-only fonts, NO_COLOR respected, text stays selectable." data-id="Neon truecolor di terminal modern, palet ANSI di console Linux atau virtual console iDRAC/iLO, --plain untuk font ASCII saja, NO_COLOR dihormati, teks tetap bisa diseleksi.">Neon truecolor in modern terminals, the ANSI palette on a Linux console or iDRAC/iLO virtual console, --plain for ASCII-only fonts, NO_COLOR respected, text stays selectable.</p>
             </div>
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#128274;</div>
-                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Read-only and safe" data-id="Read-only dan aman">Read-only and safe</h3>
-                <p class="text-w-dim text-sm" data-en="Never writes to a disk. Self-tests and the read benchmark only run when you ask. Ceph RBD, DRBD, device-mapper and loop devices are skipped automatically. A drive that is plugged in but never answers is still listed (from the kernel log) as REPLACE." data-id="Tidak pernah menulis ke disk. Self-test dan benchmark baca hanya jalan kalau diminta. Ceph RBD, DRBD, device-mapper dan loop device otomatis dilewati. Drive yang terpasang tapi tidak pernah merespons tetap tampil (dari log kernel) sebagai REPLACE.">Never writes to a disk. Self-tests and the read benchmark only run when you ask. Ceph RBD, DRBD, device-mapper and loop devices are skipped automatically. A drive that is plugged in but never answers is still listed (from the kernel log) as REPLACE.</p>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Safe by default" data-id="Aman secara default">Safe by default</h3>
+                <p class="text-w-dim text-sm" data-en="Reads only, unless you ask: SMART self-tests and dcheck verify. Verify writes test files to free space and deletes them, refuses to fill a system disk without --size, and overwrites a whole drive only with --destructive after you type ERASE &lt;name&gt;. Ceph RBD, DRBD, device-mapper and loop devices are skipped. A drive that is plugged in but never answers is still listed (from the kernel log) as REPLACE." data-id="Hanya membaca, kecuali diminta: self-test SMART dan dcheck verify. Verify menulis file uji ke free space lalu menghapusnya, menolak mengisi disk sistem tanpa --size, dan hanya menimpa seluruh disk dengan --destructive setelah Anda mengetik ERASE &lt;nama&gt;. Ceph RBD, DRBD, device-mapper dan loop device dilewati. Drive yang terpasang tapi tidak pernah merespons tetap tampil (dari log kernel) sebagai REPLACE.">Reads only, unless you ask: SMART self-tests and dcheck verify. Verify writes test files to free space and deletes them, refuses to fill a system disk without --size, and overwrites a whole drive only with --destructive after you type ERASE &lt;name&gt;. Ceph RBD, DRBD, device-mapper and loop devices are skipped. A drive that is plugged in but never answers is still listed (from the kernel log) as REPLACE.</p>
             </div>
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#128260;</div>
@@ -288,7 +298,7 @@
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="1. One-line install" data-id="1. Instal satu baris">1. One-line install</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</div>
-        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.8 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.8 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.8 (pin a version).</p>
+        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.9 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.9 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.9 (pin a version).</p>
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="2. Run it" data-id="2. Jalankan">2. Run it</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>sudo dcheck                     <span class="c"># terminal UI (SMART needs root)</span>
@@ -329,11 +339,11 @@
         <table class="dc-table mb-2">
             <thead><tr><th data-en="Platform" data-id="Platform">Platform</th><th data-en="File" data-id="File">File</th></tr></thead>
             <tbody>
-                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.2.8/dcheck-0.2.8-x86_64-unknown-linux-musl.tar.gz">dcheck-0.2.8-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
-                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.2.8/dcheck-0.2.8-aarch64-unknown-linux-musl.tar.gz">dcheck-0.2.8-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
-                <tr><td>macOS Apple Silicon (M1&ndash;M4)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-apple-darwin" href="/dcheck/v0.2.8/dcheck-0.2.8-aarch64-apple-darwin.tar.gz">dcheck-0.2.8-aarch64-apple-darwin.tar.gz</a></td></tr>
-                <tr><td>macOS Intel</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-apple-darwin" href="/dcheck/v0.2.8/dcheck-0.2.8-x86_64-apple-darwin.tar.gz">dcheck-0.2.8-x86_64-apple-darwin.tar.gz</a></td></tr>
-                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.2.8/SHA256SUMS">SHA256SUMS</a></td></tr>
+                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.2.9/dcheck-0.2.9-x86_64-unknown-linux-musl.tar.gz">dcheck-0.2.9-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.2.9/dcheck-0.2.9-aarch64-unknown-linux-musl.tar.gz">dcheck-0.2.9-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>macOS Apple Silicon (M1&ndash;M4)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-apple-darwin" href="/dcheck/v0.2.9/dcheck-0.2.9-aarch64-apple-darwin.tar.gz">dcheck-0.2.9-aarch64-apple-darwin.tar.gz</a></td></tr>
+                <tr><td>macOS Intel</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-apple-darwin" href="/dcheck/v0.2.9/dcheck-0.2.9-x86_64-apple-darwin.tar.gz">dcheck-0.2.9-x86_64-apple-darwin.tar.gz</a></td></tr>
+                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.2.9/SHA256SUMS">SHA256SUMS</a></td></tr>
             </tbody>
         </table>
         </div>
@@ -393,6 +403,50 @@ exit=2</div>
   <span class="dim">Design life  :</span> 43800 h (5.0 y @24/7, assumed — drives do not report it)
   <span class="dim">Life used    :</span> <span class="warn">210% (limited by power-on hours)</span>
   <span class="dim">Life left    :</span> <span class="warn">0 — past its rated life by ~5.5y @24/7</span></div>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Is this drive genuine?" data-id="Disk ini asli?">Is this drive genuine?</h3>
+        <p class="text-w-dim text-sm mb-3" data-en="Every disk report has an AUTHENTICITY section. Below: a generic SSD from a lab machine, and a genuine Samsung SM863a behind a PERC H730 (real output)." data-id="Setiap report disk punya bagian AUTHENTICITY. Di bawah: SSD generik di mesin lab, dan Samsung SM863a asli di belakang PERC H730 (output asli).">Every disk report has an AUTHENTICITY section. Below: a generic SSD from a lab machine, and a genuine Samsung SM863a behind a PERC H730 (real output).</p>
+        <div class="dc-code dc-mono mb-3"><span class="p">$ </span>sudo dcheck storage /dev/sda
+<span class="dim">…</span>
+<span class="warn">▐ AUTHENTICITY</span>
+  <span class="dim">Identity     :</span> <span class="warn">UNBRANDED — firmware names no manufacturer</span>
+  <span class="dim">WWN          :</span> 0000000000000000
+    <span class="bad">✖</span> WWN is all zeros — no IEEE-registered manufacturer ID
+    <span class="bad">✖</span> model "SSD 1TB" names no manufacturer
+    <span class="dim">·</span> not in smartctl's drive database
+  <span class="dim">Note         :</span> if the label or casing shows a brand, this drive is not what it claims</div>
+        <div class="dc-code dc-mono mb-3"><span class="warn">▐ AUTHENTICITY</span>
+  <span class="dim">Identity     :</span> <span class="ok">CONSISTENT — identity matches Samsung</span>
+  <span class="dim">WWN          :</span> 5002538e10249cb0
+    <span class="ok">✔</span> WWN OUI 002538 is registered to Samsung, matching the model</div>
+        <p class="text-w-dim text-sm mb-10" data-en="Levels: CONSISTENT, UNVERIFIED (nothing to compare), UNBRANDED, SUSPICIOUS (a brand with a zero or missing WWN), LIKELY FAKE (a brand with another maker's OUI or controller). A clean result means consistent, not proven genuine &mdash; so prove the capacity too." data-id="Level: CONSISTENT, UNVERIFIED (tidak ada pembanding), UNBRANDED, SUSPICIOUS (bermerek tapi WWN nol / tidak ada), LIKELY FAKE (bermerek tapi OUI atau controller milik pabrik lain). Hasil bersih berarti konsisten, bukan terbukti asli &mdash; jadi uji juga kapasitasnya." data-i18n-html>Levels: CONSISTENT, UNVERIFIED (nothing to compare), UNBRANDED, SUSPICIOUS (a brand with a zero or missing WWN), LIKELY FAKE (a brand with another maker's OUI or controller). A clean result means consistent, not proven genuine &mdash; so prove the capacity too.</p>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Prove the real capacity" data-id="Buktikan kapasitas aslinya">Prove the real capacity</h3>
+        <div class="dc-code dc-mono mb-3"><span class="p">$ </span>sudo dcheck verify /dev/sdb --size 4G
+<span class="dim">…</span>
+<span class="warn">▐ CAPACITY VERIFICATION</span>
+  <span class="dim">Target       :</span> / (free space, test files)
+  <span class="dim">Written      :</span> 4 GiB of 4 GiB planned  (76 MB/s)
+  <span class="dim">Read back    :</span> 4 GiB  (112 MB/s)
+  <span class="dim">Result       :</span> <span class="ok">PASS — all 4 GiB read back intact</span></div>
+        <div class="dc-code dc-mono mb-3"><span class="c"># a simulated fake: reports 1 GiB, really 256 MiB (device-mapper test)</span>
+<span class="warn">▐ CAPACITY VERIFICATION</span>
+  <span class="dim">Written      :</span> 272 MiB of 1 GiB planned  (204 MB/s)
+  <span class="dim">Result       :</span> <span class="bad">FAIL — 2048 of 83968 checked blocks are bad</span>
+  <span class="dim">First bad    :</span> the block at 0 B held the data written for 256 MiB
+  <span class="dim">Real size    :</span> <span class="bad">about 256 MiB (addresses repeat every that much)</span>
+  <span class="dim">Meaning      :</span> the drive stores less than it reports — counterfeit capacity.</div>
+        <div class="overflow-x-auto mb-3">
+        <table class="dc-table">
+            <thead><tr><th data-en="Command" data-id="Perintah">Command</th><th data-en="Writes" data-id="Menulis">Writes</th><th data-en="Safeguards" data-id="Pengaman">Safeguards</th></tr></thead>
+            <tbody>
+                <tr><td class="dc-mono">dcheck verify /dev/sdX</td><td data-en="Test files in free space, deleted afterwards. Existing files are kept." data-id="File uji di free space, dihapus setelahnya. File yang ada tetap utuh.">Test files in free space, deleted afterwards. Existing files are kept.</td><td data-en="Asks first. On a system disk (/, /boot, /var, /home …) it needs --size or --full." data-id="Bertanya dulu. Di disk sistem (/, /boot, /var, /home …) wajib --size atau --full.">Asks first. On a system disk (/, /boot, /var, /home …) it needs --size or --full.</td></tr>
+                <tr><td class="dc-mono">--size 8G</td><td data-en="At most 8 GiB (quick test of the first part)." data-id="Paling banyak 8 GiB (tes cepat bagian awal).">At most 8 GiB (quick test of the first part).</td><td>&mdash;</td></tr>
+                <tr><td class="dc-mono">--destructive</td><td style="color:#ff6b6b" data-en="The whole drive. All data on it is lost." data-id="Seluruh disk. Semua data di dalamnya hilang.">The whole drive. All data on it is lost.</td><td data-en="Refused if mounted, swap or LVM/RAID. Lists the partitions and filesystems it finds; you type the device name, or ERASE &lt;name&gt; if it holds data." data-id="Ditolak kalau ter-mount, swap atau LVM/RAID. Menampilkan partisi dan filesystem yang ditemukan; Anda mengetik nama device, atau ERASE &lt;nama&gt; kalau berisi data.">Refused if mounted, swap or LVM/RAID. Lists the partitions and filesystems it finds; you type the device name, or ERASE &lt;name&gt; if it holds data.</td></tr>
+            </tbody>
+        </table>
+        </div>
+        <p class="text-w-dim text-sm mb-10" data-en="Back up first: on a counterfeit drive, writes past its real capacity can land on existing files (dcheck stops as soon as it sees that). Verify also overwrites free space, so do not run it while you still hope to undelete a file." data-id="Backup dulu: pada disk palsu, tulisan yang melewati kapasitas aslinya bisa mengenai file yang sudah ada (dcheck berhenti begitu mendeteksinya). Verify juga menimpa free space, jadi jangan dijalankan selagi masih ingin memulihkan file yang terhapus.">Back up first: on a counterfeit drive, writes past its real capacity can land on existing files (dcheck stops as soon as it sees that). Verify also overwrites free space, so do not run it while you still hope to undelete a file.</p>
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Daily check with a systemd timer" data-id="Cek harian dengan systemd timer">Daily check with a systemd timer</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="c"># /etc/systemd/system/dcheck.service</span>

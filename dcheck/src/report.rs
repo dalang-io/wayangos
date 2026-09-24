@@ -113,7 +113,7 @@ fn ui_plain() -> bool {
 }
 
 /// Section header, e.g. `▐ IDENTITY` (plain: `[ IDENTITY ]`).
-fn section(name: &str) -> String {
+pub fn section(name: &str) -> String {
     if ui_plain() {
         format!("[ {name} ]")
     } else {
@@ -212,6 +212,10 @@ pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>)
     if d.removable {
         out.push("  Removable    : yes".into());
     }
+    authenticity_lines(
+        &crate::authenticity::for_device(d, smart, model.as_deref().unwrap_or(""), serial.as_deref()),
+        &mut out,
+    );
 
     out.push(String::new());
     out.push(section("CAPACITY"));
@@ -317,6 +321,42 @@ pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>)
 }
 
 /// Report for a SATA port whose drive never came up.
+/// "Is it what the label says?" (see `authenticity.rs`).
+fn authenticity_lines(a: &crate::authenticity::Authenticity, out: &mut Vec<String>) {
+    use crate::authenticity::{Level, Mark};
+    if a.level == Level::Unknown {
+        return;
+    }
+    out.push(String::new());
+    out.push(section("AUTHENTICITY"));
+    out.push(format!("  Identity     : {} — {}", a.level.label(), a.summary()));
+    if let Some(w) = &a.wwn {
+        out.push(format!("  WWN          : {w}"));
+    }
+    for (mark, text) in &a.signals {
+        let sym = match (mark, ui_plain()) {
+            (Mark::Good, false) => "✔",
+            (Mark::Bad, false) => "✖",
+            (Mark::Info, false) => "·",
+            (Mark::Good, true) => "+",
+            (Mark::Bad, true) => "!",
+            (Mark::Info, true) => "-",
+        };
+        out.push(format!("    {sym} {text}"));
+    }
+    match a.level {
+        Level::Unbranded => out.push(
+            "  Note         : if the label or casing shows a brand, this drive is not what it claims; \
+             `dcheck verify` proves the real capacity"
+                .into(),
+        ),
+        Level::Suspicious | Level::LikelyFake => out.push(
+            "  Note         : likely rebranded/counterfeit — prove the real capacity with `dcheck verify`".into(),
+        ),
+        _ => {}
+    }
+}
+
 fn failed_port_lines(d: &Device, reason: &str) -> Vec<String> {
     let banner = if ui_plain() {
         format!("dcheck report - {} (SATA port)", d.name)
@@ -474,7 +514,11 @@ fn health_lines(d: &Device, s: &smartctl::SmartData, out: &mut Vec<String>) {
         out.push(format!("  Life used    : {used}% (limited by {what})"));
     } else {
         match h.rated_tbw_bytes {
-            Some(r) => out.push(format!("  Rated TBW    : {}", human_size(r))),
+            Some(r) => out.push(format!(
+                "  Rated TBW    : {} ({})",
+                human_size(r),
+                h.rated_tbw_source.unwrap_or("built-in table")
+            )),
             None => out.push("  Rated TBW    : unknown (model not in endurance table)".into()),
         }
     }
@@ -595,7 +639,10 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     if let Some(t) = r.memory_type() {
         out.push(format!("  Type         : {t}"));
     }
-    if r.slots_total > 0 || !r.modules.is_empty() {
+    let on_package = r.on_package();
+    if on_package {
+        out.push("  Layout       : on-package (unified memory, not replaceable)".to_string());
+    } else if r.slots_total > 0 || !r.modules.is_empty() {
         let populated = r.populated();
         let slots = if r.slots_total > 0 { format!(" / {}", r.slots_total) } else { String::new() };
         if populated != r.modules.len() {
@@ -649,7 +696,7 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     }
     if !r.modules.is_empty() {
         out.push(String::new());
-        out.push(section("MODULES (FIRMWARE / SMBIOS)"));
+        out.push(section(if on_package { "MODULES (SYSTEM PROFILER)" } else { "MODULES (FIRMWARE / SMBIOS)" }));
         let hidden = r.populated().saturating_sub(r.modules.len());
         for m in &r.modules {
             let speed = m
@@ -1058,6 +1105,7 @@ pub fn device_json(d: &Device) -> crate::json::Json {
             ("warning_temp_time", opt_num(s.warning_temp_time.map(|v| v as f64))),
             ("critical_temp_time", opt_num(s.critical_temp_time.map(|v| v as f64))),
             ("rated_tbw_bytes", opt_num(h.rated_tbw_bytes.map(|v| v as f64))),
+            ("rated_tbw_source", h.rated_tbw_source.map_or(crate::json::Json::Null, crate::json::string)),
             ("reallocated", opt_num(s.reallocated.map(|v| v as f64))),
             ("pending", opt_num(s.pending.map(|v| v as f64))),
             ("uncorrectable", opt_num(s.uncorrectable.map(|v| v as f64))),
@@ -1136,6 +1184,15 @@ pub fn device_json(d: &Device) -> crate::json::Json {
         ]),
     );
     map.insert("health".to_string(), health.unwrap_or(crate::json::Json::Null));
+    map.insert(
+        "authenticity".to_string(),
+        crate::authenticity::to_json(&crate::authenticity::for_device(
+            d,
+            smart.as_ref(),
+            model.as_deref().unwrap_or(""),
+            serial.as_deref(),
+        )),
+    );
 
     let attrs: Vec<crate::json::Json> = smart
         .as_ref()

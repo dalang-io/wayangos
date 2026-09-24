@@ -465,6 +465,7 @@ pub fn demo_smart(d: &Device) -> Option<crate::smartctl::SmartData> {
             available_spare: Some(100),
             available_spare_threshold: Some(10),
             interface_speed: Some("8.0 GT/s x4".to_string()),
+            pci_vendor: Some(0x144d),
             ..base
         }),
         "sda" => Some(SmartData {
@@ -472,6 +473,7 @@ pub fn demo_smart(d: &Device) -> Option<crate::smartctl::SmartData> {
             power_on_hours: Some(12_400),
             power_cycles: Some(2_210),
             lba_written: Some(113_281_250_000), // 58 TB of 80 TBW
+            wwn: Some("50026b7784a1c2d3".into()),
             reallocated: Some(0),
             pending: Some(0),
             interface_speed: Some("6.0 Gb/s".to_string()),
@@ -488,6 +490,7 @@ pub fn demo_smart(d: &Device) -> Option<crate::smartctl::SmartData> {
             power_on_hours: Some(28_050),
             power_cycles: Some(4_120),
             rotation_rate: Some(5400),
+            wwn: Some("50014ee2b5c3d4e5".into()),
             reallocated: Some(8),
             pending: Some(2),
             uncorrectable: Some(0),

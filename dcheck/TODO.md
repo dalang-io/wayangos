@@ -228,12 +228,24 @@ bahasanya "mencurigakan", bukan "palsu":
   load-unload / start-stop tinggi pada disk "baru".
 
 Tugas:
-- [ ] Modul `authenticity`: sinyal + alasan + tingkat (ok / suspicious /
-      likely counterfeit), tampil di report, TUI (panel/badge) dan JSON
-- [ ] Tabel OUI → pabrikan (Samsung, Seagate, WD/HGST, Toshiba, Micron/
-      Crucial, Kingston, SK hynix, Intel/Solidigm, SanDisk, Kioxia, …) dan
-      NVMe PCI VID → controller
-- [ ] Baca WWN native (ATA IDENTIFY word 108–111, SCSI VPD 0x83)
+- [x] Modul `authenticity`: level CONSISTENT / UNVERIFIED / UNBRANDED /
+      SUSPICIOUS / LIKELY FAKE + alasan per sinyal; tampil di report
+      (bagian AUTHENTICITY), TUI (badge ORIGIN di VITALS, hanya kalau ≥
+      UNBRANDED supaya ALERTS tetap kelihatan di layar kecil) dan JSON
+      (`authenticity`). Tidak mengubah verdict kesehatan / exit code.
+- [x] Tabel OUI → pabrikan: **semua** OUI dari registry IEEE untuk 8 grup
+      pabrikan (1662 entri, `src/oui_table.rs`, dibuat oleh
+      `scripts/gen-dcheck-oui.sh` dari hwdata/ieee-data). Awalnya tabel
+      ditulis dari ingatan (15 OUI); semuanya sudah dicek cocok dengan
+      registry, lalu diganti ekstrak lengkap karena Samsung punya 904 OUI
+      dan Intel 684. NVMe PCI VID dicek terhadap pci.ids (hwdata).
+- [x] Baca WWN: smartctl (`wwn` / `logical_unit_id`), native ATA IDENTIFY
+      word 108–111 dan SCSI VPD 0x83, sysfs `wwid`, udev
+      `/dev/disk/by-id/wwn-*` (sda Seagate di 10.0.0.251: kernel `wwid`
+      ENXIO, udev punya WWN)
+- [x] Terverifikasi: lab-243 `SSD 1TB` → UNBRANDED (juga tanpa root);
+      10.0.0.251 Seagate×2 + Toshiba, 10.0.0.177 Samsung SM863a + Toshiba×4
+      → CONSISTENT
 - [ ] Seagate FARM: bandingkan POH FARM vs SMART
 - [ ] `--verify-capacity` (non-destruktif di free space; destruktif hanya
       dengan flag + konfirmasi, tidak pernah default)
@@ -350,7 +362,7 @@ Tugas:
 - Contoh nyata untuk bagian G (disk kloningan): lab-243 punya SSD model
   "SSD 1TB", firmware VE0R6304, **WWN 0 000000 000000000** (tanpa OUI
   pabrikan) → kandidat sinyal "unbranded".
-- [ ] Tampilkan sumber Rated TBW ("override dari tbw.json" vs tabel) —
+- [x] Tampilkan sumber Rated TBW ("override dari tbw.json" vs tabel) —
       lab-243 punya override `{"ssd 1tb":600}` yang tidak terlihat di report
 
 ## J. RAM: 4 modul terpasang, terbaca 2 (lab-243, Fedora 44, X99/C610)
@@ -408,6 +420,14 @@ Tugas:
 - [ ] Setelah drive terbaca: jalankan sinyal authenticity (TODO G) dan
       tawarkan `--verify-capacity` (butuh izin eksplisit; destruktif hanya
       pada drive kosong)
+- [x] Probe read-only SSD pengganti di lab-243 (`SSD 1TB`, fw VE0R6304),
+      contoh nyata "unbranded": model generik tanpa merek, WWN semua nol
+      (NAA 0, OUI 000000), tidak ada di database smartctl, atribut vendor
+      161–169 tanpa nama. SMART sehat (277 jam, wear 1%), jadi "generik"
+      tidak berarti "rusak". "Rated TBW: 600 TB" di report ternyata dari
+      override `/root/.config/dcheck/tbw.json` (`{"ssd 1tb":600}`, dibuat
+      saat testing 2026-09-23), bukan tabel. Report sekarang menulis
+      sumbernya: "(tbw.json override)" / "(built-in table)" (TODO I).
 - [x] Verifikasi lab-243: `check` → "ata1 REPLACE … never became ready; 3 ×
       link is slow to respond; link speed was reduced", exit 3; report per
       port dengan langkah selanjutnya. User konfirmasi: kabel/port diganti
@@ -436,3 +456,139 @@ Tugas:
       `check` 5.1 → 3.9 dtk (paralel); `prometheus` ~18 dtk (6 baca/disk)
       → 3.6 dtk (sekali baca, paralel). Identitas (INQUIRY 0.75 dtk) ikut
       disimpan bersama SMART. Kunci + WWID sysfs bila ada.
+
+## M. macOS: vendor RAM tidak terbaca, swap "none" (Mac M2)
+
+Temuan: `dcheck ram` di MacBook M2 tidak menampilkan modul/vendor sama
+sekali, dan Swap tertulis "none" padahal `vm.swapusage` = 8 GiB (terpakai
+7.2 GiB).
+
+Penyebab:
+- Parser `system_profiler SPMemoryDataType -json` hanya mengenal format Mac
+  Intel (daftar DIMM di `_items`). Di Apple Silicon, RAM on-package, dan
+  JSON-nya flat: `{"dimm_manufacturer":"Hynix","dimm_type":"LPDDR5",
+  "SPMemoryDataType":"16 GB"}`. Tidak ada `_items`, jadi hasilnya kosong.
+- Swap macOS tidak dibaca sama sekali (field swap dibiarkan 0).
+
+Tugas:
+- [x] Parser: item tanpa `_items` → satu modul "on-package" (size dari
+      `SPMemoryDataType`), plus unit test untuk format Intel dan Apple Silicon
+- [x] Swap dari `sysctl vm.swapusage` (+ unit test parser)
+- [x] Ikut ketemu: unit test TUI (disk demo) menulis ke cache SMART asli
+      (`~/.cache/dcheck`) dengan hasil `null`; run berikutnya membaca itu
+      dan 2 test gagal. Cache disk dimatikan saat `cfg(test)`.
+- Terverifikasi di Mac M2: modul `on-package 16 GiB LPDDR5 Hynix`,
+  Layout "on-package (unified memory, not replaceable)", Swap 7.1/8 GiB.
+
+## N. `dcheck verify`: uji kapasitas asli (fake capacity)
+
+Permintaan: verifikasi kapasitas, supaya disk palsu yang mengaku 1 TB padahal
+flash-nya kecil bisa ketahuan. Ini tidak bisa dilihat dari identitas (TODO
+G/M); satu-satunya cara adalah menulis data lalu membacanya kembali (seperti
+f3 / H2testw).
+
+Desain:
+- Setiap blok 4 KiB diberi header: magic, seed run, dan nomor blok global,
+  lalu diisi pola pseudo-random dari (seed, nomor blok). Saat dibaca ulang
+  bisa dibedakan: blok berisi data blok lain (**wrap-around**, tanda khas
+  kapasitas palsu), nol, atau acak (rusak).
+- Cache OS di-bypass: fsync + `posix_fadvise(DONTNEED)` (Linux) /
+  `F_NOCACHE` (macOS). Tanpa ini, yang terbaca hanya RAM.
+- **Mode aman (default)**: tulis file uji ke free space filesystem yang
+  ter-mount di disk itu (`.dcheck-verify-<pid>/`), lalu baca semua kembali,
+  lalu hapus. Data yang ada tidak disentuh. Default mengisi free space
+  dikurangi cadangan 1% (min 256 MiB); `--size` untuk tes cepat. Tiap file
+  selesai, beberapa file lama dicek ulang supaya wrap-around ketahuan lebih
+  awal tanpa menunggu disk penuh. Ctrl-C → berhenti dan file uji dihapus.
+  Konfirmasi dulu (disk jadi hampir penuh sementara); `--yes` untuk skrip.
+- **Mode destruktif** (`--destructive`): untuk disk kosong/tidak ter-mount
+  (flashdisk/SSD baru). Menulis chunk di posisi tersebar di seluruh kapasitas
+  (termasuk ujung akhir), lalu membaca semuanya. Cepat (~1 GiB ditulis),
+  tapi **menimpa data**. Ditolak kalau ada partisi ter-mount atau device
+  sedang dipakai (O_EXCL); wajib mengetik nama device, tidak bisa dari
+  non-TTY.
+- Exit: 0 = semua data kembali utuh, 3 = gagal (kapasitas palsu/rusak),
+  1 = error/dibatalkan.
+
+Tugas:
+- [x] Modul `verify.rs` + perintah `dcheck verify DEV` (alias
+      `storage DEV --verify-capacity`)
+- [x] Unit test: pola blok, diagnosis wrap/nol/acak, posisi sampel
+- [x] Uji nyata: lab-243 mode aman (`--size`), device-mapper palsu
+      (1 GiB yang dipetakan berulang ke 256 MiB) untuk mode destruktif:
+      harus FAIL + wrap-around; loop device asli harus OK
+- [x] Docs: README, man page, HANDOVER
+- Catatan desain: mode destruktif awalnya direncanakan "sampling" (chunk
+  tersebar, cepat). Dibatalkan: pada fake yang memetakan alamat modulo
+  kapasitas asli, sampel tersebar jarang bertabrakan sehingga semua terbaca
+  benar (lolos palsu). Kedua mode menulis berurutan + cek ulang sampel
+  region awal setelah tiap region → fake gagal begitu tulisan melewati
+  kapasitas aslinya.
+- Hasil lab-243: mode aman `--size 4G` di SSD `SSD 1TB` PASS (76 MB/s
+  tulis, 112 MB/s baca; disk sendiri cuma ~150–180 MB/s baca), tidak ada
+  sisa file. device-mapper 1 GiB → 256 MiB: FAIL setelah 272 MiB ditulis,
+  "Real size: about 256 MiB", exit 3. Loop 512 MiB asli: PASS. Ditolak:
+  loop yang dipegang dm, /dev/sda (ter-mount), nama salah ketik.
+- [x] Pengaman tambahan (permintaan: jangan sampai teknisi tidak sengaja
+      merusak isi disk): `--destructive` menampilkan isi drive (partisi +
+      tanda filesystem/partition table) dan wajib mengetik `ERASE <nama>`
+      kalau ada data; mode free space di disk sistem (/, /boot, /var,
+      /home, …) ditolak tanpa `--size` atau `--full`. Diuji di lab-243:
+      loop ext4 → mengetik nama saja ditolak, file tetap utuh; `ERASE
+      loop0` → jalan, PASS; `/dev/sda` tanpa `--size` ditolak.
+- Belum: macOS (`F_NOCACHE`, /dev/rdiskN), baca/cek paralel (sekarang I/O
+  dan cek pola bergantian, ±470 MB/s batas CPU per thread).
+
+## O. File terhapus: bisa di-restore? (riset, belum dikerjakan)
+
+Pertanyaan: kalau teknisi tidak sengaja menghapus file, datanya sebenarnya
+masih ada (hanya "alamat"-nya yang dihapus)? Bisa ditambah fitur restore, dan
+melihat peta disk?
+
+Jawaban singkat: **tergantung jenis disk dan filesystem**.
+- **HDD**: isi file tetap ada di piringan sampai tertimpa tulisan baru.
+  Bisa dipulihkan kalau disk segera berhenti ditulisi.
+- **SSD dengan TRIM**: filesystem memberi tahu SSD blok mana yang kosong;
+  controller menghapusnya, dan blok itu terbaca nol (lab-243: "TRIM,
+  deterministic"). Dengan `discard` di mount option, ini terjadi dalam
+  hitungan detik/menit → **praktis tidak bisa dipulihkan**. Tanpa
+  `discard`, data bertahan sampai `fstrim.timer` jalan (mingguan, aktif di
+  Fedora & Ubuntu).
+- Per filesystem:
+  - ext4: saat delete, extent/pointer blok di inode dikosongkan → nama
+    dan lokasi hilang. Pemulihan lewat jurnal (ext4magic/extundelete,
+    hanya kalau jurnal belum berputar) atau *carving* (photorec: mencari
+    tanda tipe file di blok kosong; nama file hilang).
+  - XFS: mirip ext4 (xfs_undelete, carving).
+  - btrfs: copy-on-write, root tree lama kadang masih ada (`btrfs
+    restore -t`), tapi dengan discard=async cepat hilang.
+  - NTFS/FAT/exFAT: record hanya ditandai "tidak dipakai" → nama +
+    lokasi sering masih ada (ntfsundelete, testdisk) → paling mudah.
+- Probe read-only:
+  - lab-243: `/` btrfs `ssd,discard=async`, fstrim.timer enabled → file
+    terhapus di SSD ini praktis langsung hilang.
+  - 10.0.0.251: `/` ext4 di HDD (ROTA=1, tanpa discard) → isi masih ada,
+    tapi butuh carving/jurnal.
+
+Aturan emas (harus jadi pesan pertama fitur ini): **berhenti menulis ke
+disk itu segera**, unmount / remount read-only, buat image (`ddrescue`),
+lalu pulihkan **dari image** ke disk lain. Jangan install tool recovery ke
+disk yang sama.
+
+Usulan bertahap:
+1. `dcheck recover <dev|mount>` **penilaian peluang** (read-only, kecil):
+   jenis media, TRIM/discard/fstrim.timer, filesystem, free space
+   (semakin penuh semakin cepat tertimpa) → peluang (tinggi / rendah /
+   hampir nol) + langkah konkret dan tool yang cocok untuk FS itu +
+   perintah image. Juga tawarkan `fstrim.timer`/discard sebagai penyebab.
+2. **Peta disk** (usage map): gambar area terpakai / kosong / di-TRIM per
+   region (dari bitmap filesystem, atau sampling baca blok kosong: nol =
+   sudah di-TRIM). Menunjukkan apakah sisa data masih ada.
+3. **Undelete sungguhan**: besar dan berisiko salah; untuk NTFS/FAT/exFAT
+   realistis (record masih ada), ext4/XFS hanya carving. Lebih baik
+   mengintegrasikan tool yang sudah matang (photorec/testdisk,
+   ext4magic) daripada menulis ulang; dcheck menuntun dan menjalankan
+   ke image, bukan ke disk asli.
+
+Sudah dikerjakan sekarang: `dcheck verify` (mode free space) memperingatkan
+bahwa tes itu menimpa sisa file yang terhapus.

@@ -458,7 +458,9 @@ fn ram_vitals(r: &RamInfo, p: &Palette, ui: Ui, width: u16) -> Vec<Line<'static>
     }
     let used_all = r.populated();
     let total = (r.slots_total as usize).max(used_all);
-    if total > 0 {
+    if r.on_package() {
+        lines.push(w::field("LAYOUT", LW, vec![Span::styled("on-package (unified, not replaceable)", p.fg(p.dim))], p));
+    } else if total > 0 {
         let (full, empty) = ui.slot_cells();
         let used = used_all.min(total);
         let room = (width as usize).saturating_sub(LW + 14);
@@ -628,6 +630,24 @@ fn report_vitals(app: &App, width: u16) -> Vec<Line<'static>> {
         w::field("VERDICT", LW - 1, vec![w::badge(sev, h.verdict.label(), p, ui)], p),
         w::field("CONFIDENCE", LW, text(h.confidence.label(), p), p),
     ];
+    if let Some(d) = app.report_dev.and_then(|i| app.devices.get(i)) {
+        let model = s.model.clone().or_else(|| d.model.clone()).unwrap_or_default();
+        let serial = s.serial.clone().or_else(|| d.serial.clone());
+        let a = crate::authenticity::for_device(d, Some(s), &model, serial.as_deref());
+        // Only when it matters: a short panel must keep its alerts visible,
+        // and the full check is in the telemetry log.
+        if a.level.severity() >= 2 {
+            lines.push(w::field(
+                "ORIGIN",
+                LW - 1,
+                vec![
+                    w::badge(a.level.severity(), a.level.label(), p, ui),
+                    Span::styled(format!(" {}", a.summary()), p.fg(p.dim)),
+                ],
+                p,
+            ));
+        }
+    }
     if !s.source.is_empty() {
         lines.push(w::field("SOURCE", LW, text(s.source.clone(), p), p));
     }

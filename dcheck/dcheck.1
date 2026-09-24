@@ -12,11 +12,18 @@ reads whole-disk block devices and reports identity, capacity, interface link
 speed and SMART health (verdict, temperature, power-on hours, TBW, wear, and an
 estimated remaining life for 24/7 and 8h/day use).
 .PP
+Each report also checks the drive's identity for signs of a rebranded or
+counterfeit disk: the IEEE OUI in its World Wide Name against the brand in
+the model name, the NVMe controller's PCI vendor ID, and generic model or
+placeholder serial strings (CONSISTENT, UNVERIFIED, UNBRANDED, SUSPICIOUS,
+LIKELY FAKE).
+.PP
 It works natively (ATA via
 .BR HDIO_DRIVE_CMD ,
 NVMe via ioctl, SCSI best-effort) and enriches with
 .B smartctl \-a \-j
-when smartmontools is installed. It never writes to disks by default.
+when smartmontools is installed. It only writes to a disk when asked to
+(\fBverify\fR, \fB\-\-test\fR).
 .PP
 Device data is read from
 .I /sys/block
@@ -75,6 +82,21 @@ uses ASCII borders/symbols for fonts without box-drawing glyphs.
 .TP
 .BR demo ", " \-\-version ", " \-\-help
 See above.
+.TP
+.BI "verify " device " \fR[\fB\-\-size\fR \fISIZE\fR] [\fB\-\-dir\fR \fIDIR\fR] [\fB\-\-yes\fR] [\fB\-\-destructive\fR]"
+Prove the drive stores what it reports (counterfeit capacity): write
+self-describing test data and read it back with the OS cache dropped. By
+default into free space of the drive's mounted filesystem (files are deleted
+afterwards);
+.B \-\-destructive
+overwrites the whole unmounted drive: it lists the partitions and filesystems
+found and needs the device name typed, or
+.BI "ERASE " name
+when the drive holds data. On a system disk the free-space mode needs
+.B \-\-size
+or
+.BR \-\-full .
+Exit status 0 pass, 3 bad data, 1 error or aborted.
 .SH KEYS (TUI)
 ↑/↓ or j/k move; Enter open; Esc/b back; 1/2/3 jump to storage/memory/processor;
 PgUp/PgDn page; Home/End or g/G jump; r rescan/refresh; c copy log (OSC52);

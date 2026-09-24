@@ -80,6 +80,10 @@ fn ttl() -> u64 {
 }
 
 fn cache_file() -> Option<PathBuf> {
+    // Unit tests use demo devices: never read or write the user's real cache.
+    if cfg!(test) {
+        return None;
+    }
     if let Some(p) = std::env::var_os("DCHECK_CACHE_DIR") {
         return Some(PathBuf::from(p).join("smart.json"));
     }

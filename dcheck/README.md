@@ -186,6 +186,58 @@ mounted and unmounted partitions, and ignored virtual devices.
   (`/dev/kmsg`, root) and lists the port, e.g. `ata1  REPLACE`, so
   `dcheck check` exits 3.
 
+## Authenticity (fake / rebranded drives)
+
+Each disk report has an **AUTHENTICITY** section that checks whether the
+identity the firmware reports is consistent with the brand in the model name:
+
+- **WWN / IEEE OUI**: SATA and SAS drives carry a World Wide Name holding
+  the maker's IEEE OUI (Samsung `002538`, Seagate `000c50`, WD `0014ee`,
+  Toshiba `000039`, …). dcheck embeds every OUI the IEEE registry lists for
+  the drive makers it knows (`src/oui_table.rs`, regenerated with
+  `scripts/gen-dcheck-oui.sh`). A brand with another maker's OUI → **LIKELY
+  FAKE**; a brand with an all-zero or missing WWN → **SUSPICIOUS**.
+- **NVMe controller**: makers that only ship their own controllers (Samsung
+  `144d`, SK hynix `1c5c`) flag a foreign PCI vendor ID, e.g. a "Samsung
+  980" on a Maxio controller.
+- **Generic identity**: model strings like `SSD 1TB` → **UNBRANDED** (if the
+  casing shows a brand, the drive is not what it claims); placeholder serials.
+
+Sources: smartctl, native ATA IDENTIFY words 108–111 / SCSI VPD 0x83, sysfs
+`wwid`, udev `/dev/disk/by-id/wwn-*` — works without root on most systems.
+RAID volumes are skipped. A clean result means "consistent", not proven
+genuine; capacity fraud needs the write-and-verify test below. JSON:
+`authenticity` object in `storage --json`.
+
+### `dcheck verify` — real capacity (fake flash)
+
+A counterfeit drive reports more space than its flash holds; past the real
+size, writes wrap onto earlier addresses or vanish. Only writing and reading
+back finds it (like f3 / H2testw):
+
+```
+dcheck verify /dev/sdb              # free space of its mounted filesystem
+dcheck verify /dev/sdb --size 8G    # quicker, proves only the first 8 GiB
+dcheck verify /dev/sdb --destructive  # empty, unmounted drive: whole disk
+```
+
+- Every 4 KiB block carries its own address, so a bad block tells *why*:
+  data of another address (wrap-around → "Real size: about …"), zeros,
+  stale or corrupted. OS caches are dropped before reading.
+- Writes are sequential; after each region earlier samples are re-read, so
+  a wrapping fake fails as soon as the writes pass its real capacity.
+- Default mode writes files to `.dcheck-verify-<pid>/` on the drive's
+  mounted filesystem (free space minus 1%, min 256 MiB) and deletes them;
+  existing files stay (back up anyway: on a fake, writes past its real
+  capacity can hit them). Asks first; `--yes` for scripts. On a system
+  disk (`/`, `/boot`, `/var`, `/home`, … on it) it refuses to fill the free
+  space unless you pass `--size` or `--full`.
+- `--destructive` overwrites the raw device. Refused when a partition is
+  mounted, used as swap or held by LVM/RAID/dm. It lists what is on the
+  drive (partitions, ext4/XFS/btrfs/NTFS/FAT/exFAT/LVM/LUKS/GPT/MBR…) and
+  asks you to type the device name — or `ERASE <name>` when it holds data.
+- Exit 0 pass, 3 bad data, 1 error/aborted. Linux only for now.
+
 ## Monitoring
 
 - `dcheck check` → exit 0 ok / 1 unknown / 2 monitor / 3 backup-or-replace.

@@ -4,6 +4,7 @@
 //! Storage health (native SMART) and the TUI arrive in later milestones.
 //! See `docs/DCHECK.md`.
 
+mod authenticity;
 mod bench;
 mod cache;
 mod config;
@@ -16,11 +17,13 @@ mod model;
 mod monitor;
 mod mount;
 mod native;
+mod oui_table;
 mod ram;
 mod report;
 mod smartctl;
 mod tui;
 mod update;
+mod verify;
 
 use std::io::{self, IsTerminal, Write};
 
@@ -88,6 +91,7 @@ fn run(args: &[String]) -> i32 {
                 interactive_menu(true)
             }
         }
+        Some("verify") => verify::cmd(&args[1..]),
         Some("ram") => ram_cmd(&args[1..]),
         Some("cpu") => cpu_cmd(&args[1..]),
         Some(other) => {
@@ -213,6 +217,8 @@ USAGE:
     dcheck storage <dev>    Report for one device (e.g. /dev/nvme0n1; --fresh skips the cache)
     dcheck storage <dev> --bench           Read-only speed benchmark
     dcheck storage <dev> --test short|long Start a SMART self-test
+    dcheck verify <dev>     Prove the real capacity: write test data to free
+                            space and read it back (fake drives; --help)
     dcheck tui              Terminal UI (--light|--dark, --mouse, --plain)
     dcheck check            One-shot health gate (exit code = worst verdict)
     dcheck watch            Monitor + alert (--interval, --webhook, --json)
@@ -331,6 +337,9 @@ fn snapshot_cmd(args: &[String]) -> i32 {
 }
 
 fn storage_cmd(args: &[String], session_demo: bool) -> i32 {
+    if args.iter().any(|a| a == "--verify-capacity") {
+        return verify::cmd(args);
+    }
     let mut selector: Option<String> = None;
     let mut demo = session_demo;
     let mut json = false;

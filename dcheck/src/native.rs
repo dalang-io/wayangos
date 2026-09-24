@@ -23,6 +23,8 @@ pub struct IdInfo {
     pub model: Option<String>,
     pub firmware: Option<String>,
     pub serial: Option<String>,
+    /// World Wide Name (hex), see `authenticity.rs`.
+    pub wwn: Option<String>,
 }
 
 impl IdInfo {
@@ -37,11 +39,12 @@ pub fn read(device: &Device) -> Option<SmartData> {
     let mut s = read_raw(device)?;
     // Keep the identity with the SMART data (and so in the cache): a separate
     // INQUIRY/IDENTIFY costs up to ~0.75 s behind some RAID controllers.
-    if s.model.is_none() || s.serial.is_none() || s.firmware.is_none() {
+    if s.model.is_none() || s.serial.is_none() || s.firmware.is_none() || s.wwn.is_none() {
         let id = identity(device);
         s.model = s.model.or(id.model);
         s.serial = s.serial.or(id.serial);
         s.firmware = s.firmware.or(id.firmware);
+        s.wwn = s.wwn.or(id.wwn);
     }
     Some(s)
 }
@@ -155,6 +158,34 @@ fn le_u128(bytes: &[u8]) -> u128 {
 
 fn to_u64_sat(v: u128) -> u64 {
     u64::try_from(v).unwrap_or(u64::MAX)
+}
+
+/// WWN from ATA IDENTIFY DEVICE words 108–111 (all zeros when the drive
+/// reports none).
+pub fn ata_wwn(identify: &[u8]) -> Option<String> {
+    if identify.len() < 224 {
+        return None;
+    }
+    let word = |w: usize| u16::from_le_bytes([identify[w * 2], identify[w * 2 + 1]]) as u64;
+    Some(format!("{:016x}", word(108) << 48 | word(109) << 32 | word(110) << 16 | word(111)))
+}
+
+/// NAA designator of the logical unit from SCSI VPD page 0x83 (hex).
+pub fn parse_vpd83_naa(page: &[u8]) -> Option<String> {
+    if page.len() < 4 || page[1] != 0x83 {
+        return None;
+    }
+    let end = (4 + u16::from_be_bytes([page[2], page[3]]) as usize).min(page.len());
+    let mut i = 4;
+    while i + 4 <= end {
+        let (assoc, kind, len) = ((page[i + 1] >> 4) & 0x3, page[i + 1] & 0xf, page[i + 3] as usize);
+        let data = page.get(i + 4..i + 4 + len)?;
+        if kind == 3 && assoc == 0 && !data.is_empty() {
+            return Some(data.iter().map(|b| format!("{b:02x}")).collect());
+        }
+        i += 4 + len;
+    }
+    None
 }
 
 fn nonempty(s: String) -> Option<String> {
@@ -812,6 +843,7 @@ mod linux {
             model: nonempty(ata_string(&data, 27, 20)),
             firmware: nonempty(ata_string(&data, 23, 4)),
             serial: nonempty(ata_string(&data, 10, 10)),
+            wwn: super::ata_wwn(&data),
         })
     }
     fn scsi_identity(fd: CInt) -> Option<IdInfo> {
@@ -838,6 +870,10 @@ mod linux {
             if 4 + len <= vpd.len() {
                 info.serial = nonempty(ascii_trim(&vpd[4..4 + len]));
             }
+        }
+        let mut vpd83 = [0u8; 252];
+        if scsi_cmd(fd, &[0x12, 0x01, 0x83, 0x00, 0xFC, 0x00], &mut vpd83) {
+            info.wwn = super::parse_vpd83_naa(&vpd83);
         }
 
         if info.is_empty() {
@@ -1069,6 +1105,23 @@ mod linux {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_wwn_from_identify_and_vpd83() {
+        let mut id = [0u8; 512];
+        for (w, v) in [(108, 0x5002u16), (109, 0x538e), (110, 0x1024), (111, 0x9cb0)] {
+            id[w * 2..w * 2 + 2].copy_from_slice(&v.to_le_bytes());
+        }
+        assert_eq!(ata_wwn(&id).as_deref(), Some("5002538e10249cb0"));
+        assert_eq!(ata_wwn(&[0u8; 512]).as_deref(), Some("0000000000000000"));
+        // T10 vendor id designator, then the LU NAA one.
+        let mut page = vec![0x00, 0x83, 0x00, 0x00];
+        page.extend([0x02, 0x01, 0x00, 0x04, b'A', b'T', b'A', b' ']);
+        page.extend([0x01, 0x03, 0x00, 0x08, 0x50, 0x00, 0xc5, 0x00, 0x71, 0x78, 0x1f, 0x63]);
+        page[3] = (page.len() - 4) as u8;
+        assert_eq!(parse_vpd83_naa(&page).as_deref(), Some("5000c50071781f63"));
+        assert_eq!(parse_vpd83_naa(&[0, 0x80, 0, 0]), None);
+    }
 
     #[test]
     fn sat_cdb_layout() {
