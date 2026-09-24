@@ -43,9 +43,10 @@ Landing page: <https://wayang.dalang.io/apps/dcheck.html> (juga ada bagian di
 | `ram.rs` | meminfo, EDAC (total + per-DIMM), SMBIOS (dmidecode → sysfs DMI → lshw), cek silang firmware vs OS vs EDAC |
 | `cpu.rs` | Topologi, clock, sensor suhu per socket beserta batas dari sensor |
 | `monitor.rs` | `check`, `watch`, webhook (lewat curl) |
+| `recover.rs` | `dcheck recover`: peluang pemulihan file terhapus (media, TRIM, discard, fstrim, filesystem), langkah + tool, peta disk sampling (read-only) |
 | `verify.rs` | `dcheck verify`: tulis data berlabel alamat lalu baca ulang (kapasitas palsu); mode free space dan `--destructive` |
 | `update.rs` | Self-update dari `https://wayang.dalang.io/dcheck` |
-| `tui/` | `mod.rs` (state/event), `views.rs` (layar), `widgets.rs`, `theme.rs`, `snapshot.rs` (render layar ke SVG), `tests.rs` |
+| `tui/` | `mod.rs` (state/event; RECOVERY `u` dan CAPACITY TEST `v`), `views.rs` (layar), `widgets.rs`, `theme.rs`, `snapshot.rs` (render layar ke SVG), `tests.rs` |
 | `config.rs` | `~/.config/dcheck/config.json` (dibaca sekali per proses) |
 
 Fixture test: `testdata/*.json` (output smartctl asli: SAS Toshiba, SATA

@@ -108,7 +108,7 @@ pub fn print_list(devices: &[Device]) {
 }
 
 /// Whether to use ASCII-only glyphs.
-fn ui_plain() -> bool {
+pub fn ui_plain() -> bool {
     std::env::var_os("DCHECK_PLAIN").is_some()
 }
 

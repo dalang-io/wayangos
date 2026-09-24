@@ -177,8 +177,10 @@ pub struct Outcome {
     pub error: Option<String>,
 }
 
+/// Progress on stderr for the CLI (the TUI passes its own callback).
 struct Progress {
     tty: bool,
+    phase: &'static str,
     /// A `\r` progress line is on screen without a newline.
     open: bool,
     start: Instant,
@@ -187,10 +189,16 @@ struct Progress {
 
 impl Progress {
     fn new() -> Self {
-        Progress { tty: io::stderr().is_terminal(), open: false, start: Instant::now(), last: -10.0 }
+        Progress { tty: io::stderr().is_terminal(), phase: "", open: false, start: Instant::now(), last: -10.0 }
     }
 
-    fn show(&mut self, phase: &str, done: u64, total: u64) {
+    fn show(&mut self, phase: &'static str, done: u64, total: u64) {
+        if phase != self.phase {
+            self.end();
+            self.phase = phase;
+            self.start = Instant::now();
+            self.last = -10.0;
+        }
         let t = self.start.elapsed().as_secs_f64();
         let every = if self.tty { 0.5 } else { 30.0 };
         if t - self.last < every && done < total {
@@ -251,12 +259,26 @@ pub fn spot_offsets(r: u64, region: u64, written: u64) -> Vec<u64> {
     v
 }
 
-fn run(t: &mut dyn Target, total: u64, seed: u64) -> Outcome {
+/// Progress callback: (phase "writing" / "reading", done, total bytes).
+pub type OnProgress<'a> = &'a mut dyn FnMut(&'static str, u64, u64);
+
+/// Ask a running test to stop (Ctrl-C in the CLI, Esc in the TUI); the
+/// test files are still removed.
+pub fn request_stop() {
+    STOP.store(true, Ordering::Relaxed);
+}
+
+/// Clear a stop request before starting a test (not inside `run`, so a stop
+/// pressed right after starting is not lost).
+pub fn reset_stop() {
+    STOP.store(false, Ordering::Relaxed);
+}
+
+fn run(t: &mut dyn Target, total: u64, seed: u64, progress: OnProgress) -> Outcome {
     let mut out = Outcome { planned: total, ..Default::default() };
     let region = region_size(total);
     let mut buf = vec![0u8; CHUNK];
     let mut scratch = vec![0u8; BLOCK];
-    let mut prog = Progress::new();
     let start = Instant::now();
 
     // Write, re-checking samples of what is already written after each region.
@@ -284,7 +306,7 @@ fn run(t: &mut dyn Target, total: u64, seed: u64) -> Outcome {
             }
         }
         out.written = off;
-        prog.show("writing", off, total);
+        progress("writing", off, total);
         if off >= next_check || off >= total {
             if let Err(e) = t.sync_drop() {
                 out.error = Some(format!("sync: {e}"));
@@ -308,12 +330,10 @@ fn run(t: &mut dyn Target, total: u64, seed: u64) -> Outcome {
         out.error.get_or_insert(format!("sync: {e}"));
     }
     out.write_secs = start.elapsed().as_secs_f64();
-    prog.end();
 
     // Read back: everything, or after an early stop one chunk per region
     // (enough to map how far the damage goes).
     let start = Instant::now();
-    let mut prog = Progress::new();
     let mut stats = Stats::default();
     let mut off = 0u64;
     while off < out.written && !STOP.load(Ordering::Relaxed) {
@@ -325,12 +345,11 @@ fn run(t: &mut dyn Target, total: u64, seed: u64) -> Outcome {
         stats.check_chunk(&buf[..n], seed, off / BLOCK as u64, &mut scratch);
         out.read += n as u64;
         off += if out.early_stop { region.max(n as u64) } else { n as u64 };
-        prog.show("reading", off.min(out.written), out.written);
+        progress("reading", off.min(out.written), out.written);
     }
     if STOP.load(Ordering::Relaxed) {
         out.aborted = true;
     }
-    prog.end();
     out.read_secs = start.elapsed().as_secs_f64();
     stats.merge(&spot);
     out.stats = stats;
@@ -369,6 +388,128 @@ pub fn data_signatures(head: &[u8]) -> Vec<&'static str> {
         v.clear();
     }
     v
+}
+
+/// A free-space test, before it runs.
+#[derive(Debug, Clone)]
+pub struct Plan {
+    pub device: String,
+    pub label: String,
+    /// Mounted directory the test files go into.
+    pub base: String,
+    pub avail: u64,
+    /// Free space minus the reserve (1%, min 256 MiB): the most it may write.
+    pub room: u64,
+    /// A system mountpoint on this drive (then only a limited test).
+    pub system: Option<String>,
+    /// Demo: simulate instead of writing (true = a counterfeit drive).
+    pub simulated: Option<bool>,
+}
+
+pub use imp::{execute, plan};
+
+/// Size of the quick test.
+pub const QUICK: u64 = 8 << 30;
+
+/// What the test will do (shown before asking to continue).
+pub fn plan_lines(p: &Plan, total: u64) -> Vec<String> {
+    let mut v = vec![
+        format!("  Capacity check of {} ({})", p.device, p.label),
+        format!(
+            "  Writes {} of test data to {} (free: {}), reads it back,",
+            human_size_bin(total),
+            p.base,
+            human_size_bin(p.avail)
+        ),
+        "  then deletes it. Existing files are not touched, but the filesystem is".into(),
+        "  nearly full while the test runs, and on a counterfeit drive writes past".into(),
+        "  its real capacity can damage existing data — back up first.".into(),
+        "  It also overwrites the free space, so files deleted earlier can no longer".into(),
+        "  be recovered — do not run it while you still want to undelete something.".into(),
+    ];
+    if total < p.room {
+        v.push("  Note: only a full-size run can prove the whole capacity.".into());
+    }
+    v
+}
+
+/// In-memory drive for demos and tests: `mem.len()` real bytes behind a
+/// reported size; past it writes wrap around (or vanish with `discard`).
+pub struct SimTarget {
+    pub mem: Vec<u8>,
+    pub reported: u64,
+    pub discard: bool,
+    /// Pause per call, so a demo run is watchable.
+    pub delay: std::time::Duration,
+}
+
+impl Target for SimTarget {
+    fn write_at(&mut self, off: u64, data: &[u8]) -> io::Result<()> {
+        debug_assert!(off + data.len() as u64 <= self.reported);
+        std::thread::sleep(self.delay);
+        let real = self.mem.len() as u64;
+        for (k, b) in data.iter().enumerate() {
+            let a = off + k as u64;
+            if a < real {
+                self.mem[a as usize] = *b;
+            } else if !self.discard {
+                self.mem[(a % real) as usize] = *b;
+            }
+        }
+        Ok(())
+    }
+    fn read_at(&mut self, off: u64, buf: &mut [u8]) -> io::Result<()> {
+        std::thread::sleep(self.delay);
+        let real = self.mem.len() as u64;
+        for (k, b) in buf.iter_mut().enumerate() {
+            let a = off + k as u64;
+            *b = if a < real {
+                self.mem[a as usize]
+            } else if self.discard {
+                0
+            } else {
+                self.mem[(a % real) as usize]
+            };
+        }
+        Ok(())
+    }
+    fn sync_drop(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Demo plan (nothing is written): `fake` simulates a counterfeit drive.
+pub fn demo_plan(d: &crate::model::Device, fake: bool) -> Plan {
+    Plan {
+        device: d.path.clone(),
+        label: d.label(),
+        base: "/media/demo (simulated)".into(),
+        avail: 128 << 20,
+        room: 128 << 20,
+        system: None,
+        simulated: Some(fake),
+    }
+}
+
+/// Run a plan: the real test, or the in-memory simulation for demos.
+pub fn run_plan(p: &Plan, total: u64, progress: OnProgress) -> Result<(Outcome, Option<String>), String> {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|t| t.as_nanos() as u64)
+        .unwrap_or(1);
+    match p.simulated {
+        Some(fake) => {
+            let real = if fake { 32 << 20 } else { total };
+            let mut t = SimTarget {
+                mem: vec![0; real as usize],
+                reported: total,
+                discard: false,
+                delay: std::time::Duration::from_millis(25),
+            };
+            Ok((run(&mut t, total, seed, progress), None))
+        }
+        None => execute(p, total, seed, progress),
+    }
 }
 
 pub fn parse_size(s: &str) -> Option<u64> {
@@ -455,54 +596,64 @@ pub fn cmd(args: &[String]) -> i32 {
     imp::run_cmd(&dev_arg, size, dir, yes, destructive, full)
 }
 
-fn print_outcome(target: &str, o: &Outcome, device_mode: bool) -> i32 {
+/// Result report lines and the exit status (0 pass, 3 bad data, 1 error).
+pub fn outcome_lines(target: &str, o: &Outcome, device_mode: bool) -> (Vec<String>, i32) {
+    let mut out = Vec::new();
     let mbps = |bytes: u64, secs: f64| bytes as f64 / secs.max(0.001) / 1e6;
-    println!();
-    println!("{}", crate::report::section("CAPACITY VERIFICATION"));
-    println!("  Target       : {target}");
-    println!(
+    out.push(crate::report::section("CAPACITY VERIFICATION"));
+    out.push(format!("  Target       : {target}"));
+    out.push(format!(
         "  Written      : {} of {} planned  ({:.0} MB/s)",
         human_size_bin(o.written),
         human_size_bin(o.planned),
         mbps(o.written, o.write_secs)
-    );
-    println!(
+    ));
+    out.push(format!(
         "  Read back    : {}{}  ({:.0} MB/s)",
         human_size_bin(o.read),
         if o.early_stop { " (sampled after the early stop)" } else { "" },
         mbps(o.read, o.read_secs)
-    );
+    ));
     let s = &o.stats;
     if s.bad > 0 {
-        println!("  Result       : FAIL — {} of {} checked blocks are bad", s.bad, s.checked);
+        out.push(format!("  Result       : FAIL — {} of {} checked blocks are bad", s.bad, s.checked));
         if let Some((idx, b)) = s.first_bad {
-            println!("  First bad    : the block at {} {}", human_size_bin(idx * BLOCK as u64), b.describe());
+            out.push(format!("  First bad    : the block at {} {}", human_size_bin(idx * BLOCK as u64), b.describe()));
         }
         if s.wrapped > 0 {
-            println!("  Wrap-around  : {} block(s) hold data written for a higher address", s.wrapped);
+            out.push(format!("  Wrap-around  : {} block(s) hold data written for a higher address", s.wrapped));
             if let (true, Some(d)) = (device_mode, s.wrap_distance) {
-                println!("  Real size    : about {} (addresses repeat every that much)", human_size_bin(d * BLOCK as u64));
+                out.push(format!("  Real size    : about {} (addresses repeat every that much)", human_size_bin(d * BLOCK as u64)));
             }
-            println!("  Meaning      : the drive stores less than it reports — counterfeit capacity.");
+            out.push("  Meaning      : the drive stores less than it reports — counterfeit capacity.".into());
         } else {
-            println!("  Meaning      : data written to the drive does not come back — fake capacity or failing media.");
+            out.push("  Meaning      : data written to the drive does not come back — fake capacity or failing media.".into());
         }
-        println!("                 Do not trust this drive with data.");
-        return 3;
+        out.push("                 Do not trust this drive with data.".into());
+        return (out, 3);
     }
     if let Some(e) = &o.error {
-        println!("  Result       : ERROR — {e}");
-        return 1;
+        out.push(format!("  Result       : ERROR — {e}"));
+        return (out, 1);
     }
     if o.aborted {
-        println!("  Result       : ABORTED — no bad blocks in what was checked");
-        return 1;
+        out.push("  Result       : ABORTED — no bad blocks in what was checked".into());
+        return (out, 1);
     }
-    println!("  Result       : PASS — all {} read back intact", human_size_bin(o.read));
+    out.push(format!("  Result       : PASS — all {} read back intact", human_size_bin(o.read)));
     if !device_mode && o.written < o.planned {
-        println!("  Note         : the filesystem filled up before the planned size");
+        out.push("  Note         : the filesystem filled up before the planned size".into());
     }
-    0
+    (out, 0)
+}
+
+fn print_outcome(target: &str, o: &Outcome, device_mode: bool) -> i32 {
+    let (lines, code) = outcome_lines(target, o, device_mode);
+    println!();
+    for l in lines {
+        println!("{l}");
+    }
+    code
 }
 
 #[cfg(target_os = "linux")]
@@ -526,7 +677,7 @@ mod imp {
     extern "C" {
         fn posix_fadvise(fd: i32, offset: i64, len: i64, advice: i32) -> i32;
         fn ioctl(fd: i32, request: std::ffi::c_ulong, ...) -> i32;
-        fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
+        fn signal(signum: i32, handler: usize) -> usize;
     }
     const POSIX_FADV_DONTNEED: i32 = 4;
     const BLKFLSBUF: std::ffi::c_ulong = 0x1261;
@@ -672,8 +823,8 @@ mod imp {
             return 1;
         };
         unsafe {
-            signal(2, on_signal);
-            signal(15, on_signal);
+            signal(2, on_signal as extern "C" fn(i32) as usize);
+            signal(15, on_signal as extern "C" fn(i32) as usize);
         }
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -759,38 +910,34 @@ mod imp {
             }
         };
         eprintln!();
-        let o = run(&mut Raw(f), total, seed);
+        let mut prog = Progress::new();
+        let o = run(&mut Raw(f), total, seed, &mut |ph, d, t| prog.show(ph, d, t));
+        prog.end();
         print_outcome(&format!("{} (raw device, destructive)", d.path), &o, true)
     }
 
-    fn free_space_run(d: &Device, size: Option<u64>, dir: Option<String>, yes: bool, full: bool, seed: u64) -> i32 {
+    /// Where a free-space test would write, and how much room there is.
+    pub fn plan(d: &Device, dir: Option<String>) -> Result<Plan, String> {
         // The mounted filesystem of this drive with the most free space.
         let base = match dir {
             Some(p) => PathBuf::from(p),
-            None => {
-                let best = d
-                    .partitions
-                    .iter()
-                    .filter_map(|p| p.mountpoint.as_ref().map(|m| (m.clone(), crate::mount::usage(m))))
-                    .filter_map(|(m, u)| u.map(|u| (m, u.avail)))
-                    .max_by_key(|(_, a)| *a);
-                match best {
-                    Some((m, _)) => PathBuf::from(m),
-                    None => {
-                        eprintln!(
-                            "dcheck: no mounted filesystem on {}. Mount a partition, pass --dir, \
-                             or (empty drive only) use --destructive.",
-                            d.path
-                        );
-                        return 1;
-                    }
-                }
-            }
+            None => d
+                .partitions
+                .iter()
+                .filter_map(|p| p.mountpoint.as_ref().map(|m| (m.clone(), crate::mount::usage(m))))
+                .filter_map(|(m, u)| u.map(|u| (m, u.avail)))
+                .max_by_key(|(_, a)| *a)
+                .map(|(m, _)| PathBuf::from(m))
+                .ok_or_else(|| {
+                    format!(
+                        "no mounted filesystem on {}: mount a partition, or (empty drive only) use \
+                         `dcheck verify {} --destructive` in a shell",
+                        d.path, d.path
+                    )
+                })?,
         };
-        let Some(u) = crate::mount::usage(&base.to_string_lossy()) else {
-            eprintln!("dcheck: cannot read free space of {}", base.display());
-            return 1;
-        };
+        let u = crate::mount::usage(&base.to_string_lossy())
+            .ok_or_else(|| format!("cannot read free space of {}", base.display()))?;
         const SYSTEM: &[&str] = &["/", "/boot", "/boot/efi", "/usr", "/var", "/home", "/srv", "/opt", "/tmp"];
         let system = d
             .partitions
@@ -798,7 +945,50 @@ mod imp {
             .filter_map(|p| p.mountpoint.as_deref())
             .find(|m| SYSTEM.contains(m))
             .map(str::to_string);
-        if let (Some(m), None, false) = (&system, size, full) {
+        let reserve = (u.total / 100).max(256 << 20);
+        let room = u.avail.saturating_sub(reserve);
+        let room = room - room % BLOCK as u64;
+        if room < 16 << 20 {
+            return Err(format!(
+                "only {} free on {} (keeping {} in reserve)",
+                human_size_bin(u.avail),
+                base.display(),
+                human_size_bin(reserve)
+            ));
+        }
+        Ok(Plan {
+            device: d.path.clone(),
+            label: d.label(),
+            base: base.to_string_lossy().into_owned(),
+            avail: u.avail,
+            room,
+            system,
+            simulated: None,
+        })
+    }
+
+    /// Write, read back and delete the test files.
+    pub fn execute(plan: &Plan, total: u64, seed: u64, progress: OnProgress) -> Result<(Outcome, Option<String>), String> {
+        let tdir = Path::new(&plan.base).join(format!(".dcheck-verify-{}", std::process::id()));
+        fs::create_dir(&tdir).map_err(|e| format!("cannot create {}: {e}", tdir.display()))?;
+        let mut files = Files { dir: tdir.clone(), files: Vec::new() };
+        let o = run(&mut files, total, seed, progress);
+        drop(files);
+        let cleanup = fs::remove_dir_all(&tdir)
+            .err()
+            .map(|e| format!("could not remove {}: {e} — delete it by hand", tdir.display()));
+        Ok((o, cleanup))
+    }
+
+    fn free_space_run(d: &Device, size: Option<u64>, dir: Option<String>, yes: bool, full: bool, seed: u64) -> i32 {
+        let plan = match plan(d, dir) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("dcheck: {e}");
+                return 1;
+            }
+        };
+        if let (Some(m), None, false) = (&plan.system, size, full) {
             eprintln!(
                 "dcheck: {} is a system disk ({m} is on it). Filling its free space can stop\n\
                  services (databases, logs) while the test runs. Use --size (e.g. --size 10G),\n\
@@ -807,23 +997,11 @@ mod imp {
             );
             return 1;
         }
-        let reserve = (u.total / 100).max(256 << 20);
-        let room = u.avail.saturating_sub(reserve);
-        let total = size.unwrap_or(room).min(room);
+        let total = size.unwrap_or(plan.room).min(plan.room);
         let total = total - total % BLOCK as u64;
-        if total < 16 << 20 {
-            eprintln!("dcheck: only {} free on {} (keeping {} in reserve)", human_size_bin(u.avail), base.display(), human_size_bin(reserve));
-            return 1;
-        }
-        eprintln!("\n  Capacity check of {} ({})", d.path, d.label());
-        eprintln!("  Writes {} of test data to {} (free: {}), reads it back,", human_size_bin(total), base.display(), human_size_bin(u.avail));
-        eprintln!("  then deletes it. Existing files are not touched, but the filesystem is");
-        eprintln!("  nearly full while the test runs, and on a counterfeit drive writes past");
-        eprintln!("  its real capacity can damage existing data — back up first.");
-        eprintln!("  It also overwrites the free space, so files deleted earlier can no longer");
-        eprintln!("  be recovered — do not run it while you still want to undelete something.");
-        if total < room {
-            eprintln!("  Note: only a full-size run can prove the whole capacity (--size limits it).");
+        eprintln!();
+        for l in plan_lines(&plan, total) {
+            eprintln!("{l}");
         }
         if !yes {
             if !io::stdin().is_terminal() {
@@ -835,26 +1013,39 @@ mod imp {
                 return 1;
             }
         }
-        let tdir = base.join(format!(".dcheck-verify-{}", std::process::id()));
-        if let Err(e) = fs::create_dir(&tdir) {
-            eprintln!("dcheck: cannot create {}: {e}", tdir.display());
-            return 1;
-        }
         eprintln!();
-        let mut files = Files { dir: tdir.clone(), files: Vec::new() };
-        let o = run(&mut files, total, seed);
-        drop(files);
-        let cleaned = fs::remove_dir_all(&tdir);
-        let code = print_outcome(&format!("{} (free space, test files)", base.display()), &o, false);
-        if let Err(e) = cleaned {
-            eprintln!("dcheck: could not remove {}: {e} — delete it by hand", tdir.display());
+        let mut prog = Progress::new();
+        let result = execute(&plan, total, seed, &mut |ph, d, t| prog.show(ph, d, t));
+        prog.end();
+        match result {
+            Ok((o, cleanup)) => {
+                let code = print_outcome(&format!("{} (free space, test files)", plan.base), &o, false);
+                if let Some(e) = cleanup {
+                    eprintln!("dcheck: {e}");
+                }
+                code
+            }
+            Err(e) => {
+                eprintln!("dcheck: {e}");
+                1
+            }
         }
-        code
     }
 }
 
 #[cfg(not(target_os = "linux"))]
 mod imp {
+    use super::{OnProgress, Outcome, Plan};
+    use crate::model::Device;
+
+    pub fn plan(_: &Device, _: Option<String>) -> Result<Plan, String> {
+        Err("verify is Linux-only for now".into())
+    }
+
+    pub fn execute(_: &Plan, _: u64, _: u64, _: OnProgress) -> Result<(Outcome, Option<String>), String> {
+        Err("verify is Linux-only for now".into())
+    }
+
     pub fn run_cmd(_: &str, _: Option<u64>, _: Option<String>, _: bool, _: bool, _: bool) -> i32 {
         eprintln!("dcheck: verify is Linux-only for now");
         1
@@ -865,38 +1056,12 @@ mod imp {
 mod tests {
     use super::*;
 
-    /// A fake drive: `real` bytes of storage mapped modulo onto `reported`.
-    struct Fake {
-        mem: Vec<u8>,
-        reported: u64,
-        discard: bool,
+    fn fake(real: u64, reported: u64, discard: bool) -> SimTarget {
+        SimTarget { mem: vec![0; real as usize], reported, discard, delay: std::time::Duration::ZERO }
     }
 
-    impl Target for Fake {
-        fn write_at(&mut self, off: u64, data: &[u8]) -> io::Result<()> {
-            assert!(off + data.len() as u64 <= self.reported);
-            let real = self.mem.len() as u64;
-            for (k, b) in data.iter().enumerate() {
-                let a = off + k as u64;
-                if a < real {
-                    self.mem[a as usize] = *b;
-                } else if !self.discard {
-                    self.mem[(a % real) as usize] = *b;
-                }
-            }
-            Ok(())
-        }
-        fn read_at(&mut self, off: u64, buf: &mut [u8]) -> io::Result<()> {
-            let real = self.mem.len() as u64;
-            for (k, b) in buf.iter_mut().enumerate() {
-                let a = off + k as u64;
-                *b = if a < real { self.mem[a as usize] } else if self.discard { 0 } else { self.mem[(a % real) as usize] };
-            }
-            Ok(())
-        }
-        fn sync_drop(&mut self) -> io::Result<()> {
-            Ok(())
-        }
+    fn run_quiet(t: &mut SimTarget, total: u64) -> Outcome {
+        run(t, total, 1, &mut |_, _, _| {})
     }
 
     #[test]
@@ -918,8 +1083,8 @@ mod tests {
 
     #[test]
     fn genuine_drive_passes() {
-        let mut t = Fake { mem: vec![0; 64 << 20], reported: 64 << 20, discard: false };
-        let o = run(&mut t, 64 << 20, 1);
+        let mut t = fake(64 << 20, 64 << 20, false);
+        let o = run_quiet(&mut t, 64 << 20);
         assert_eq!(o.written, 64 << 20);
         assert_eq!(o.read, 64 << 20);
         assert_eq!(o.stats.bad, 0);
@@ -929,8 +1094,8 @@ mod tests {
     #[test]
     fn wrapping_fake_is_caught_early_with_its_real_size() {
         // Reports 256 MiB, really 48 MiB.
-        let mut t = Fake { mem: vec![0; 48 << 20], reported: 256 << 20, discard: false };
-        let o = run(&mut t, 256 << 20, 1);
+        let mut t = fake(48 << 20, 256 << 20, false);
+        let o = run_quiet(&mut t, 256 << 20);
         assert!(o.stats.bad > 0);
         assert!(o.stats.wrapped > 0);
         assert!(o.early_stop);
@@ -940,8 +1105,8 @@ mod tests {
 
     #[test]
     fn discarding_fake_reads_zeros() {
-        let mut t = Fake { mem: vec![0; 40 << 20], reported: 128 << 20, discard: true };
-        let o = run(&mut t, 128 << 20, 1);
+        let mut t = fake(40 << 20, 128 << 20, true);
+        let o = run_quiet(&mut t, 128 << 20);
         assert!(o.stats.bad > 0);
         assert_eq!(o.stats.first_bad.map(|(_, b)| b), Some(Bad::Zeros));
         let first = o.stats.first_bad.map(|(i, _)| i * BLOCK as u64).unwrap();

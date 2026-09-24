@@ -19,6 +19,7 @@ mod mount;
 mod native;
 mod oui_table;
 mod ram;
+mod recover;
 mod report;
 mod smartctl;
 mod tui;
@@ -30,6 +31,15 @@ use std::io::{self, IsTerminal, Write};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
+    // `dcheck … | head` should end quietly like other CLI tools, not panic
+    // on a closed pipe (Rust ignores SIGPIPE by default).
+    #[cfg(unix)]
+    unsafe {
+        extern "C" {
+            fn signal(signum: i32, handler: usize) -> usize;
+        }
+        signal(13, 0); // SIGPIPE → SIG_DFL
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     std::process::exit(run(&args));
 }
@@ -92,6 +102,7 @@ fn run(args: &[String]) -> i32 {
             }
         }
         Some("verify") => verify::cmd(&args[1..]),
+        Some("recover") => recover::cmd(&args[1..]),
         Some("ram") => ram_cmd(&args[1..]),
         Some("cpu") => cpu_cmd(&args[1..]),
         Some(other) => {
@@ -219,6 +230,8 @@ USAGE:
     dcheck storage <dev> --test short|long Start a SMART self-test
     dcheck verify <dev>     Prove the real capacity: write test data to free
                             space and read it back (fake drives; --help)
+    dcheck recover <dev|path>  Deleted a file by mistake? Chance of recovery,
+                            what to do now, and a map of remaining data
     dcheck tui              Terminal UI (--light|--dark, --mouse, --plain)
     dcheck check            One-shot health gate (exit code = worst verdict)
     dcheck watch            Monitor + alert (--interval, --webhook, --json)
@@ -266,7 +279,7 @@ fn interactive_menu(force_demo: bool) -> i32 {
 
 fn snapshot_cmd(args: &[String]) -> i32 {
     let usage = "Usage: dcheck snapshot DIR [--demo] [--light] [--host NAME] [--mask-serials] \
-                 [--size 120x34] [--report DEV]...";
+                 [--size 120x34] [--report DEV]... [--tools DEV]";
     let mut dir = None;
     let mut opts = tui::snapshot::Options {
         demo: false,
@@ -276,6 +289,7 @@ fn snapshot_cmd(args: &[String]) -> i32 {
         width: 120,
         height: 34,
         reports: Vec::new(),
+        tools: None,
     };
     let mut i = 0;
     while i < args.len() {
@@ -290,6 +304,10 @@ fn snapshot_cmd(args: &[String]) -> i32 {
             "--report" => {
                 i += 1;
                 opts.reports.extend(args.get(i).cloned());
+            }
+            "--tools" => {
+                i += 1;
+                opts.tools = args.get(i).cloned();
             }
             "--size" => {
                 i += 1;

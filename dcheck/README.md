@@ -58,14 +58,21 @@ dcheck storage <dev> --json   # full JSON report for one device
 dcheck tui              # force the terminal UI
 dcheck demo             # run with built-in sample devices
 dcheck ram | cpu        # memory / CPU report (or --json)
+dcheck verify <dev>     # prove the real capacity (fake drives; writes test files)
+dcheck recover <dev|path>  # deleted a file? chance, steps, disk map (read-only)
 dcheck update           # self-update from wayang.dalang.io (--check, --force)
-dcheck snapshot DIR     # every TUI screen as SVG (--demo, --mask-serials, --host)
+dcheck snapshot DIR     # every TUI screen as SVG (--demo, --mask-serials, --host, --tools DEV)
 dcheck --version
 ```
 
 In the UI: `↑`/`↓` move, `Enter` open, `b`/`Esc` back, `1`/`2`/`3` jump to
 storage/memory/processor, `PgUp`/`PgDn` and `Home`/`End` (`g`/`G`) scroll,
 `r` rescan/refresh, `c` copy the log (OSC52), `?` command reference, `q` quit.
+On a disk (storage list or its report): `u` opens RECOVERY (deleted-file
+chance, steps and a coloured disk map; read-only) and `v` the CAPACITY TEST
+(free-space test: plan and warnings first, `y` starts it, `Esc` stops it and
+removes the test files; the destructive whole-disk test is CLI-only, and a
+system disk only gets the quick size).
 Text stays **selectable** by default; mouse-wheel scrolling is opt-in with
 `dcheck tui --mouse` (it disables native selection).
 
@@ -237,6 +244,26 @@ dcheck verify /dev/sdb --destructive  # empty, unmounted drive: whole disk
   drive (partitions, ext4/XFS/btrfs/NTFS/FAT/exFAT/LVM/LUKS/GPT/MBR…) and
   asks you to type the device name — or `ERASE <name>` when it holds data.
 - Exit 0 pass, 3 bad data, 1 error/aborted. Linux only for now.
+
+## Deleted a file? `dcheck recover`
+
+Read-only. `dcheck recover /dev/sda` (a disk, partition or any path)
+estimates whether deleted files can still come back and says what to do:
+
+- **Chance** HIGH / MEDIUM / LOW / ALMOST NONE from the media (HDD keeps old
+  contents until overwritten; an SSD with TRIM erases freed blocks), the
+  `discard` mount option (erased within seconds), `fstrim.timer` (weekly),
+  the filesystem (NTFS/FAT keep names; ext4/XFS lose them — carving),
+  how full it is, and whether it is the running system disk.
+- **Steps** with the real device filled in: check Trash / backups /
+  snapshots, `systemctl stop fstrim.timer`, stop writing (umount, or boot a
+  live USB for the system disk), image with `ddrescue` to another disk,
+  then the right tool on the image (ntfsundelete, testdisk, ext4magic,
+  xfs_undelete, btrfs restore, photorec).
+- **Disk map** (root): samples the disk (512 cells × 4 blocks) and draws
+  where it still holds data; per filesystem it compares that with the used
+  space: e.g. an HDD at 63% used with data in 97% of samples → ~92% of its
+  free space still holds old data; an SSD with `discard=async` → ~0%.
 
 ## Monitoring
 

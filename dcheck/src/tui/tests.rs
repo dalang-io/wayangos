@@ -301,3 +301,99 @@ fn dump_screens() {
     open_report(&mut a, 0);
     println!("{}", text(&render(&mut a, 80, 24)));
 }
+
+/// Drain background work until `done` holds (or fail after a few seconds).
+fn wait(a: &mut App, done: impl Fn(&App) -> bool) {
+    let start = Instant::now();
+    while !done(a) {
+        assert!(start.elapsed() < Duration::from_secs(20), "timed out");
+        a.drain();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn assert_ascii(t: &str) {
+    for ch in t.chars() {
+        assert!(ch.is_ascii(), "non-ASCII {ch:?} in plain mode:\n{t}");
+    }
+}
+
+#[test]
+fn recover_screen_shows_chance_steps_and_map() {
+    for (row, chance) in [(2usize, "MEDIUM"), (0, "ALMOST NONE")] {
+        let mut a = app(neon(), false);
+        a.screen = Screen::Storage;
+        a.table.select(Some(row));
+        handle_key(&mut a, KeyCode::Char('u'));
+        assert_eq!(a.screen, Screen::Recover);
+        wait(&mut a, |a| a.recover_map.is_some());
+        let t = text(&render(&mut a, 140, 44));
+        for e in ["RECOVERY", chance, "DISK MAP", "free space still holds old data", "WHAT TO DO", "ddrescue"] {
+            assert!(t.contains(e), "row {row} missing {e:?}:\n{t}");
+        }
+        // Small terminals and plain mode still render.
+        let _ = render(&mut a, 60, 16);
+        // Plain mode: the panels are ASCII (the log text follows
+        // DCHECK_PLAIN, which `--plain` sets for the whole process).
+        a.ui = Ui { plain: true };
+        let t = text(&render(&mut a, 100, 40));
+        assert_ascii(t.split("WHAT TO DO").next().unwrap());
+        handle_key(&mut a, KeyCode::Esc);
+        assert_eq!(a.screen, Screen::Storage);
+    }
+}
+
+#[test]
+fn verify_flow_plan_run_result() {
+    // Demo row 3 is the USB "Flash Disk", simulated as a counterfeit stick;
+    // row 1 (SATA SSD) as a genuine drive.
+    for (row, code, expect) in [(3usize, 3, "Real size"), (1, 0, "PASS")] {
+        let mut a = app(neon(), false);
+        a.screen = Screen::Storage;
+        a.table.select(Some(row));
+        handle_key(&mut a, KeyCode::Char('v'));
+        assert_eq!(a.screen, Screen::Verify);
+        let t = text(&render(&mut a, 120, 36));
+        for e in ["CAPACITY TEST", "back up first", "press y to start"] {
+            assert!(t.contains(e), "plan missing {e:?}:\n{t}");
+        }
+        // Enter alone never starts a test that writes.
+        handle_key(&mut a, KeyCode::Enter);
+        assert!(matches!(a.verify, VerifyState::Plan { .. }));
+        handle_key(&mut a, KeyCode::Char('y'));
+        assert!(matches!(a.verify, VerifyState::Running { .. }));
+        let t = text(&render(&mut a, 120, 36));
+        assert!(t.contains("WRITE") && t.contains("READ BACK"), "{t}");
+        // Quitting mid-test is refused.
+        assert!(!handle_key(&mut a, KeyCode::Char('q')));
+        wait(&mut a, |a| matches!(a.verify, VerifyState::Done { .. }));
+        assert!(matches!(a.verify, VerifyState::Done { code: c } if c == code));
+        let t = text(&render(&mut a, 120, 36));
+        assert!(t.contains(expect), "row {row}:\n{t}");
+        handle_key(&mut a, KeyCode::Esc);
+        assert_eq!(a.screen, Screen::Storage);
+    }
+}
+
+#[test]
+fn verify_can_be_stopped_and_refuses_dead_ports() {
+    let mut a = app(neon(), false);
+    a.screen = Screen::Storage;
+    a.table.select(Some(1));
+    handle_key(&mut a, KeyCode::Char('v'));
+    handle_key(&mut a, KeyCode::Char('y'));
+    handle_key(&mut a, KeyCode::Esc);
+    wait(&mut a, |a| matches!(a.verify, VerifyState::Done { .. }));
+    assert!(a.verify_lines.iter().any(|l| l.contains("ABORTED")), "{:?}", a.verify_lines);
+    // The unresponsive SATA port has nothing to test.
+    let dead = 4;
+    a.devices[dead].failure = Some("link reset failed".into());
+    a.verify = VerifyState::Idle;
+    a.screen = Screen::Storage;
+    a.table.select(Some(dead));
+    handle_key(&mut a, KeyCode::Char('v'));
+    let t = text(&render(&mut a, 120, 30));
+    assert!(t.contains("dead port"), "{t}");
+    handle_key(&mut a, KeyCode::Char('y'));
+    assert!(matches!(a.verify, VerifyState::Plan { .. }));
+}

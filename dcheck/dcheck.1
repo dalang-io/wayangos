@@ -97,10 +97,19 @@ when the drive holds data. On a system disk the free-space mode needs
 or
 .BR \-\-full .
 Exit status 0 pass, 3 bad data, 1 error or aborted.
+.TP
+.BI "recover " "disk|partition|path" " \fR[\fB\-\-no-map\fR] [\fB\-\-cells\fR \fIN\fR]"
+Read-only. Estimates whether deleted files can still be recovered (HDD vs
+SSD with TRIM, discard mount option, fstrim.timer, filesystem, fullness),
+prints the steps (stop writing, image with ddrescue, the right recovery tool
+on the image) and, as root, a sampled map of where the disk still holds data.
 .SH KEYS (TUI)
 ↑/↓ or j/k move; Enter open; Esc/b back; 1/2/3 jump to storage/memory/processor;
 PgUp/PgDn page; Home/End or g/G jump; r rescan/refresh; c copy log (OSC52);
 ? command reference; q quit. Any key skips the start-up splash.
+On a disk: u recovery chance and disk map (read-only); v capacity test in
+free space (shows the plan, y starts, Esc stops and removes the test files;
+the destructive test is CLI-only).
 Text is selectable by default; mouse-wheel scrolling is opt-in with
 .BR \-\-mouse .
 .SH EXIT STATUS

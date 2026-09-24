@@ -16,7 +16,7 @@ use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
-use super::{views, App, ColorMode, DevHealth, Palette, Screen, Ui};
+use super::{views, App, ColorMode, DevHealth, Palette, Screen, Ui, VerifyState};
 use crate::model::Device;
 use crate::report;
 
@@ -29,6 +29,10 @@ pub struct Options {
     pub height: u16,
     /// Device reports to capture (paths); empty = every device with SMART.
     pub reports: Vec<String>,
+    /// Device for the recovery and capacity-test screens (default: the
+    /// first captured report). The capacity test is only ever shown at its
+    /// plan step here; nothing is written.
+    pub tools: Option<String>,
 }
 
 /// "S5GXNX0R123456" -> "S5GX••••••••••".
@@ -120,6 +124,10 @@ pub fn run(dir: &Path, mut devices: Vec<Device>, opts: &Options) -> io::Result<V
             }
         })
         .collect();
+    let tool_dev = match &opts.tools {
+        Some(t) => app.devices.iter().position(|d| d.path == *t || d.name == *t),
+        None => wanted.first().copied(),
+    };
     for i in wanted {
         let d = app.devices[i].clone();
         let smart = metrics[i].as_ref().map(|(s, _)| s);
@@ -145,6 +153,52 @@ pub fn run(dir: &Path, mut devices: Vec<Device>, opts: &Options) -> io::Result<V
     app.table.select(Some(0));
     app.help = true;
     shot(&mut app, "09-help")?;
+    app.help = false;
+
+    if let Some(i) = tool_dev {
+        let d = app.devices[i].clone();
+        app.tool_dev = Some(i);
+        app.tool_back = Screen::Storage;
+        // Recovery: read-only (the map samples the disk as root).
+        let (g, m) = if opts.demo {
+            let (g, m) = crate::recover::demo(&d);
+            (Ok(g), Some(Ok(m)))
+        } else {
+            let g = crate::recover::gather(&d.path);
+            let m = match &g {
+                Ok(g) if crate::native::is_root() => Some(crate::recover::sample_map(g, 512)),
+                _ => None,
+            };
+            (g, m)
+        };
+        if let Ok(g) = g {
+            app.recover_lines = crate::recover::report_lines(&g).iter().map(|l| scrub(l)).collect();
+            if let Some(Ok(m)) = &m {
+                app.recover_lines.extend(crate::recover::share_lines(m));
+            }
+            app.recover = Some(g);
+            app.recover_map = m;
+            app.scroll = 0;
+            app.screen = Screen::Recover;
+            shot(&mut app, &format!("10-recover-{}", d.name))?;
+        }
+        // Capacity test: the plan only.
+        let plan = if opts.demo { Ok(crate::verify::demo_plan(&d, false)) } else { crate::verify::plan(&d, None) };
+        app.verify = VerifyState::Plan { plan, full: false };
+        app.screen = Screen::Verify;
+        shot(&mut app, &format!("11-verify-plan-{}", d.name))?;
+        // Demo only: a simulated counterfeit drive, run to the verdict.
+        if opts.demo {
+            let plan = crate::verify::demo_plan(&d, true);
+            let (o, _) = crate::verify::run_plan(&plan, plan.room, &mut |_, _, _| {}).map_err(io::Error::other)?;
+            let (lines, code) = crate::verify::outcome_lines(&format!("{} (simulated counterfeit)", d.path), &o, true);
+            app.verify_lines = lines;
+            app.verify = VerifyState::Done { code };
+            app.scroll = 0;
+            shot(&mut app, &format!("12-verify-fake-{}", d.name))?;
+        }
+        app.verify = VerifyState::Idle;
+    }
 
     Ok(written)
 }
@@ -327,6 +381,7 @@ mod tests {
             width: 120,
             height: 34,
             reports: vec![],
+            tools: None,
         };
         let files = run(&dir, crate::enumerate::demo_devices(), &opts).unwrap();
         assert!(files.len() >= 9);

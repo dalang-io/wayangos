@@ -1,5 +1,6 @@
 //! Screens: splash, command deck (menu), storage array, device report
-//! dashboard, memory, processor, and the help overlay.
+//! dashboard, memory, processor, recovery, capacity test, and the help
+//! overlay.
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::Style;
@@ -9,7 +10,7 @@ use ratatui::Frame;
 
 use super::theme::{Palette, Ui};
 use super::widgets as w;
-use super::{App, Screen};
+use super::{App, Screen, VerifyState};
 use crate::cpu::CpuInfo;
 use crate::health::Health;
 use crate::model::Device;
@@ -46,6 +47,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::Report => report_view(f, app, body),
         Screen::Ram => ram_view(f, app, body),
         Screen::Cpu => cpu_view(f, app, body),
+        Screen::Recover => recover_view(f, app, body),
+        Screen::Verify => verify_view(f, app, body),
         Screen::Splash => {}
     }
     draw_footer(f, app, footer);
@@ -148,11 +151,26 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Screen::Storage => &[
             (nav, "select"),
             ("enter", "report"),
+            ("u", "undelete?"),
+            ("v", "verify size"),
             ("r", "rescan"),
             ("esc", "back"),
-            ("?", "help"),
             ("q", "quit"),
         ],
+        Screen::Report => &[
+            (nav, "scroll"),
+            ("u", "undelete?"),
+            ("v", "verify size"),
+            ("r", "refresh"),
+            ("c", "copy"),
+            ("esc", "back"),
+            ("q", "quit"),
+        ],
+        Screen::Verify => match app.verify {
+            VerifyState::Plan { .. } => &[(nav, "size"), ("y", "start test"), ("esc", "cancel")],
+            VerifyState::Running { .. } => &[("esc", "stop (test files are removed)")],
+            _ => &[(nav, "scroll"), ("c", "copy"), ("esc", "back"), ("q", "quit")],
+        },
         _ => &[
             (nav, "scroll"),
             ("pgup/dn", "page"),
@@ -1160,11 +1178,229 @@ fn cpu_view(f: &mut Frame, app: &mut App, area: Rect) {
     log_pane(f, app, bottom, "PROCESSOR LOG", loading && app.cpu.is_none(), log);
 }
 
+// ─── recovery ───────────────────────────────────────────────────────────────
+
+fn chance_sev(c: crate::recover::Chance) -> u8 {
+    use crate::recover::Chance;
+    match c {
+        Chance::High => 0,
+        Chance::Medium => 2,
+        Chance::Low => 3,
+        Chance::AlmostNone => 4,
+    }
+}
+
+/// The sampled disk map, `cols` cells per row, coloured by filesystem.
+fn map_rows(m: &crate::recover::DiskMap, cols: usize, p: &Palette, ui: Ui) -> Vec<Line<'static>> {
+    use crate::recover::Sample;
+    let colors = [p.accent, p.accent2, p.ok, p.warn];
+    let mut out = Vec::new();
+    for (r, chunk) in m.cells.chunks(cols.max(8)).enumerate() {
+        let first = r * cols.max(8);
+        let mut spans = vec![Span::styled(
+            format!("{:>9} ", human_size_bin(first as u64 * m.cell_bytes)),
+            p.fg(p.dim),
+        )];
+        for (k, samples) in chunk.iter().enumerate() {
+            let fs = m.cell_fs.get(first + k).copied().flatten();
+            let ch = crate::recover::cell_char(samples, ui.plain);
+            let data = samples.contains(&Sample::Data);
+            let style = match (data, fs) {
+                (true, Some(i)) => p.bold(colors[i % colors.len()]),
+                (true, None) => p.fg(p.fg),
+                (false, _) => p.fg(p.track),
+            };
+            spans.push(Span::styled(ch.to_string(), style));
+        }
+        out.push(Line::from(spans));
+    }
+    out
+}
+
+fn recover_top(app: &App, width: u16) -> Vec<Line<'static>> {
+    let (p, ui) = (&app.pal, app.ui);
+    let mut lines = Vec::new();
+    let Some(g) = &app.recover else {
+        if app.recover_rx.is_some() {
+            lines.push(scanning_line(app, "ASSESSING FILESYSTEMS"));
+        } else {
+            lines.push(Line::from(Span::styled("assessment unavailable (see the log)", p.fg(p.warn))));
+        }
+        return lines;
+    };
+    let colors = [p.accent, p.accent2, p.ok, p.warn];
+    for (i, (f, a)) in g.fss.iter().enumerate() {
+        let mut spans = vec![
+            Span::styled(format!("{:<LW$}", w::clip(f.device.trim_start_matches("/dev/"), LW - 1, ui)), p.bold(colors[i % colors.len()])),
+            w::badge(chance_sev(a.chance), a.chance.label(), p, ui),
+        ];
+        let what = format!(
+            " {}{}",
+            f.fstype.as_deref().unwrap_or("?"),
+            f.mountpoint.as_deref().map(|m| format!(" on {m}")).unwrap_or_default()
+        );
+        spans.push(Span::styled(what, p.fg(p.fg)));
+        lines.push(Line::from(spans));
+        if let Some(r) = a.reasons.first() {
+            lines.push(Line::from(Span::styled(format!("{:LW$}{}", "", w::clip(r, (width as usize).saturating_sub(LW + 1), ui)), p.fg(p.dim))));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(w::caption("DISK MAP", width, p, ui));
+    match &app.recover_map {
+        None => lines.push(scanning_line(app, "SAMPLING THE DISK")),
+        Some(Err(e)) => lines.push(Line::from(Span::styled(format!("  {e}"), p.fg(p.dim)))),
+        Some(Ok(m)) => {
+            let cols = (width as usize).saturating_sub(11).min(64);
+            // Fit the map in at most 16 rows.
+            let cols = cols.max(m.cells.len().div_ceil(16));
+            lines.extend(map_rows(m, cols, p, ui));
+            let (full, empty) = if ui.plain { ("#", ".") } else { ("█", "·") };
+            lines.push(Line::from(vec![
+                Span::styled(format!("{:>9} ", ""), p.fg(p.dim)),
+                Span::styled(full, p.bold(p.accent)),
+                Span::styled(" data  ", p.fg(p.dim)),
+                Span::styled(empty, p.fg(p.track)),
+                Span::styled(" empty: never written or erased by TRIM", p.fg(p.dim)),
+            ]));
+            for (dev, d, r) in &m.shares {
+                let mut t = format!("{:>9} {} data in {:.0}% of samples", "", dev.trim_start_matches("/dev/"), d * 100.0);
+                if let Some(r) = r {
+                    t.push_str(&format!(" {} ~{:.0}% of its free space still holds old data", ui.dot(), r * 100.0));
+                }
+                lines.push(Line::from(Span::styled(t, p.fg(p.fg))));
+            }
+        }
+    }
+    lines
+}
+
+fn recover_view(f: &mut Frame, app: &mut App, area: Rect) {
+    let (p, ui) = (app.pal.clone(), app.ui);
+    let path = app.tool_dev.and_then(|i| app.devices.get(i)).map(|d| d.path.clone()).unwrap_or_default();
+    let lines = recover_top(app, area.width.saturating_sub(2));
+    let (top, bottom) = dashboard_split(area, display_rows(&lines, area.width.saturating_sub(2)));
+    let inner = w::panel(f, top, &format!("RECOVERY {} {path}", ui.arrow()), None, &p, ui);
+    f.render_widget(Paragraph::new(Text::from(lines)), inner);
+    let log = app.recover_lines.clone();
+    let loading = app.recover.is_none() && app.recover_rx.is_some();
+    log_pane(f, app, bottom, "WHAT TO DO  (read-only: nothing was written)", loading, log);
+}
+
+// ─── capacity test ──────────────────────────────────────────────────────────
+
+fn verify_view(f: &mut Frame, app: &mut App, area: Rect) {
+    let (p, ui) = (app.pal.clone(), app.ui);
+    let path = app.tool_dev.and_then(|i| app.devices.get(i)).map(|d| d.path.clone()).unwrap_or_default();
+    let title = format!("CAPACITY TEST {} {path}", ui.arrow());
+    let width = area.width.saturating_sub(2);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    match &app.verify {
+        VerifyState::Plan { plan: Err(e), .. } => {
+            lines.push(Line::from(Span::styled(format!("{} {e}", ui.sym(3)), p.bold(p.warn))));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "The TUI only runs the safe free-space test. An empty, unmounted drive can be",
+                p.fg(p.dim),
+            )));
+            lines.push(Line::from(Span::styled(
+                format!("fully tested from a shell: sudo dcheck verify {path} --destructive"),
+                p.fg(p.dim),
+            )));
+        }
+        VerifyState::Plan { plan: Ok(plan), full } => {
+            let total = super::App::verify_total(plan, *full);
+            for l in crate::verify::plan_lines(plan, total) {
+                lines.push(Line::from(Span::styled(l, p.fg(p.fg))));
+            }
+            lines.push(Line::from(""));
+            lines.push(w::caption("SIZE", width, &p, ui));
+            let quick = plan.room.min(crate::verify::QUICK);
+            let opt = |sel: bool, name: &str, text: String, enabled: bool| {
+                let mark = match (sel, ui.plain) {
+                    (true, false) => "▶ ",
+                    (true, true) => "> ",
+                    _ => "  ",
+                };
+                let style = if !enabled { p.fg(p.track) } else if sel { p.bold(p.accent) } else { p.fg(p.fg) };
+                Line::from(vec![Span::styled(format!("{mark}{name:<7}"), style), Span::styled(text, if enabled { p.fg(p.dim) } else { p.fg(p.track) })])
+            };
+            if plan.simulated.is_some() {
+                lines.push(opt(true, "DEMO", format!("simulated drive, {} (nothing is written)", human_size_bin(plan.room)), true));
+            } else {
+                lines.push(opt(!*full, "QUICK", format!("first {} — minutes; proves only that part", human_size_bin(quick)), true));
+                match &plan.system {
+                    Some(m) => lines.push(opt(false, "FULL", format!("not offered: system disk ({m} is on it) — use the CLI with --full"), false)),
+                    None => lines.push(opt(*full, "FULL", format!("all {} free — proves the whole capacity; can take hours", human_size_bin(plan.room)), true)),
+                }
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("press ", p.fg(p.dim)),
+                Span::styled("y", p.bold(p.accent2)),
+                Span::styled(" to start · ", p.fg(p.dim)),
+                Span::styled("esc", p.bold(p.accent)),
+                Span::styled(" cancels (nothing written yet)", p.fg(p.dim)),
+            ]));
+        }
+        VerifyState::Running { phase, done, of, total, started, stopping, plan, .. } => {
+            let cells = w::gauge_cells_for(width, LW, VW).max(16);
+            let pct = if *of > 0 { *done as f64 * 100.0 / *of as f64 } else { 0.0 };
+            let (wpct, rpct) = if *phase == "writing" { (pct, 0.0) } else { (100.0, pct) };
+            let wval = if *phase == "writing" { format!("{} / {}", human_size_bin(*done), human_size_bin(*total)) } else { "done".into() };
+            let rval = if *phase == "reading" { format!("{} / {}", human_size_bin(*done), human_size_bin(*of)) } else { "waiting".into() };
+            lines.push(w::field("TARGET", LW, text(plan.base.clone(), &p), &p));
+            lines.push(Line::from(""));
+            lines.push(w::gauge("WRITE", LW, wpct, cells, p.accent, &wval, &p, ui));
+            lines.push(w::gauge("READ BACK", LW, rpct, cells, p.accent2, &rval, &p, ui));
+            let secs = started.elapsed().as_secs_f64().max(0.001);
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!("{:LW$}{} {phase} … {:.0} s elapsed", "", ui.spinner(app.tick), secs),
+                p.fg(p.dim),
+            )));
+            if *stopping {
+                lines.push(Line::from(Span::styled("stopping — removing the test files", p.bold(p.warn))));
+            } else {
+                lines.push(Line::from(Span::styled(
+                    "Early checks re-read earlier data after every region: a fake drive fails as soon as the writes pass its real size.",
+                    p.fg(p.dim),
+                )));
+            }
+        }
+        VerifyState::Done { code } => {
+            let (sev, label) = match code {
+                0 => (0, "PASS"),
+                3 => (4, "FAIL"),
+                _ => (2, "INCOMPLETE"),
+            };
+            lines.push(w::field("RESULT", LW - 1, vec![w::badge(sev, label, &p, ui)], &p));
+            let meaning = match code {
+                0 => "every block written came back intact",
+                3 => "data did not come back — do not trust this drive",
+                _ => "stopped or failed before a verdict (see the log)",
+            };
+            lines.push(Line::from(Span::styled(format!("{:LW$}{meaning}", ""), p.fg(p.dim))));
+        }
+        VerifyState::Idle => {}
+    }
+    if matches!(app.verify, VerifyState::Done { .. }) {
+        let (top, bottom) = dashboard_split(area, lines.len());
+        let inner = w::panel(f, top, &title, None, &p, ui);
+        f.render_widget(Paragraph::new(Text::from(lines)), inner);
+        let log = app.verify_lines.clone();
+        log_pane(f, app, bottom, "RESULT LOG", false, log);
+    } else {
+        let inner = w::panel(f, area, &title, None, &p, ui);
+        f.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }), inner);
+    }
+}
+
 // ─── help overlay ───────────────────────────────────────────────────────────
 
 fn help(f: &mut Frame, app: &App, body: Rect) {
     let (p, ui) = (&app.pal, app.ui);
-    let r = w::centered(body, 64, 17);
+    let r = w::centered(body, 64, 19);
     f.render_widget(Clear, r);
     let right = Line::from(Span::styled(" any key closes ", p.fg(p.dim)));
     let inner = w::panel(f, r, "COMMAND REFERENCE", Some(right), p, ui);
@@ -1185,6 +1421,8 @@ fn help(f: &mut Frame, app: &App, body: Rect) {
         key("1 2 3", "jump to storage / memory / processor"),
         w::caption("ACTIONS", inner.width, p, ui),
         key("r", "rescan devices / refresh reading"),
+        key("u", "deleted a file? recovery chance + disk map"),
+        key("v", "verify the real capacity (test files, asks)"),
         key("c", "copy log to clipboard (OSC 52)"),
         key("?", "this reference"),
         key("q", "quit"),

@@ -151,7 +151,7 @@
                 <button class="dc-copy" style="position:static" data-copy="#install-cmd">copy</button>
             </div>
             <p class="text-w-dim text-xs mt-3 dc-mono"><span data-en="+ smartmontools (optional):" data-id="+ smartmontools (opsional):">+ smartmontools (optional):</span> <span class="text-w-text2">… | sh -s -- --with-smartmontools</span></p>
-            <p class="text-w-dim text-xs mt-3"><span data-en="Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release" data-id="Linux &amp; macOS &middot; x86_64 / arm64 &middot; rilis terbaru" data-i18n-html>Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.2.9</span></p>
+            <p class="text-w-dim text-xs mt-3"><span data-en="Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release" data-id="Linux &amp; macOS &middot; x86_64 / arm64 &middot; rilis terbaru" data-i18n-html>Linux &amp; macOS &middot; x86_64 / arm64 &middot; latest release</span> <span class="dc-mono text-w-gold dc-latest">v0.3.0</span></p>
         </div>
         <div class="flex flex-wrap justify-center gap-4 relative z-[1]">
             <a href="#install" class="bg-w-gold text-w-bg px-6 py-3 rounded-lg font-bold no-underline hover:bg-w-gold-b transition-all"><span data-en="Install guide" data-id="Panduan instalasi">Install guide</span></a>
@@ -222,6 +222,11 @@
                 <p class="text-w-dim text-sm" data-en="Counterfeit flash reports more space than it has. dcheck verify writes address-tagged data and reads it back with the OS cache dropped; a fake fails as soon as the writes pass its real capacity, and dcheck tells you the real size." data-id="Flash palsu mengaku punya ruang lebih besar dari aslinya. dcheck verify menulis data berlabel alamat lalu membacanya kembali tanpa cache OS; disk palsu gagal begitu tulisan melewati kapasitas aslinya, dan dcheck menyebutkan ukuran aslinya.">Counterfeit flash reports more space than it has. dcheck verify writes address-tagged data and reads it back with the OS cache dropped; a fake fails as soon as the writes pass its real capacity, and dcheck tells you the real size.</p>
             </div>
             <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
+                <div class="text-3xl mb-4">&#9851;</div>
+                <h3 class="text-lg font-bold text-w-text mb-2" data-en="Deleted a file by mistake?" data-id="Tidak sengaja menghapus file?">Deleted a file by mistake?</h3>
+                <p class="text-w-dim text-sm" data-en="dcheck recover (read-only) tells you the chance &mdash; an HDD keeps old data, an SSD with TRIM erases it &mdash; what to do right now (stop writing, image with ddrescue, the right tool for the filesystem), and draws a map of where the disk still holds data." data-id="dcheck recover (read-only) menyebutkan peluangnya &mdash; HDD menyimpan data lama, SSD dengan TRIM menghapusnya &mdash; apa yang harus dilakukan sekarang (berhenti menulis, image dengan ddrescue, tool yang cocok untuk filesystem-nya), dan menggambar peta di mana disk masih menyimpan data.">dcheck recover (read-only) tells you the chance &mdash; an HDD keeps old data, an SSD with TRIM erases it &mdash; what to do right now (stop writing, image with ddrescue, the right tool for the filesystem), and draws a map of where the disk still holds data.</p>
+            </div>
+            <div class="bg-w-card border border-w-border rounded-xl p-6 hover:border-w-gold transition">
                 <div class="text-3xl mb-4">&#128223;</div>
                 <h3 class="text-lg font-bold text-w-text mb-2" data-en="A terminal UI that works anywhere" data-id="Terminal UI yang jalan di mana saja">A terminal UI that works anywhere</h3>
                 <p class="text-w-dim text-sm" data-en="Neon truecolor in modern terminals, the ANSI palette on a Linux console or iDRAC/iLO virtual console, --plain for ASCII-only fonts, NO_COLOR respected, text stays selectable." data-id="Neon truecolor di terminal modern, palet ANSI di console Linux atau virtual console iDRAC/iLO, --plain untuk font ASCII saja, NO_COLOR dihormati, teks tetap bisa diseleksi.">Neon truecolor in modern terminals, the ANSI palette on a Linux console or iDRAC/iLO virtual console, --plain for ASCII-only fonts, NO_COLOR respected, text stays selectable.</p>
@@ -243,7 +248,7 @@
     <section class="max-w-[1200px] mx-auto px-6 py-16">
         <div class="text-center mb-12">
             <h2 class="text-2xl font-bold mb-3"><span data-en="Every screen" data-id="Semua layar">Every screen</span></h2>
-            <p class="text-w-dim" data-en="Captured on two Dell PowerEdge R630 servers (serial numbers masked). Click to enlarge; arrow keys to navigate." data-id="Diambil di dua server Dell PowerEdge R630 (serial number disamarkan). Klik untuk memperbesar; tombol panah untuk navigasi.">Captured on two Dell PowerEdge R630 servers (serial numbers masked). Click to enlarge; arrow keys to navigate.</p>
+            <p class="text-w-dim" data-en="Captured on two Dell PowerEdge R630 servers and a lab PC (serial numbers masked); the counterfeit result is a simulation. Click to enlarge; arrow keys to navigate." data-id="Diambil di dua server Dell PowerEdge R630 dan satu PC lab (serial number disamarkan); hasil disk palsu adalah simulasi. Klik untuk memperbesar; tombol panah untuk navigasi.">Captured on two Dell PowerEdge R630 servers and a lab PC (serial numbers masked); the counterfeit result is a simulation. Click to enlarge; arrow keys to navigate.</p>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 screenshot-gallery">
             <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
@@ -286,6 +291,22 @@
                 <img src="../assets/screenshots/dcheck-01-splash.svg" alt="Boot splash" class="w-full" loading="lazy">
                 <p class="text-center text-w-dim text-xs py-2" data-en="Boot splash (0.5 s, any key skips)" data-id="Splash boot (0,5 dtk, tombol apa pun melewati)">Boot splash (0.5 s, any key skips)</p>
             </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-11-recover-hdd.svg" alt="Recovery screen on an HDD: chance MEDIUM, disk map full of old data" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Undelete? HDD &mdash; ~92% of the free space still holds old data" data-id="Undelete? HDD &mdash; ~92% free space masih berisi data lama" data-i18n-html>Undelete? HDD &mdash; ~92% of the free space still holds old data</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-12-recover-ssd.svg" alt="Recovery screen on an SSD with discard: chance almost none, disk map empty" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Undelete? SSD with discard &mdash; TRIM already erased the free space" data-id="Undelete? SSD dengan discard &mdash; TRIM sudah menghapus free space" data-i18n-html>Undelete? SSD with discard &mdash; TRIM already erased the free space</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-13-verify-plan.svg" alt="Capacity test plan: what will be written, warnings, size choice" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Capacity test &mdash; the plan and warnings before anything is written" data-id="Uji kapasitas &mdash; rencana dan peringatan sebelum ada yang ditulis" data-i18n-html>Capacity test &mdash; the plan and warnings before anything is written</p>
+            </div>
+            <div class="gallery-item border border-w-border rounded-lg overflow-hidden cursor-pointer hover:border-w-gold transition">
+                <img src="../assets/screenshots/dcheck-14-verify-fake-demo.svg" alt="Capacity test result on a simulated counterfeit drive: FAIL, real size about 32 MiB" class="w-full" loading="lazy">
+                <p class="text-center text-w-dim text-xs py-2" data-en="Capacity test &mdash; a counterfeit drive (simulated) fails with its real size" data-id="Uji kapasitas &mdash; disk palsu (simulasi) gagal, ukuran aslinya terlihat" data-i18n-html>Capacity test &mdash; a counterfeit drive (simulated) fails with its real size</p>
+            </div>
         </div>
     </section>
 
@@ -298,7 +319,7 @@
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="1. One-line install" data-id="1. Instal satu baris">1. One-line install</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>curl -fsSL https://wayang.dalang.io/dcheck/install.sh | sh</div>
-        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.9 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.9 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.2.9 (pin a version).</p>
+        <p class="text-w-dim text-sm mb-8" data-en="Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.3.0 (pin a version)." data-id="Mendeteksi arsitektur, mengunduh rilis, memverifikasi SHA-256 dan menginstal ke /usr/local/bin (pakai sudo bila perlu, atau ~/.local/bin). Opsi: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.3.0 (kunci versi).">Detects the architecture, downloads the release, verifies SHA-256 and installs to /usr/local/bin (with sudo if needed, or ~/.local/bin). Options: DCHECK_INSTALL_DIR=/opt/bin, DCHECK_VERSION=0.3.0 (pin a version).</p>
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="2. Run it" data-id="2. Jalankan">2. Run it</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="p">$ </span>sudo dcheck                     <span class="c"># terminal UI (SMART needs root)</span>
@@ -339,11 +360,11 @@
         <table class="dc-table mb-2">
             <thead><tr><th data-en="Platform" data-id="Platform">Platform</th><th data-en="File" data-id="File">File</th></tr></thead>
             <tbody>
-                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.2.9/dcheck-0.2.9-x86_64-unknown-linux-musl.tar.gz">dcheck-0.2.9-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
-                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.2.9/dcheck-0.2.9-aarch64-unknown-linux-musl.tar.gz">dcheck-0.2.9-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
-                <tr><td>macOS Apple Silicon (M1&ndash;M4)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-apple-darwin" href="/dcheck/v0.2.9/dcheck-0.2.9-aarch64-apple-darwin.tar.gz">dcheck-0.2.9-aarch64-apple-darwin.tar.gz</a></td></tr>
-                <tr><td>macOS Intel</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-apple-darwin" href="/dcheck/v0.2.9/dcheck-0.2.9-x86_64-apple-darwin.tar.gz">dcheck-0.2.9-x86_64-apple-darwin.tar.gz</a></td></tr>
-                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.2.9/SHA256SUMS">SHA256SUMS</a></td></tr>
+                <tr><td>Linux x86_64 (Dell / HPE / Supermicro, most PCs)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-unknown-linux-musl" href="/dcheck/v0.3.0/dcheck-0.3.0-x86_64-unknown-linux-musl.tar.gz">dcheck-0.3.0-x86_64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>Linux aarch64 (Ampere, Raspberry Pi 4/5, Orange Pi)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-unknown-linux-musl" href="/dcheck/v0.3.0/dcheck-0.3.0-aarch64-unknown-linux-musl.tar.gz">dcheck-0.3.0-aarch64-unknown-linux-musl.tar.gz</a></td></tr>
+                <tr><td>macOS Apple Silicon (M1&ndash;M4)</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="aarch64-apple-darwin" href="/dcheck/v0.3.0/dcheck-0.3.0-aarch64-apple-darwin.tar.gz">dcheck-0.3.0-aarch64-apple-darwin.tar.gz</a></td></tr>
+                <tr><td>macOS Intel</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" data-arch="x86_64-apple-darwin" href="/dcheck/v0.3.0/dcheck-0.3.0-x86_64-apple-darwin.tar.gz">dcheck-0.3.0-x86_64-apple-darwin.tar.gz</a></td></tr>
+                <tr><td data-en="Checksums" data-id="Checksum">Checksums</td><td class="dc-mono"><a class="text-w-gold no-underline hover:underline dc-dl" href="/dcheck/v0.3.0/SHA256SUMS">SHA256SUMS</a></td></tr>
             </tbody>
         </table>
         </div>
@@ -422,6 +443,7 @@ exit=2</div>
         <p class="text-w-dim text-sm mb-10" data-en="Levels: CONSISTENT, UNVERIFIED (nothing to compare), UNBRANDED, SUSPICIOUS (a brand with a zero or missing WWN), LIKELY FAKE (a brand with another maker's OUI or controller). A clean result means consistent, not proven genuine &mdash; so prove the capacity too." data-id="Level: CONSISTENT, UNVERIFIED (tidak ada pembanding), UNBRANDED, SUSPICIOUS (bermerek tapi WWN nol / tidak ada), LIKELY FAKE (bermerek tapi OUI atau controller milik pabrik lain). Hasil bersih berarti konsisten, bukan terbukti asli &mdash; jadi uji juga kapasitasnya." data-i18n-html>Levels: CONSISTENT, UNVERIFIED (nothing to compare), UNBRANDED, SUSPICIOUS (a brand with a zero or missing WWN), LIKELY FAKE (a brand with another maker's OUI or controller). A clean result means consistent, not proven genuine &mdash; so prove the capacity too.</p>
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Prove the real capacity" data-id="Buktikan kapasitas aslinya">Prove the real capacity</h3>
+        <p class="text-w-dim text-sm mb-3" data-en="In the UI: v on a disk shows the plan and asks for y before writing (free-space test only; the destructive whole-disk test stays in the shell). From a shell:" data-id="Di UI: tombol v pada disk menampilkan rencana dan meminta y sebelum menulis (hanya tes free space; tes destruktif seluruh disk tetap di shell). Dari shell:">In the UI: v on a disk shows the plan and asks for y before writing (free-space test only; the destructive whole-disk test stays in the shell). From a shell:</p>
         <div class="dc-code dc-mono mb-3"><span class="p">$ </span>sudo dcheck verify /dev/sdb --size 4G
 <span class="dim">…</span>
 <span class="warn">▐ CAPACITY VERIFICATION</span>
@@ -447,6 +469,26 @@ exit=2</div>
         </table>
         </div>
         <p class="text-w-dim text-sm mb-10" data-en="Back up first: on a counterfeit drive, writes past its real capacity can land on existing files (dcheck stops as soon as it sees that). Verify also overwrites free space, so do not run it while you still hope to undelete a file." data-id="Backup dulu: pada disk palsu, tulisan yang melewati kapasitas aslinya bisa mengenai file yang sudah ada (dcheck berhenti begitu mendeteksinya). Verify juga menimpa free space, jadi jangan dijalankan selagi masih ingin memulihkan file yang terhapus.">Back up first: on a counterfeit drive, writes past its real capacity can land on existing files (dcheck stops as soon as it sees that). Verify also overwrites free space, so do not run it while you still hope to undelete a file.</p>
+
+        <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Deleted a file by mistake?" data-id="Tidak sengaja menghapus file?">Deleted a file by mistake?</h3>
+        <p class="text-w-dim text-sm mb-3" data-en="Stop writing to that disk first. Then, from another shell or in the UI (u on a disk):" data-id="Berhenti menulis ke disk itu dulu. Lalu, dari shell lain atau di UI (tombol u pada disk):">Stop writing to that disk first. Then, from another shell or in the UI (u on a disk):</p>
+        <div class="dc-code dc-mono mb-3"><span class="p">$ </span>sudo dcheck recover /dev/sda        <span class="c"># or the folder the file was in</span>
+<span class="warn">▐ RECOVERY · /dev/sda2</span>
+  <span class="dim">Disk         :</span> /dev/sda (HDD)
+  <span class="dim">Filesystem   :</span> ext4 on /
+  <span class="dim">Chance       :</span> <span class="warn">MEDIUM</span>
+    <span class="dim">·</span> ext4: deleting clears the block map, so names/folders are usually lost; contents can be carved
+    <span class="dim">·</span> HDD: old contents stay on the platters until they are overwritten
+
+  What to do:
+   1. Look first in: Trash, backups, snapshots.
+   2. Stop writing: this disk runs the system — shut down cleanly and boot a live USB.
+   3. Image it to ANOTHER disk: sudo ddrescue -d -n /dev/sda2 /mnt/other/sda2.img /mnt/other/sda2.map
+   4. Recover from the image: ext4magic … / photorec …
+
+<span class="warn">▐ DISK MAP · /dev/sda</span>
+  sda2 data in 97% of samples → <span class="ok">~92% of the free space still holds old data</span></div>
+        <p class="text-w-dim text-sm mb-10" data-en="Real output from a Dell R630 (HDD). On a lab SSD with btrfs discard=async the same command says ALMOST NONE and ~0% &mdash; TRIM had already erased the free space. Everything here is read-only; nothing is written to the disk." data-id="Output asli dari Dell R630 (HDD). Di SSD lab dengan btrfs discard=async, perintah yang sama menyebut ALMOST NONE dan ~0% &mdash; TRIM sudah menghapus free space. Semua ini read-only; tidak ada yang ditulis ke disk." data-i18n-html>Real output from a Dell R630 (HDD). On a lab SSD with btrfs discard=async the same command says ALMOST NONE and ~0% &mdash; TRIM had already erased the free space. Everything here is read-only; nothing is written to the disk.</p>
 
         <h3 class="text-lg font-bold mb-3 text-w-text" data-en="Daily check with a systemd timer" data-id="Cek harian dengan systemd timer">Daily check with a systemd timer</h3>
         <div class="dc-code dc-mono mb-3"><button class="dc-copy">copy</button><span class="c"># /etc/systemd/system/dcheck.service</span>

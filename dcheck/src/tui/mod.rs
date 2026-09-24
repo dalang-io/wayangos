@@ -4,7 +4,8 @@
 //!
 //! - `theme`: neon truecolor / ANSI / mono palettes and Unicode/ASCII glyphs.
 //! - `widgets`: bracket panels, line gauges, badges, keycaps.
-//! - `views`: splash, command deck, storage, report, RAM, CPU, help overlay.
+//! - `views`: splash, command deck, storage, report, RAM, CPU, recovery,
+//!   capacity test, help overlay.
 //!
 //! All hardware reads run on background threads; the UI only redraws on input,
 //! while something is loading, or during the (≤0.5 s, skippable) splash.
@@ -58,6 +59,44 @@ enum Screen {
     Report,
     Ram,
     Cpu,
+    /// Can deleted files still be recovered? (read-only)
+    Recover,
+    /// Capacity test in free space (writes test files; asks first).
+    Verify,
+}
+
+/// Background messages of the recovery screen: the assessment first, the
+/// (slower) disk map after it.
+enum RecoverMsg {
+    Gathered(Result<crate::recover::Gathered, String>),
+    Map(Result<crate::recover::DiskMap, String>),
+}
+
+enum VerifyMsg {
+    Progress(&'static str, u64, u64),
+    Done(Result<(crate::verify::Outcome, Option<String>), String>),
+}
+
+/// The capacity-test flow: plan → (y) running → result.
+enum VerifyState {
+    Idle,
+    Plan {
+        plan: Result<crate::verify::Plan, String>,
+        full: bool,
+    },
+    Running {
+        plan: crate::verify::Plan,
+        total: u64,
+        phase: &'static str,
+        done: u64,
+        of: u64,
+        started: Instant,
+        stopping: bool,
+        rx: Receiver<VerifyMsg>,
+    },
+    Done {
+        code: i32,
+    },
 }
 
 /// Health summary for one row of the storage list.
@@ -135,6 +174,17 @@ struct App {
     cpu_lines: Vec<String>,
     cpu_rx: Option<Receiver<CpuInfo>>,
 
+    /// Device of the recovery / capacity screens, and the screen to go
+    /// back to.
+    tool_dev: Option<usize>,
+    tool_back: Screen,
+    recover: Option<crate::recover::Gathered>,
+    recover_map: Option<Result<crate::recover::DiskMap, String>>,
+    recover_lines: Vec<String>,
+    recover_rx: Option<Receiver<RecoverMsg>>,
+    verify: VerifyState,
+    verify_lines: Vec<String>,
+
     /// Scroll offset of the active log pane, its last drawn height, and the
     /// rows its (wrapped) content occupied.
     scroll: u16,
@@ -177,6 +227,14 @@ impl App {
             cpu: None,
             cpu_lines: Vec::new(),
             cpu_rx: None,
+            tool_dev: None,
+            tool_back: Screen::Storage,
+            recover: None,
+            recover_map: None,
+            recover_lines: Vec::new(),
+            recover_rx: None,
+            verify: VerifyState::Idle,
+            verify_lines: Vec::new(),
             scroll: 0,
             view_height: 1,
             log_rows: 0,
@@ -252,6 +310,117 @@ impl App {
         self.screen = Screen::Cpu;
     }
 
+    /// Device for `u` / `v`: the open report, else the selected row.
+    fn tool_target(&self) -> Option<usize> {
+        match self.screen {
+            Screen::Report => self.report_dev,
+            _ => self.table.selected(),
+        }
+    }
+
+    fn open_recover(&mut self, index: usize) {
+        let Some(dev) = self.devices.get(index).cloned() else {
+            return;
+        };
+        if dev.failure.is_some() {
+            self.status = Some("no disk to examine on a dead port".into());
+            return;
+        }
+        self.tool_back = self.screen;
+        self.tool_dev = Some(index);
+        self.recover = None;
+        self.recover_map = None;
+        self.recover_lines.clear();
+        let demo = self.demo;
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            if demo {
+                let (g, m) = crate::recover::demo(&dev);
+                let _ = tx.send(RecoverMsg::Gathered(Ok(g)));
+                std::thread::sleep(Duration::from_millis(600));
+                let _ = tx.send(RecoverMsg::Map(Ok(m)));
+                return;
+            }
+            let g = crate::recover::gather(&dev.path);
+            let map = match &g {
+                Ok(g) if crate::native::is_root() => Some(crate::recover::sample_map(g, 512)),
+                Ok(_) => Some(Err("run dcheck as root to map where the disk still holds data".into())),
+                Err(_) => None,
+            };
+            let _ = tx.send(RecoverMsg::Gathered(g));
+            if let Some(m) = map {
+                let _ = tx.send(RecoverMsg::Map(m));
+            }
+        });
+        self.recover_rx = Some(rx);
+        self.scroll = 0;
+        self.screen = Screen::Recover;
+    }
+
+    fn open_verify(&mut self, index: usize) {
+        if matches!(self.verify, VerifyState::Running { .. }) {
+            self.screen = Screen::Verify;
+            return;
+        }
+        let Some(dev) = self.devices.get(index) else {
+            return;
+        };
+        let plan = if dev.failure.is_some() {
+            Err("no disk to test on a dead port".into())
+        } else if self.demo {
+            // The demo "Flash Disk" plays a counterfeit stick.
+            Ok(crate::verify::demo_plan(dev, dev.bus == crate::model::Bus::Usb))
+        } else {
+            crate::verify::plan(dev, None)
+        };
+        self.tool_back = self.screen;
+        self.tool_dev = Some(index);
+        self.verify = VerifyState::Plan { plan, full: false };
+        self.verify_lines.clear();
+        self.scroll = 0;
+        self.screen = Screen::Verify;
+    }
+
+    /// Size the test would write with the current choice.
+    fn verify_total(plan: &crate::verify::Plan, full: bool) -> u64 {
+        if full || plan.simulated.is_some() {
+            plan.room
+        } else {
+            plan.room.min(crate::verify::QUICK)
+        }
+    }
+
+    fn start_verify(&mut self) {
+        let VerifyState::Plan { plan: Ok(plan), full } = &self.verify else {
+            return;
+        };
+        let (plan, total) = (plan.clone(), Self::verify_total(plan, *full));
+        crate::verify::reset_stop();
+        let (tx, rx) = mpsc::channel();
+        let p2 = plan.clone();
+        std::thread::spawn(move || {
+            let mut last = Instant::now() - Duration::from_secs(1);
+            let tx2 = tx.clone();
+            let r = crate::verify::run_plan(&p2, total, &mut |ph, d, t| {
+                if last.elapsed() >= Duration::from_millis(100) || d >= t {
+                    last = Instant::now();
+                    let _ = tx2.send(VerifyMsg::Progress(ph, d, t));
+                }
+            });
+            let _ = tx.send(VerifyMsg::Done(r));
+        });
+        self.verify = VerifyState::Running {
+            plan,
+            total,
+            phase: "writing",
+            done: 0,
+            of: total,
+            started: Instant::now(),
+            stopping: false,
+            rx,
+        };
+    }
+
     fn rescan(&mut self) {
         for d in &self.devices {
             crate::cache::invalidate(d);
@@ -290,6 +459,78 @@ impl App {
             self.cpu_lines = report::cpu_report_lines(&c);
             self.cpu = Some(c);
         }
+        self.drain_recover();
+        self.drain_verify();
+    }
+
+    fn drain_recover(&mut self) {
+        let Some(rx) = &self.recover_rx else { return };
+        loop {
+            match rx.try_recv() {
+                Ok(RecoverMsg::Gathered(Ok(g))) => {
+                    self.recover_lines = crate::recover::report_lines(&g);
+                    self.recover = Some(g);
+                }
+                Ok(RecoverMsg::Gathered(Err(e))) => {
+                    self.recover_lines = vec![format!("  cannot assess this disk: {e}")];
+                }
+                Ok(RecoverMsg::Map(m)) => {
+                    if let Ok(m) = &m {
+                        self.recover_lines.extend(crate::recover::share_lines(m));
+                    }
+                    self.recover_map = Some(m);
+                }
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => {
+                    self.recover_rx = None;
+                    return;
+                }
+            }
+        }
+    }
+
+    fn drain_verify(&mut self) {
+        let mut finished = None;
+        if let VerifyState::Running { rx, phase, done, of, .. } = &mut self.verify {
+            loop {
+                match rx.try_recv() {
+                    Ok(VerifyMsg::Progress(ph, d, t)) => {
+                        *phase = ph;
+                        *done = d;
+                        *of = t;
+                    }
+                    Ok(VerifyMsg::Done(r)) => {
+                        finished = Some(r);
+                        break;
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        finished = Some(Err("the test stopped unexpectedly".into()));
+                        break;
+                    }
+                }
+            }
+        }
+        let Some(r) = finished else { return };
+        let VerifyState::Running { plan, .. } = &self.verify else { return };
+        let target = if plan.simulated.is_some() {
+            format!("{} (simulated demo drive)", plan.device)
+        } else {
+            format!("{} (free space, test files)", plan.base)
+        };
+        let (lines, code) = match r {
+            Ok((o, cleanup)) => {
+                let (mut lines, code) = crate::verify::outcome_lines(&target, &o, plan.simulated.is_some());
+                if let Some(e) = cleanup {
+                    lines.push(format!("  Warning      : {e}"));
+                }
+                (lines, code)
+            }
+            Err(e) => (vec![format!("  Result       : ERROR — {e}")], 1),
+        };
+        self.verify_lines = lines;
+        self.verify = VerifyState::Done { code };
+        self.scroll = 0;
     }
 
     fn busy(&self) -> bool {
@@ -297,6 +538,8 @@ impl App {
             || self.report_rx.is_some()
             || self.ram_rx.is_some()
             || self.cpu_rx.is_some()
+            || self.recover_rx.is_some()
+            || matches!(self.verify, VerifyState::Running { .. })
     }
 
     fn ram_sev(&self) -> (&'static str, u8) {
@@ -320,6 +563,8 @@ impl App {
             Screen::Report => self.report_lines.len(),
             Screen::Ram => self.ram_lines.len(),
             Screen::Cpu => self.cpu_lines.len(),
+            Screen::Recover => self.recover_lines.len(),
+            Screen::Verify => self.verify_lines.len(),
             _ => 0,
         }
     }
@@ -450,6 +695,51 @@ fn event_loop(
     Ok(())
 }
 
+/// Keys of the capacity-test flow.
+fn handle_verify_key(app: &mut App, code: KeyCode) {
+    match &mut app.verify {
+        VerifyState::Plan { plan, full } => match code {
+            KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Char('n') => {
+                app.verify = VerifyState::Idle;
+                app.screen = app.tool_back;
+            }
+            KeyCode::Up | KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') | KeyCode::Char('k') => {
+                match plan {
+                    Ok(p) if p.system.is_some() && !*full => {
+                        app.status = Some("full test is not offered on a system disk (use the CLI with --full)".into());
+                    }
+                    Ok(_) => *full = !*full,
+                    Err(_) => {}
+                }
+            }
+            KeyCode::Char('y') | KeyCode::Char('Y') if plan.is_ok() => app.start_verify(),
+            KeyCode::Enter if plan.is_ok() => {
+                app.status = Some("press y to start the test (it writes test files)".into());
+            }
+            _ => {}
+        },
+        VerifyState::Running { stopping, .. } => {
+            if matches!(code, KeyCode::Esc | KeyCode::Char('b')) && !*stopping {
+                *stopping = true;
+                crate::verify::request_stop();
+                app.status = Some("stopping — test files are removed".into());
+            }
+        }
+        VerifyState::Done { .. } | VerifyState::Idle => match code {
+            KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') => {
+                app.verify = VerifyState::Idle;
+                app.screen = app.tool_back;
+            }
+            KeyCode::Char('c') => copy_current(app),
+            KeyCode::Down | KeyCode::Char('j') => app.scroll_by(1),
+            KeyCode::Up | KeyCode::Char('k') => app.scroll_by(-1),
+            KeyCode::PageDown | KeyCode::Char(' ') => app.scroll_by(10),
+            KeyCode::PageUp => app.scroll_by(-10),
+            _ => {}
+        },
+    }
+}
+
 /// Returns true when the app should quit.
 fn handle_key(app: &mut App, code: KeyCode) -> bool {
     if app.screen == Screen::Splash {
@@ -457,13 +747,18 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
     if app.help {
-        if code == KeyCode::Char('q') {
+        if code == KeyCode::Char('q') && !matches!(app.verify, VerifyState::Running { .. }) {
             return true;
         }
         app.help = false;
         return false;
     }
+    let testing = matches!(app.verify, VerifyState::Running { .. });
     match code {
+        KeyCode::Char('q') if testing => {
+            app.status = Some("a capacity test is running — esc stops it first".into());
+            return false;
+        }
         KeyCode::Char('q') => return true,
         KeyCode::Char('?') => {
             app.help = true;
@@ -517,15 +812,36 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
                     app.start_report(i);
                 }
             }
+            KeyCode::Char('u') => {
+                if let Some(i) = app.tool_target() {
+                    app.open_recover(i);
+                }
+            }
+            KeyCode::Char('v') => {
+                if let Some(i) = app.tool_target() {
+                    app.open_verify(i);
+                }
+            }
             _ => {}
         },
-        Screen::Report | Screen::Ram | Screen::Cpu => match code {
+        Screen::Verify => handle_verify_key(app, code),
+        Screen::Report | Screen::Ram | Screen::Cpu | Screen::Recover => match code {
             KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') => {
-                app.screen = if app.screen == Screen::Report {
-                    Screen::Storage
-                } else {
-                    Screen::Menu
+                app.screen = match app.screen {
+                    Screen::Report => Screen::Storage,
+                    Screen::Recover => app.tool_back,
+                    _ => Screen::Menu,
                 };
+            }
+            KeyCode::Char('u') if app.screen == Screen::Report => {
+                if let Some(i) = app.tool_target() {
+                    app.open_recover(i);
+                }
+            }
+            KeyCode::Char('v') if app.screen == Screen::Report => {
+                if let Some(i) = app.tool_target() {
+                    app.open_verify(i);
+                }
             }
             KeyCode::Char('c') => copy_current(app),
             KeyCode::Char('r') => match app.screen {
@@ -539,6 +855,13 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
                 }
                 Screen::Ram => {
                     app.spawn_ram();
+                }
+                Screen::Recover => {
+                    if let Some(i) = app.tool_dev {
+                        let back = app.tool_back;
+                        app.open_recover(i);
+                        app.tool_back = back;
+                    }
                 }
                 _ => {
                     app.spawn_cpu();
@@ -563,7 +886,7 @@ fn handle_mouse(app: &mut App, kind: MouseEventKind) {
         _ => return,
     };
     match app.screen {
-        Screen::Report | Screen::Ram | Screen::Cpu => app.scroll_by(delta * 3),
+        Screen::Report | Screen::Ram | Screen::Cpu | Screen::Recover | Screen::Verify => app.scroll_by(delta * 3),
         Screen::Storage => {
             let i = app.table.selected().unwrap_or(0) as i32 + delta;
             let max = app.devices.len().saturating_sub(1) as i32;
@@ -583,6 +906,8 @@ fn copy_current(app: &mut App) {
         Screen::Report => app.report_lines.join("\n"),
         Screen::Ram => app.ram_lines.join("\n"),
         Screen::Cpu => app.cpu_lines.join("\n"),
+        Screen::Recover => app.recover_lines.join("\n"),
+        Screen::Verify => app.verify_lines.join("\n"),
         _ => String::new(),
     };
     if text.trim().is_empty() {

@@ -592,3 +592,71 @@ Usulan bertahap:
 
 Sudah dikerjakan sekarang: `dcheck verify` (mode free space) memperingatkan
 bahwa tes itu menimpa sisa file yang terhapus.
+
+Dikerjakan (poin 1 + 2), `dcheck recover <disk|partisi|path>`, read-only:
+- [x] Resolusi target: disk → semua partisi; partisi; path → mount
+      terpanjang yang memuatnya; device-mapper (LUKS/LVM) → slave sampai
+      disk fisik
+- [x] Fakta: media (rotational), TRIM (`queue/discard_max_bytes` di device
+      filesystem, jadi ikut stack dm/RAID/USB), mount option `discard`,
+      `fstrim.timer` (enabled, last, next), filesystem, used%, disk sistem
+      (/, /var, /home …), read-only
+- [x] Penilaian peluang HIGH / MEDIUM / LOW / ALMOST NONE + alasan, dan
+      langkah konkret dengan perintah yang sudah terisi device/mount:
+      cek Trash/backup/snapshot → hentikan fstrim → berhenti menulis
+      (remount ro / umount / boot live USB untuk disk sistem) → image
+      dengan ddrescue ke disk LAIN → tool per filesystem ke image
+- [x] Peta disk (root): sampling baca di N sel (default 512 × 4 blok),
+      tiap sel data / kosong (nol atau 0xFF: belum pernah ditulis atau
+      sudah di-TRIM) / campuran; per partisi: % sel berisi data vs used%
+      filesystem → perkiraan "sisa data di free space"
+- [x] Unit test + uji nyata lab-243 (SSD btrfs discard=async, harus
+      ALMOST NONE) dan 10.0.0.251 (HDD ext4, MEDIUM, read-only)
+- Hasil: lab-243 sda3 (btrfs, SSD, discard=async) → ALMOST NONE; peta: data
+  di 4% sampel = 4% used → ~0% free space berisi data lama (efek TRIM).
+  sda2 (/boot ext4, SSD tanpa discard, fstrim.timer aktif) → LOW. 10.0.0.251
+  sda2 (/ ext4, HDD) → MEDIUM; peta: data di 97% sampel, 63% used → ~92%
+  free space masih berisi data lama. Peta 512 sel: 0.2 dtk di SSD, 19 dtk
+  di HDD SAS lewat PERC.
+- Ikut diperbaiki: `dcheck … | head` panic "Broken pipe" (SIGPIPE
+  dikembalikan ke default di main); partisi BIOS-boot kecil tanpa
+  filesystem dilewati.
+- Catatan: tbw.json override di lab-243 sudah dihapus (2026-09-24).
+- Belum: poin 3 (undelete sungguhan), TUI, macOS.
+
+## P. TUI: layar RECOVERY dan VERIFY
+
+Permintaan: verify dan recover juga ada di UI (sebelumnya CLI saja).
+
+Desain:
+- Dari report disk atau daftar storage: `u` → RECOVERY, `v` → VERIFY.
+- RECOVERY (read-only): panel atas = peluang per filesystem (badge) + peta
+  disk berwarna per partisi + % sisa data di free space; bawah = log
+  alasan + langkah (scroll, `c` salin). Penilaian tampil dulu, peta
+  menyusul (HDD bisa ~20 dtk). Non-root: peta dilewati + keterangan.
+- VERIFY: hanya mode free space. Mode destruktif **sengaja tidak ada di
+  TUI** (satu salah tekan terlalu mudah); tetap di CLI dengan ERASE <nama>.
+  Alur: rencana (target mount, free, cadangan, peringatan backup & file
+  terhapus) → pilih ukuran (cepat 8 GiB / penuh; penuh tidak tersedia di
+  disk sistem) → `y` untuk mulai → progress tulis/baca live, Esc batal
+  (file uji tetap dihapus) → hasil PASS/FAIL + ukuran asli.
+- Refactor: verify/recover mengembalikan data (rencana, progress, hasil
+  sebagai baris) alih-alih mencetak; CLI dan TUI memakai kode yang sama.
+- Demo: recover dan verify tersimulasi (drive palsu di memori) untuk
+  screenshot dan test.
+
+Tugas:
+- [x] Refactor verify (progress callback, stop flag, plan/execute,
+      outcome_lines, simulasi) dan recover (gather → data, lines)
+- [x] Layar RECOVERY + VERIFY, tombol, footer, help, copy
+- [x] Test TUI (render demo, alur verify simulasi sampai hasil) + snapshot
+- [x] Uji nyata lab-243 (TUI lewat pty), rilis 0.3.0 + landing page
+- Hasil: 125 test (render layar, alur verify simulasi sampai PASS/FAIL,
+  Esc membatalkan → ABORTED, q ditolak selama tes, port mati ditolak).
+  lab-243 lewat pty: `u` → ALMOST NONE + peta; `v` → FULL tidak
+  ditawarkan (disk sistem); `y` → file uji tertulis; Esc → ABORTED,
+  folder uji terhapus, keluar bersih. Snapshot asli: R630 HDD ~92% sisa
+  data di free space, SSD lab ~0%.
+- Ditemukan & diperbaiki: race tombol stop (flag STOP direset di dalam
+  thread; sekarang sebelum thread dibuat); screenshot demo memuat nama
+  host Mac (sekarang `--host`).
