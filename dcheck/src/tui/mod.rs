@@ -63,6 +63,13 @@ enum Screen {
     Recover,
     /// Capacity test in free space (writes test files; asks first).
     Verify,
+    /// Deleted files of a disk with a block map; recover to another disk.
+    Undelete,
+}
+
+enum UndelMsg {
+    Scanned(Result<crate::undelete::Scan, String>),
+    Recovered(Vec<Result<(String, u64), String>>),
 }
 
 /// Background messages of the recovery screen: the assessment first, the
@@ -185,6 +192,17 @@ struct App {
     verify: VerifyState,
     verify_lines: Vec<String>,
 
+    /// Deleted-files screen: scan, selection, marks, destination prompt,
+    /// and the result of the last recovery.
+    undel: Option<crate::undelete::Scan>,
+    undel_src: String,
+    undel_rx: Option<Receiver<UndelMsg>>,
+    undel_table: TableState,
+    undel_marked: std::collections::BTreeSet<usize>,
+    undel_prompt: Option<String>,
+    undel_log: Vec<String>,
+    undel_error: Option<String>,
+
     /// Scroll offset of the active log pane, its last drawn height, and the
     /// rows its (wrapped) content occupied.
     scroll: u16,
@@ -235,6 +253,14 @@ impl App {
             recover_rx: None,
             verify: VerifyState::Idle,
             verify_lines: Vec::new(),
+            undel: None,
+            undel_src: String::new(),
+            undel_rx: None,
+            undel_table: TableState::default(),
+            undel_marked: std::collections::BTreeSet::new(),
+            undel_prompt: None,
+            undel_log: Vec::new(),
+            undel_error: None,
             scroll: 0,
             view_height: 1,
             log_rows: 0,
@@ -357,6 +383,75 @@ impl App {
         self.screen = Screen::Recover;
     }
 
+    /// Scan the disk of the recovery screen for deleted files (read-only).
+    fn open_undelete(&mut self) {
+        let Some(dev) = self.tool_dev.and_then(|i| self.devices.get(i)).cloned() else {
+            return;
+        };
+        self.undel = None;
+        self.undel_error = None;
+        self.undel_log.clear();
+        self.undel_marked.clear();
+        self.undel_prompt = None;
+        self.undel_table = TableState::default();
+        self.undel_src = dev.path.clone();
+        let demo = self.demo;
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let r = if demo {
+                std::thread::sleep(Duration::from_millis(400));
+                Ok(crate::undelete::demo_scan(dev.size_bytes))
+            } else {
+                open_source(&dev.path).map(|s| crate::undelete::scan(&*s))
+            };
+            let _ = tx.send(UndelMsg::Scanned(r));
+        });
+        self.undel_rx = Some(rx);
+        self.screen = Screen::Undelete;
+    }
+
+    /// Write the marked files (or the selected one) into `dir`.
+    fn start_undelete_write(&mut self, dir: String) {
+        let Some(scan) = &self.undel else { return };
+        let mut pick: Vec<usize> = self.undel_marked.iter().copied().collect();
+        if pick.is_empty() {
+            pick.extend(self.undel_table.selected());
+        }
+        let files: Vec<crate::undelete::Deleted> = pick.iter().filter_map(|i| scan.files.get(*i).cloned()).collect();
+        if files.is_empty() {
+            return;
+        }
+        let path = std::path::PathBuf::from(dir.trim());
+        if self.demo {
+            self.undel_log = files
+                .iter()
+                .map(|f| format!("(demo, nothing written) {}/{}", path.display(), f.path))
+                .collect();
+            return;
+        }
+        if let Err(e) = std::fs::create_dir_all(&path)
+            .map_err(|e| format!("cannot create {}: {e}", path.display()))
+            .and_then(|_| crate::undelete::check_destination(&self.undel_src, &path))
+        {
+            self.status = Some(e);
+            return;
+        }
+        let src = self.undel_src.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let r = match open_source(&src) {
+                Ok(s) => {
+                    let refs: Vec<&crate::undelete::Deleted> = files.iter().collect();
+                    crate::undelete::recover_to(&*s, &refs, &path)
+                }
+                Err(e) => vec![Err(e)],
+            };
+            let _ = tx.send(UndelMsg::Recovered(r));
+        });
+        self.undel_rx = Some(rx);
+        self.status = Some("recovering…".into());
+    }
+
     fn open_verify(&mut self, index: usize) {
         if matches!(self.verify, VerifyState::Running { .. }) {
             self.screen = Screen::Verify;
@@ -461,6 +556,27 @@ impl App {
         }
         self.drain_recover();
         self.drain_verify();
+        match poll(&mut self.undel_rx) {
+            Some(UndelMsg::Scanned(Ok(s))) => {
+                if !s.files.is_empty() {
+                    self.undel_table.select(Some(0));
+                }
+                self.undel = Some(s);
+            }
+            Some(UndelMsg::Scanned(Err(e))) => self.undel_error = Some(e),
+            Some(UndelMsg::Recovered(r)) => {
+                let ok = r.iter().filter(|x| x.is_ok()).count();
+                self.status = Some(format!("{ok} of {} file(s) recovered", r.len()));
+                self.undel_log = r
+                    .into_iter()
+                    .map(|x| match x {
+                        Ok((p, n)) => format!("recovered  {p}  ({})", crate::report::human_size_bin(n)),
+                        Err(e) => format!("failed     {e}"),
+                    })
+                    .collect();
+            }
+            None => {}
+        }
     }
 
     fn drain_recover(&mut self) {
@@ -539,6 +655,7 @@ impl App {
             || self.ram_rx.is_some()
             || self.cpu_rx.is_some()
             || self.recover_rx.is_some()
+            || self.undel_rx.is_some()
             || matches!(self.verify, VerifyState::Running { .. })
     }
 
@@ -576,6 +693,20 @@ impl App {
     fn scroll_by(&mut self, delta: i32) {
         let next = (self.scroll as i32 + delta).clamp(0, self.max_scroll() as i32);
         self.scroll = next as u16;
+    }
+}
+
+/// Open a device or image read-only for undelete.
+fn open_source(path: &str) -> Result<Box<dyn crate::undelete::Source + Send>, String> {
+    #[cfg(unix)]
+    {
+        crate::undelete::FileSource::open(path)
+            .map(|s| Box::new(s) as Box<dyn crate::undelete::Source + Send>)
+            .map_err(|e| format!("cannot open {path}: {e}"))
+    }
+    #[cfg(not(unix))]
+    {
+        Err(format!("cannot open {path}: not supported on this platform"))
     }
 }
 
@@ -695,6 +826,69 @@ fn event_loop(
     Ok(())
 }
 
+/// Keys of the deleted-files screen (and its destination prompt).
+fn handle_undelete_key(app: &mut App, code: KeyCode) {
+    if !app.undel_log.is_empty() {
+        app.undel_log.clear();
+        return;
+    }
+    if let Some(input) = &mut app.undel_prompt {
+        match code {
+            KeyCode::Esc => app.undel_prompt = None,
+            KeyCode::Enter => {
+                let dir = input.clone();
+                app.undel_prompt = None;
+                if !dir.trim().is_empty() {
+                    app.start_undelete_write(dir);
+                }
+            }
+            KeyCode::Backspace => {
+                input.pop();
+            }
+            KeyCode::Char(c) => input.push(c),
+            _ => {}
+        }
+        return;
+    }
+    let n = app.undel.as_ref().map_or(0, |s| s.files.len());
+    match code {
+        KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') => app.screen = Screen::Recover,
+        KeyCode::Up | KeyCode::Char('k') => {
+            let i = app.undel_table.selected().unwrap_or(0);
+            app.undel_table.select(Some(i.saturating_sub(1)));
+        }
+        KeyCode::Down | KeyCode::Char('j') if n > 0 => {
+            let i = app.undel_table.selected().unwrap_or(0);
+            app.undel_table.select(Some((i + 1).min(n - 1)));
+        }
+        KeyCode::Char(' ') => {
+            if let Some(i) = app.undel_table.selected() {
+                if !app.undel_marked.remove(&i) {
+                    app.undel_marked.insert(i);
+                }
+                if i + 1 < n {
+                    app.undel_table.select(Some(i + 1));
+                }
+            }
+        }
+        KeyCode::Char('a') => {
+            if let Some(s) = &app.undel {
+                let intact: Vec<usize> = (0..n).filter(|i| s.files[*i].state == crate::undelete::State::Intact).collect();
+                if intact.iter().all(|i| app.undel_marked.contains(i)) {
+                    app.undel_marked.clear();
+                } else {
+                    app.undel_marked.extend(intact);
+                }
+            }
+        }
+        KeyCode::Char('w') | KeyCode::Enter if n > 0 && app.undel_rx.is_none() => {
+            app.undel_prompt = Some(String::new());
+        }
+        KeyCode::Char('c') => copy_current(app),
+        _ => {}
+    }
+}
+
 /// Keys of the capacity-test flow.
 fn handle_verify_key(app: &mut App, code: KeyCode) {
     match &mut app.verify {
@@ -754,6 +948,11 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
     let testing = matches!(app.verify, VerifyState::Running { .. });
+    // Typing a destination: every key goes to the prompt.
+    if app.screen == Screen::Undelete && app.undel_prompt.is_some() {
+        handle_undelete_key(app, code);
+        return false;
+    }
     match code {
         KeyCode::Char('q') if testing => {
             app.status = Some("a capacity test is running — esc stops it first".into());
@@ -825,6 +1024,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             _ => {}
         },
         Screen::Verify => handle_verify_key(app, code),
+        Screen::Undelete => handle_undelete_key(app, code),
         Screen::Report | Screen::Ram | Screen::Cpu | Screen::Recover => match code {
             KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') => {
                 app.screen = match app.screen {
@@ -833,6 +1033,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
                     _ => Screen::Menu,
                 };
             }
+            KeyCode::Char('d') if app.screen == Screen::Recover => app.open_undelete(),
             KeyCode::Char('u') if app.screen == Screen::Report => {
                 if let Some(i) = app.tool_target() {
                     app.open_recover(i);
@@ -887,6 +1088,11 @@ fn handle_mouse(app: &mut App, kind: MouseEventKind) {
     };
     match app.screen {
         Screen::Report | Screen::Ram | Screen::Cpu | Screen::Recover | Screen::Verify => app.scroll_by(delta * 3),
+        Screen::Undelete => {
+            let n = app.undel.as_ref().map_or(0, |s| s.files.len()) as i32;
+            let i = app.undel_table.selected().unwrap_or(0) as i32 + delta;
+            app.undel_table.select(Some(i.clamp(0, (n - 1).max(0)) as usize));
+        }
         Screen::Storage => {
             let i = app.table.selected().unwrap_or(0) as i32 + delta;
             let max = app.devices.len().saturating_sub(1) as i32;
@@ -908,6 +1114,7 @@ fn copy_current(app: &mut App) {
         Screen::Cpu => app.cpu_lines.join("\n"),
         Screen::Recover => app.recover_lines.join("\n"),
         Screen::Verify => app.verify_lines.join("\n"),
+        Screen::Undelete => app.undel.as_ref().map(|s| crate::undelete::scan_lines(s).join("\n")).unwrap_or_default(),
         _ => String::new(),
     };
     if text.trim().is_empty() {

@@ -60,6 +60,7 @@ dcheck demo             # run with built-in sample devices
 dcheck ram | cpu        # memory / CPU report (or --json)
 dcheck verify <dev>     # prove the real capacity (fake drives; writes test files)
 dcheck recover <dev|path>  # deleted a file? chance, steps, disk map (read-only)
+dcheck undelete <dev|image> [--to DIR]  # list / recover deleted files (NTFS, FAT32, exFAT; --carve)
 dcheck update           # self-update from wayang.dalang.io (--check, --force)
 dcheck snapshot DIR     # every TUI screen as SVG (--demo, --mask-serials, --host, --tools DEV)
 dcheck --version
@@ -264,6 +265,35 @@ estimates whether deleted files can still come back and says what to do:
   where it still holds data; per filesystem it compares that with the used
   space: e.g. an HDD at 63% used with data in 97% of samples → ~92% of its
   free space still holds old data; an SSD with `discard=async` → ~0%.
+
+## Undelete: `dcheck undelete`
+
+```
+sudo dcheck undelete /dev/sdb1                    # list deleted files (read-only)
+sudo dcheck undelete /dev/sdb1 --to /mnt/usb/rescue --match '*.xlsx'
+sudo dcheck undelete disk.img --to /mnt/usb/rescue  # a ddrescue image (whole disk or partition)
+sudo dcheck undelete /dev/sdb --carve --to /mnt/usb/rescue   # ext4 / XFS / btrfs
+```
+
+- **NTFS**: the deleted file's MFT record keeps name, folder, size and data
+  runs (fragmented files too); small files are inside the record. Windows
+  and ntfs-3g keep the name; Linux's ntfs3 driver drops it → recovered as
+  `$NoName/record-N.<type>` (type from the contents).
+- **FAT32**: long name, size and first cluster remain; data assumed
+  contiguous. **exFAT**: name, size, first cluster and the contiguous flag.
+- **Other filesystems**: `--carve` finds JPEG, PNG, PDF and ZIP / Office
+  files in the raw data (names are lost).
+- Each file is **INTACT** (its clusters are still free), **PARTLY REUSED** or
+  **OVERWRITTEN** (from the FAT / exFAT bitmap / NTFS `$Bitmap`); overwritten
+  files are skipped unless `--include-overwritten`.
+- Safety: the source is only read; the destination must be on **another
+  disk** (refused otherwise) and existing files are never overwritten.
+  Whole-disk sources: MBR and GPT partitions are found.
+- UI: RECOVERY screen → `d`: a **block map** of the volume (in use, free,
+  deleted intact / reused, marked, selected), the file list (`space` mark,
+  `a` all intact) and `w` to recover into a folder you type.
+- Verified with images made on Linux (mkfs, write, delete, write again):
+  every recovered file matched the original's SHA-256.
 
 ## Monitoring
 

@@ -103,11 +103,21 @@ Read-only. Estimates whether deleted files can still be recovered (HDD vs
 SSD with TRIM, discard mount option, fstrim.timer, filesystem, fullness),
 prints the steps (stop writing, image with ddrescue, the right recovery tool
 on the image) and, as root, a sampled map of where the disk still holds data.
+.TP
+.BI "undelete " "device|partition|image" " \fR[\fB\-\-to\fR \fIDIR\fR] [\fB\-\-match\fR \fIPATTERN\fR] [\fB\-\-include-overwritten\fR] [\fB\-\-carve\fR]"
+Lists deleted files on NTFS, FAT32 and exFAT (names kept) and recovers them
+into
+.IR DIR ,
+which must be on another disk. The source is only read. Other filesystems:
+.B \-\-carve
+recovers JPEG, PNG, PDF and ZIP/Office files by their signatures.
 .SH KEYS (TUI)
 ↑/↓ or j/k move; Enter open; Esc/b back; 1/2/3 jump to storage/memory/processor;
 PgUp/PgDn page; Home/End or g/G jump; r rescan/refresh; c copy log (OSC52);
 ? command reference; q quit. Any key skips the start-up splash.
-On a disk: u recovery chance and disk map (read-only); v capacity test in
+On a disk: u recovery chance and disk map (read-only), then d deleted files
+with a block map (space marks, a marks all intact, w recovers to a folder on
+another disk); v capacity test in
 free space (shows the plan, y starts, Esc stops and removes the test files;
 the destructive test is CLI-only).
 Text is selectable by default; mouse-wheel scrolling is opt-in with

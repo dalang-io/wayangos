@@ -368,7 +368,9 @@ impl DiskMap {
     }
 }
 
-pub use imp::{gather, sample_map};
+#[cfg(target_os = "linux")]
+pub use imp::{disk_name, mount_source};
+pub use imp::{gather, mounted_rw, sample_map};
 
 /// The assessment as report lines (CLI output, TUI log, clipboard).
 pub fn report_lines(g: &Gathered) -> Vec<String> {
@@ -736,6 +738,30 @@ mod imp {
         Ok((vec![(name, None)], disk))
     }
 
+    /// Physical disk name under a block device name (`sda3` → `sda`).
+    pub fn disk_name(name: &str) -> String {
+        disk_of(name)
+    }
+
+    /// Block device holding the filesystem that contains `path`.
+    pub fn mount_source(path: &Path) -> Option<String> {
+        let real = fs::canonicalize(path).ok()?;
+        mounts()
+            .into_iter()
+            .filter(|m| m.source.starts_with("/dev/") && real.starts_with(&m.target))
+            .max_by_key(|m| m.target.len())
+            .map(|m| m.source)
+    }
+
+    /// Mountpoint if `dev` (or a partition of it) is mounted read-write.
+    pub fn mounted_rw(dev: &str) -> Option<String> {
+        let real = fs::canonicalize(dev).ok()?.to_string_lossy().into_owned();
+        mounts()
+            .into_iter()
+            .find(|m| (m.source == real || m.source.starts_with(&real)) && m.opts.iter().any(|o| o == "rw"))
+            .map(|m| m.target)
+    }
+
     /// Assess every filesystem for the argument (fast; no disk reads
     /// except filesystem signatures).
     pub fn gather(arg: &str) -> Result<Gathered, String> {
@@ -835,6 +861,10 @@ mod imp {
 
     pub fn gather(_: &str) -> Result<Gathered, String> {
         Err("recover is Linux-only for now".into())
+    }
+
+    pub fn mounted_rw(_: &str) -> Option<String> {
+        None
     }
 
     pub fn sample_map(_: &Gathered, _: usize) -> Result<DiskMap, String> {

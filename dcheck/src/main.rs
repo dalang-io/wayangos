@@ -23,6 +23,7 @@ mod recover;
 mod report;
 mod smartctl;
 mod tui;
+mod undelete;
 mod update;
 mod verify;
 
@@ -103,6 +104,7 @@ fn run(args: &[String]) -> i32 {
         }
         Some("verify") => verify::cmd(&args[1..]),
         Some("recover") => recover::cmd(&args[1..]),
+        Some("undelete") => undelete::cmd(&args[1..]),
         Some("ram") => ram_cmd(&args[1..]),
         Some("cpu") => cpu_cmd(&args[1..]),
         Some(other) => {
@@ -230,6 +232,8 @@ USAGE:
     dcheck storage <dev> --test short|long Start a SMART self-test
     dcheck verify <dev>     Prove the real capacity: write test data to free
                             space and read it back (fake drives; --help)
+    dcheck undelete <dev|image>  List deleted files (NTFS/FAT32/exFAT) and
+                            recover them to another disk (--to DIR; --carve)
     dcheck recover <dev|path>  Deleted a file by mistake? Chance of recovery,
                             what to do now, and a map of remaining data
     dcheck tui              Terminal UI (--light|--dark, --mouse, --plain)

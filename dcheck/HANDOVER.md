@@ -43,6 +43,7 @@ Landing page: <https://wayang.dalang.io/apps/dcheck.html> (juga ada bagian di
 | `ram.rs` | meminfo, EDAC (total + per-DIMM), SMBIOS (dmidecode → sysfs DMI → lshw), cek silang firmware vs OS vs EDAC |
 | `cpu.rs` | Topologi, clock, sensor suhu per socket beserta batas dari sensor |
 | `monitor.rs` | `check`, `watch`, webhook (lewat curl) |
+| `undelete.rs` | `dcheck undelete`: NTFS/FAT32/exFAT (nama tetap), carving, status INTACT/REUSED, peta alokasi; fixture `testdata/undelete/*.sparse` (format teks sparse) |
 | `recover.rs` | `dcheck recover`: peluang pemulihan file terhapus (media, TRIM, discard, fstrim, filesystem), langkah + tool, peta disk sampling (read-only) |
 | `verify.rs` | `dcheck verify`: tulis data berlabel alamat lalu baca ulang (kapasitas palsu); mode free space dan `--destructive` |
 | `update.rs` | Self-update dari `https://wayang.dalang.io/dcheck` |

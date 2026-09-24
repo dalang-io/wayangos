@@ -49,6 +49,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::Cpu => cpu_view(f, app, body),
         Screen::Recover => recover_view(f, app, body),
         Screen::Verify => verify_view(f, app, body),
+        Screen::Undelete => undelete_view(f, app, body),
         Screen::Splash => {}
     }
     draw_footer(f, app, footer);
@@ -165,6 +166,23 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             ("c", "copy"),
             ("esc", "back"),
             ("q", "quit"),
+        ],
+        Screen::Recover => &[
+            (nav, "scroll"),
+            ("d", "deleted files"),
+            ("r", "refresh"),
+            ("c", "copy"),
+            ("esc", "back"),
+            ("q", "quit"),
+        ],
+        Screen::Undelete if app.undel_prompt.is_some() => &[("enter", "write"), ("esc", "cancel")],
+        Screen::Undelete => &[
+            (nav, "select"),
+            ("space", "mark"),
+            ("a", "all intact"),
+            ("w", "recover to"),
+            ("c", "copy list"),
+            ("esc", "back"),
         ],
         Screen::Verify => match app.verify {
             VerifyState::Plan { .. } => &[(nav, "size"), ("y", "start test"), ("esc", "cancel")],
@@ -1287,6 +1305,224 @@ fn recover_view(f: &mut Frame, app: &mut App, area: Rect) {
     log_pane(f, app, bottom, "WHAT TO DO  (read-only: nothing was written)", loading, log);
 }
 
+// ─── deleted files ──────────────────────────────────────────────────────────
+
+/// What a block-map cell shows, most important first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum BlockKind {
+    Free,
+    Partly,
+    Used,
+    Deleted,
+    Reused,
+    Marked,
+    Selected,
+}
+
+fn block_rows(app: &App, width: u16, rows: usize) -> Vec<Line<'static>> {
+    use crate::undelete::State;
+    let (p, ui) = (&app.pal, app.ui);
+    let Some(scan) = &app.undel else { return Vec::new() };
+    let sel = app.undel_table.selected().and_then(|i| scan.files.get(i));
+    // The volume of the selected file, else the first one.
+    let Some(m) = sel
+        .and_then(|f| scan.maps.iter().find(|m| m.volume == f.volume))
+        .or_else(|| scan.maps.first())
+    else {
+        return vec![Line::from(Span::styled("  no allocation map for this filesystem", p.fg(p.dim)))];
+    };
+    let cols = (width as usize).saturating_sub(12).clamp(16, 96);
+    let cells = cols * rows;
+    let mut kind: Vec<BlockKind> = (0..cells)
+        .map(|i| {
+            let a = i * m.used.len() / cells;
+            let b = ((i + 1) * m.used.len() / cells).max(a + 1);
+            let u: f32 = m.used[a..b].iter().sum::<f32>() / (b - a) as f32;
+            if u >= 0.66 {
+                BlockKind::Used
+            } else if u > 0.0 {
+                BlockKind::Partly
+            } else {
+                BlockKind::Free
+            }
+        })
+        .collect();
+    for (i, f) in scan.files.iter().enumerate() {
+        if f.volume != m.volume {
+            continue;
+        }
+        let k = if Some(i) == app.undel_table.selected() {
+            BlockKind::Selected
+        } else if app.undel_marked.contains(&i) {
+            BlockKind::Marked
+        } else if f.state == State::Intact {
+            BlockKind::Deleted
+        } else {
+            BlockKind::Reused
+        };
+        for c in crate::undelete::file_cells(f, m, cells) {
+            kind[c] = kind[c].max(k);
+        }
+    }
+    let (full, half, empty) = if ui.plain { ("#", "+", ".") } else { ("█", "▒", "·") };
+    let mut out = Vec::new();
+    for r in 0..rows {
+        let mut spans = vec![Span::styled(
+            format!("{:>10} ", human_size_bin((r * cols) as u64 * m.size / cells as u64)),
+            p.fg(p.dim),
+        )];
+        for k in &kind[r * cols..(r + 1) * cols] {
+            let (g, st) = match k {
+                BlockKind::Free => (empty, p.fg(p.track)),
+                BlockKind::Partly => (half, p.fg(p.border)),
+                BlockKind::Used => (full, p.fg(p.border)),
+                BlockKind::Deleted => (full, p.bold(p.ok)),
+                BlockKind::Reused => (full, p.bold(p.bad)),
+                BlockKind::Marked => (full, p.bold(p.accent)),
+                BlockKind::Selected => (full, p.bold(p.accent2)),
+            };
+            spans.push(Span::styled(g, st));
+        }
+        out.push(Line::from(spans));
+    }
+    let item = |g: &'static str, st: Style, t: &str| vec![Span::styled(g, st), Span::styled(format!(" {t}  "), p.fg(p.dim))];
+    let mut legend = vec![Span::raw(format!("{:>10} ", ""))];
+    legend.extend(item(full, p.fg(p.border), "in use"));
+    legend.extend(item(empty, p.fg(p.track), "free"));
+    legend.push(Span::styled("deleted: ", p.fg(p.dim)));
+    legend.extend(item(full, p.bold(p.ok), "intact"));
+    legend.extend(item(full, p.bold(p.bad), "reused"));
+    legend.extend(item(full, p.bold(p.accent), "marked"));
+    legend.extend(item(full, p.bold(p.accent2), "selected"));
+    out.push(Line::from(legend));
+    out
+}
+
+fn undelete_view(f: &mut Frame, app: &mut App, area: Rect) {
+    use crate::undelete::State;
+    let (p, ui) = (app.pal.clone(), app.ui);
+    let title = format!("DELETED FILES {} {}", ui.arrow(), app.undel_src);
+    let Some(scan) = &app.undel else {
+        let inner = w::panel(f, area, &title, None, &p, ui);
+        let line = match &app.undel_error {
+            Some(e) => Line::from(Span::styled(format!("{} {e}", ui.sym(3)), p.bold(p.warn))),
+            None => scanning_line(app, "READING DIRECTORY TABLES (READ-ONLY)"),
+        };
+        f.render_widget(Paragraph::new(line), inner);
+        return;
+    };
+    let map_rows = if area.height >= 30 { 8 } else if area.height >= 20 { 4 } else { 2 };
+    let [top, list] = Layout::vertical([Constraint::Length(map_rows as u16 + 5), Constraint::Min(4)]).areas(area);
+
+    // Block map + summary.
+    let intact = scan.files.iter().filter(|f| f.state == State::Intact).count();
+    let right = Line::from(Span::styled(
+        format!(" {} deleted {} {intact} intact ", scan.files.len(), ui.dot()),
+        p.fg(p.dim),
+    ));
+    let inner = w::panel(f, top, "BLOCK MAP", Some(right), &p, ui);
+    let mut lines = block_rows(app, inner.width, map_rows);
+    if let Some(s) = app.undel_table.selected().and_then(|i| scan.files.get(i)) {
+        let place = match &s.data {
+            crate::undelete::Data::Resident(_) => "inside its MFT record".to_string(),
+            crate::undelete::Data::Extents(e) => {
+                let first = e.iter().find_map(|(o, _)| *o).unwrap_or(0);
+                format!("at {} in {} piece(s)", human_size_bin(first), e.len())
+            }
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{:>10} ", ""), p.fg(p.dim)),
+            Span::styled(s.path.clone(), p.bold(p.accent2)),
+            Span::styled(format!("  {}  {place}", human_size_bin(s.size)), p.fg(p.dim)),
+        ]));
+    }
+    f.render_widget(Paragraph::new(Text::from(lines)), inner);
+
+    // File list.
+    let marked = app.undel_marked.len();
+    let right = Line::from(Span::styled(
+        if marked > 0 { format!(" {marked} marked ") } else { " space marks, w recovers ".into() },
+        p.fg(p.dim),
+    ));
+    let inner = w::panel(f, list, "FILES  (read-only scan; recovery writes only to the folder you give)", Some(right), &p, ui);
+    if scan.files.is_empty() {
+        let mut msg: Vec<Line> = crate::undelete::scan_lines(scan)
+            .into_iter()
+            .skip(1)
+            .map(|l| Line::from(Span::styled(l, p.fg(p.fg))))
+            .collect();
+        msg.push(Line::from(Span::styled(
+            format!("  Other filesystems: carve from a shell: sudo dcheck undelete {} --carve --to DIR", app.undel_src),
+            p.fg(p.dim),
+        )));
+        f.render_widget(Paragraph::new(Text::from(msg)).wrap(Wrap { trim: false }), inner);
+    } else {
+        let rows: Vec<Row> = scan
+            .files
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let mark = if app.undel_marked.contains(&i) { if ui.plain { "[x]" } else { "[■]" } } else { "[ ]" };
+                let sev = match d.state {
+                    State::Intact => 0,
+                    State::PartlyReused => 2,
+                    State::Overwritten => 4,
+                };
+                Row::new(vec![
+                    Cell::from(Span::styled(mark, p.bold(p.accent))),
+                    Cell::from(w::status(sev, d.state.label(), &p, ui)),
+                    Cell::from(Line::from(human_size_bin(d.size)).right_aligned()),
+                    Cell::from(Span::styled(d.path.clone(), p.fg(p.fg))),
+                ])
+            })
+            .collect();
+        let table = Table::new(
+            rows,
+            [Constraint::Length(3), Constraint::Length(16), Constraint::Length(10), Constraint::Min(10)],
+        )
+        .header(Row::new(["", "STATE", "SIZE", "PATH"].map(Cell::from)).style(p.bold(p.accent)))
+        .column_spacing(1)
+        .row_highlight_style(p.highlight())
+        .highlight_symbol(ui.cursor());
+        f.render_stateful_widget(table, inner, &mut app.undel_table);
+    }
+
+    // Destination prompt.
+    if let Some(input) = &app.undel_prompt {
+        let n = if app.undel_marked.is_empty() { 1 } else { app.undel_marked.len() };
+        let r = w::centered(area, 72, 9);
+        f.render_widget(Clear, r);
+        let inner = w::panel(f, r, &format!("RECOVER {n} FILE(S) TO"), None, &p, ui);
+        let cursor = if app.tick.is_multiple_of(2) { "_" } else { " " };
+        let lines = vec![
+            Line::from(Span::styled("Folder on ANOTHER disk (USB drive, network share):", p.fg(p.dim))),
+            Line::from(""),
+            Line::from(vec![Span::styled("> ", p.bold(p.accent2)), Span::styled(format!("{input}{cursor}"), p.bold(p.fg))]),
+            Line::from(""),
+            Line::from(Span::styled("A folder on the same disk is refused: it could overwrite the files.", p.fg(p.dim))),
+            Line::from(Span::styled("Existing files are never overwritten.  enter writes · esc cancels", p.fg(p.dim))),
+        ];
+        f.render_widget(Paragraph::new(Text::from(lines)), inner);
+    }
+    // Result of the last recovery.
+    if !app.undel_log.is_empty() {
+        let h = (app.undel_log.len() as u16 + 4).min(area.height.saturating_sub(2));
+        let r = w::centered(area, area.width.saturating_sub(8).min(110), h);
+        f.render_widget(Clear, r);
+        let right = Line::from(Span::styled(" any key closes ", p.fg(p.dim)));
+        let inner = w::panel(f, r, "RECOVERED", Some(right), &p, ui);
+        let lines: Vec<Line> = app
+            .undel_log
+            .iter()
+            .map(|l| {
+                let c = if l.starts_with("failed") { p.bad } else { p.ok };
+                Line::from(Span::styled(l.clone(), p.fg(c)))
+            })
+            .collect();
+        f.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }), inner);
+    }
+}
+
 // ─── capacity test ──────────────────────────────────────────────────────────
 
 fn verify_view(f: &mut Frame, app: &mut App, area: Rect) {
@@ -1400,7 +1636,7 @@ fn verify_view(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn help(f: &mut Frame, app: &App, body: Rect) {
     let (p, ui) = (&app.pal, app.ui);
-    let r = w::centered(body, 64, 19);
+    let r = w::centered(body, 64, 20);
     f.render_widget(Clear, r);
     let right = Line::from(Span::styled(" any key closes ", p.fg(p.dim)));
     let inner = w::panel(f, r, "COMMAND REFERENCE", Some(right), p, ui);
@@ -1423,6 +1659,7 @@ fn help(f: &mut Frame, app: &App, body: Rect) {
         key("r", "rescan devices / refresh reading"),
         key("u", "deleted a file? recovery chance + disk map"),
         key("v", "verify the real capacity (test files, asks)"),
+        key("d", "(recovery) deleted files + block map, recover"),
         key("c", "copy log to clipboard (OSC 52)"),
         key("?", "this reference"),
         key("q", "quit"),

@@ -198,6 +198,16 @@ pub fn run(dir: &Path, mut devices: Vec<Device>, opts: &Options) -> io::Result<V
             shot(&mut app, &format!("12-verify-fake-{}", d.name))?;
         }
         app.verify = VerifyState::Idle;
+        // Deleted files with the block map (demo data only: a real scan
+        // would show the file names of the machine).
+        if opts.demo {
+            app.undel = Some(crate::undelete::demo_scan(d.size_bytes));
+            app.undel_src = d.path.clone();
+            app.undel_table.select(Some(2));
+            app.undel_marked = [0usize, 1].into_iter().collect();
+            app.screen = Screen::Undelete;
+            shot(&mut app, &format!("13-undelete-{}", d.name))?;
+        }
     }
 
     Ok(written)

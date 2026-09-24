@@ -660,3 +660,66 @@ Tugas:
 - Ditemukan & diperbaiki: race tombol stop (flag STOP direset di dalam
   thread; sekarang sebelum thread dibuat); screenshot demo memuat nama
   host Mac (sekarang `--host`).
+
+## Q. Undelete sungguhan (`dcheck undelete`)
+
+Permintaan: bukan cuma saran, tapi benar-benar mengembalikan file terhapus.
+
+Realistisnya per filesystem:
+- **NTFS**: record MFT file terhapus hanya ditandai "tidak dipakai"; nama,
+  ukuran, timestamp dan data runs (lokasi cluster, termasuk yang
+  terfragmentasi) masih utuh sampai record dipakai ulang → pulih lengkap
+  dengan nama dan folder. File kecil (< ~700 B) tersimpan di dalam record
+  (resident).
+- **FAT32**: byte pertama nama diganti 0xE5, rantai cluster di FAT dinolkan
+  → nama (LFN) dan ukuran + cluster awal masih ada; isi diasumsikan
+  berurutan (benar untuk sebagian besar file yang tidak terfragmentasi).
+- **exFAT**: bit InUse di entry dimatikan; nama, ukuran, cluster awal dan
+  flag NoFatChain (file berurutan) masih ada → sering pulih utuh.
+- **ext4 / XFS / btrfs / lainnya**: alamat data dihapus → **carving**:
+  cari tanda awal/akhir file (JPEG, PNG, PDF, ZIP/DOCX/XLSX) di seluruh
+  device. Nama file hilang.
+- SSD yang sudah di-TRIM: isi sudah nol, tidak ada yang bisa dilakukan.
+
+Keamanan (wajib):
+- Sumber hanya dibuka read-only (device atau file image hasil ddrescue).
+- Folder tujuan harus di disk LAIN: ditolak kalau berada di disk yang
+  sama (partisi mana pun) dengan sumber. Tidak pernah menimpa file yang
+  sudah ada di tujuan.
+- Sumber yang ter-mount read-write: peringatan keras (OS terus menulis),
+  sarankan image dulu.
+- Tiap file diberi status: utuh (cluster masih bebas) / kemungkinan
+  tertimpa (cluster sudah dipakai file lain) — dicek dari FAT / $Bitmap.
+
+Perintah:
+- `dcheck undelete <dev|image>` → daftar file terhapus (read-only)
+- `dcheck undelete <dev|image> --to DIR [--match POLA]` → pulihkan
+- `dcheck undelete <dev|image> --carve --to DIR` → carving
+- TUI: dari layar RECOVERY, daftar file terhapus + pulihkan ke folder.
+
+Tugas:
+- [x] Reader sumber (device/image, offset partisi), cek tujuan beda disk
+- [x] FAT32 (LFN), exFAT, NTFS (MFT, fixup, $FILE_NAME, $DATA
+      resident/non-resident, runlist, path dari parent, $Bitmap)
+- [x] Carver JPEG/PNG/PDF/ZIP
+- [x] Fixture image asli (dibuat di lab-243: mkfs, tulis, hapus) dalam
+      format sparse teks + unit test
+- [x] Uji nyata lab-243 (loop image), TUI, docs, landing page, rilis
+- Hasil fixture (dibuat di lab-243: mkfs → tulis → hapus → tulis file
+  baru): FAT32 3/3 INTACT (LFN + folder), exFAT 2 INTACT + note.txt
+  OVERWRITTEN (cluster dipakai after.txt), NTFS (ntfs-3g) 4/4 INTACT dengan
+  nama + folder (2 resident), NTFS (ntfs3) 3/3 tanpa nama. **SHA-256 semua
+  file hasil pulihan = file asli.** Loop device + `--match` OK; tujuan di
+  disk yang sama ditolak; ext4 → saran `--carve`, carving menemukan JPEG.
+- Temuan: driver **ntfs3 (Linux) membuang $FILE_NAME** saat delete, $DATA
+  tetap → dipulihkan sebagai `$NoName/record-N.<tipe dari isi>`.
+- Fixture NTFS dipangkas (hanya MFT terpakai, $Bitmap, data file) supaya
+  ~120 KB, bukan 2.4 MB.
+- TUI: RECOVERY → `d` = DELETED FILES + **peta blok** (permintaan: "block
+  array memory bisa di-show visual"): tiap sel = bagian volume, warna =
+  terpakai / kosong / terhapus utuh / terhapus tertimpa / ditandai /
+  dipilih; lokasi file terpilih ditampilkan. `space`/`a` tandai, `w` →
+  prompt folder tujuan (dicek beda disk), hasil dalam popup.
+- Belum: exFAT/FAT32 terfragmentasi (diasumsikan berurutan), NTFS
+  $ATTRIBUTE_LIST (file sangat terfragmentasi), nama file NTFS dari index
+  slack direktori (untuk kasus ntfs3), carving di free space saja, macOS.

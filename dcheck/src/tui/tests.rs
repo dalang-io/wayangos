@@ -397,3 +397,89 @@ fn verify_can_be_stopped_and_refuses_dead_ports() {
     handle_key(&mut a, KeyCode::Char('y'));
     assert!(matches!(a.verify, VerifyState::Plan { .. }));
 }
+
+#[test]
+fn undelete_screen_demo_flow_with_block_map() {
+    let mut a = app(neon(), false);
+    a.screen = Screen::Storage;
+    a.table.select(Some(2));
+    handle_key(&mut a, KeyCode::Char('u'));
+    wait(&mut a, |a| a.recover.is_some());
+    handle_key(&mut a, KeyCode::Char('d'));
+    assert_eq!(a.screen, Screen::Undelete);
+    wait(&mut a, |a| a.undel.is_some());
+    let t = text(&render(&mut a, 140, 44));
+    for e in ["BLOCK MAP", "deleted:", "intact", "Laporan Keuangan 2026.xlsx", "PARTLY REUSED", "OVERWRITTEN"] {
+        assert!(t.contains(e), "missing {e:?}:\n{t}");
+    }
+    // Mark all intact files, open the prompt, type a folder, write (demo).
+    handle_key(&mut a, KeyCode::Char('a'));
+    assert_eq!(a.undel_marked.len(), 4);
+    handle_key(&mut a, KeyCode::Char('w'));
+    assert!(a.undel_prompt.is_some());
+    for c in "/mnt/usb/rescue".chars() {
+        handle_key(&mut a, KeyCode::Char(c));
+    }
+    // 'q' while typing is text, not quit.
+    assert!(!handle_key(&mut a, KeyCode::Char('q')));
+    handle_key(&mut a, KeyCode::Backspace);
+    let t = text(&render(&mut a, 140, 44));
+    assert!(t.contains("RECOVER 4 FILE(S) TO") && t.contains("/mnt/usb/rescue"), "{t}");
+    handle_key(&mut a, KeyCode::Enter);
+    assert_eq!(a.undel_log.len(), 4);
+    assert!(a.undel_log[0].contains("nothing written"));
+    let t = text(&render(&mut a, 140, 44));
+    assert!(t.contains("RECOVERED"), "{t}");
+    handle_key(&mut a, KeyCode::Char('x'));
+    assert!(a.undel_log.is_empty());
+    // Small and plain terminals.
+    let _ = render(&mut a, 60, 16);
+    a.ui = Ui { plain: true };
+    assert_ascii(&text(&render(&mut a, 120, 40)));
+    handle_key(&mut a, KeyCode::Esc);
+    assert_eq!(a.screen, Screen::Recover);
+}
+
+#[test]
+fn undelete_screen_recovers_real_files_from_an_image() {
+    // A FAT32 image made on Linux (see testdata/undelete), as the "disk".
+    let dir = std::env::temp_dir().join(format!("dcheck-tui-undel-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let img = dir.join("fat32.img");
+    let text_img = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/undelete/fat32.sparse")).unwrap();
+    let mut lines = text_img.lines();
+    let size: usize = lines.next().unwrap().rsplit(' ').next().unwrap().parse().unwrap();
+    let mut bytes = vec![0u8; size];
+    for l in lines {
+        let p: Vec<&str> = l.split(' ').collect();
+        let s: usize = p[0].parse().unwrap();
+        if p[1] == "H" {
+            for k in 0..512 {
+                bytes[s * 512 + k] = u8::from_str_radix(&p[2][2 * k..2 * k + 2], 16).unwrap();
+            }
+        }
+    }
+    std::fs::write(&img, &bytes).unwrap();
+    let mut a = app(neon(), false);
+    a.demo = false;
+    a.devices[0].path = img.to_string_lossy().into_owned();
+    a.tool_dev = Some(0);
+    a.screen = Screen::Recover;
+    handle_key(&mut a, KeyCode::Char('d'));
+    wait(&mut a, |a| a.undel.is_some());
+    let n = a.undel.as_ref().unwrap().files.len();
+    assert_eq!(n, 3);
+    handle_key(&mut a, KeyCode::Char('a'));
+    handle_key(&mut a, KeyCode::Char('w'));
+    let out = dir.join("out");
+    for c in out.to_string_lossy().chars() {
+        handle_key(&mut a, KeyCode::Char(c));
+    }
+    handle_key(&mut a, KeyCode::Enter);
+    wait(&mut a, |a| !a.undel_log.is_empty());
+    assert!(a.undel_log.iter().all(|l| l.starts_with("recovered")), "{:?}", a.undel_log);
+    let big: Vec<u8> = (0..20000u32).map(|i| ((i * 7 + 3) % 251) as u8).collect();
+    assert_eq!(std::fs::read(out.join("big.bin")).unwrap(), big);
+    assert!(out.join("Dokumen Kantor/Laporan Keuangan 2026.xlsx").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
