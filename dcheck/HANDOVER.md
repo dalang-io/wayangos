@@ -87,7 +87,22 @@ cargo clippy --target x86_64-unknown-linux-musl --all-targets   # modul linux
 ../scripts/test-dcheck.sh                   # e2e fixture (40 assertion)
 ```
 
-Rilis (jalankan dari Mac, supaya build macOS ikut):
+Rilis (jalankan dari Mac, supaya build macOS ikut) — **satu perintah**:
+
+```bash
+./scripts/ship-dcheck.sh 0.5.2 --dry-run                  # cek saja (test, clippy, e2e, scan)
+./scripts/ship-dcheck.sh 0.5.2 -m "fix(dcheck): … (0.5.2)" --test-host idch
+```
+
+Script ini menjalankan semua langkah di bawah secara diam (satu baris per
+langkah, output lengkap di file log): preflight (master, versi lebih baru
+dari LATEST, tag belum ada) → bump versi (Cargo.toml + landing page) →
+test + clippy host/Linux + e2e → **scan diff untuk kredensial / IP publik**
+(repo publik) → commit → `deploy-site.sh` → verifikasi LATEST, landing page
+dan `dcheck update` dari versi sebelumnya (lokal + `--test-host`) → tag +
+push. Kalau gagal, hanya output langkah itu yang ditampilkan.
+
+Langkah manual (kalau perlu):
 
 1. Naikkan `version` di `dcheck/Cargo.toml`. Samakan juga string versi di
    `landing-page/apps/dcheck.html` (`sed -i '' 's/0\.4\.1/0.4.2/g' …`).

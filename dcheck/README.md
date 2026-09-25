@@ -348,6 +348,9 @@ can know:
 TARGET=aarch64-unknown-linux-musl ./scripts/build-dcheck.sh
 ./scripts/release-dcheck.sh               # matrix + tarballs + SHA256SUMS
 GPG_KEY=0x... ./scripts/release-dcheck.sh # also GPG-sign SHA256SUMS
+./scripts/ship-dcheck.sh X.Y.Z --dry-run  # test, clippy, e2e, secret/IP scan
+./scripts/ship-dcheck.sh X.Y.Z -m "msg" [--test-host HOST]  # bump, check, commit,
+                                          # deploy, verify update, tag, push
 ```
 
 Man page: `dcheck/dcheck.1`.
