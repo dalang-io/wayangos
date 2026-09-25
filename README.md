@@ -59,6 +59,19 @@ runs from RAM. 128 MiB recommended. See [`docs/MINIMUM-SPEC.md`](docs/MINIMUM-SP
 - **Boot:** Custom BusyBox initramfs → Dropbear SSH → app
 - **Init:** BusyBox init, no systemd/openrc
 
+## Networking
+
+A wired uplink is chosen automatically: init brings up every wired NIC and
+keeps the first that actually gets a DHCP lease (a dead onboard NIC or a late
+USB-Ethernet adapter won't block it). Only the **primary** interface owns the
+default route and DNS. Pick it explicitly when several NICs are present:
+
+```sh
+wayang-net list            # interfaces, link, driver, address
+wayang-net use enp0s20u1   # make it primary (persisted in /data/etc/network/primary)
+wayang-net auto            # forget the choice, auto-detect again
+```
+
 ## Quick Start
 
 ```bash

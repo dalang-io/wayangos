@@ -239,6 +239,8 @@ if [ -n "$DATA" ]; then
         echo "  /data on $dev"
         # keep SSH host keys across reboots
         mkdir -p /data/etc/dropbear
+        # persisted network uplink choice (wayang-net use <iface>)
+        mkdir -p /data/etc/network
         rm -rf /etc/dropbear && ln -s /data/etc/dropbear /etc/dropbear
         # this box's name and root's SSH keys (set by the installer / wayang-addkey)
         [ -s /data/etc/hostname ] && hostname -F /data/etc/hostname
@@ -289,8 +291,15 @@ chmod +x "$ROOTFS/etc/init.d/rcK"
 # Network init script
 cat > "$ROOTFS/etc/init.d/network" << 'NETWORK'
 #!/bin/sh
-# DHCP on every wired NIC, not just the first: a dead onboard NIC can still
-# claim eth0, and USB adapters show up a few seconds after boot.
+# Pick a wired uplink and make it the *primary* route.
+#
+# Honors /data/etc/network/primary (set with `wayang-net use <iface>`).
+# Otherwise it probes every wired NIC and keeps the first that actually gets a
+# DHCP lease — so a dead onboard NIC or a late USB-Ethernet adapter can't stop
+# networking. Only the primary interface owns the default route + DNS.
+
+PRIMARY_FILE=/data/etc/network/primary
+PRIMARY_RUN=/var/run/wayang-primary
 
 # physical, non-wireless interfaces (skips lo, bridges, VLANs, tunnels)
 wired() {
@@ -299,37 +308,71 @@ wired() {
     done
 }
 
-dhcp() {
-    [ -e "/var/run/dhcp.$1" ] && return
-    : > "/var/run/dhcp.$1"
-    echo "  DHCP on $1..."
-    ifconfig "$1" up
-    # stays running to renew the lease; retries while there's no link
-    udhcpc -f -S -i "$1" -s /etc/udhcpc.script -A 10 >/dev/null 2>&1 &
+carrier() { [ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" = "1" ]; }
+
+# synchronous: 0 if a lease was obtained
+probe() {
+    udhcpc -n -q -t 5 -T 3 -i "$1" -s /etc/udhcpc.script >/dev/null 2>&1
+}
+
+# persistent: stays in the background and renews
+serve() {
+    echo "  DHCP on $1 (primary)"
+    echo "$1" > "$PRIMARY_RUN"
+    udhcpc -b -i "$1" -s /etc/udhcpc.script >/dev/null 2>&1
+}
+
+adopt() {
+    mkdir -p /data/etc/network 2>/dev/null
+    echo "$1" > "$PRIMARY_FILE" 2>/dev/null
+    serve "$1"
 }
 
 case "$1" in
     start)
         ifconfig lo 127.0.0.1 netmask 255.0.0.0 up
-        for i in $(wired); do dhcp "$i"; done
-        # pick up late (USB) adapters for the first 30 seconds
-        (
-            n=0
-            while [ $n -lt 30 ]; do
-                sleep 1; n=$((n + 1))
-                for i in $(wired); do dhcp "$i"; done
+        for i in $(wired); do ifconfig "$i" up 2>/dev/null; done
+        sleep 1
+
+        [ -r "$PRIMARY_FILE" ] && PRIMARY="$(tr -d '[:space:]' < "$PRIMARY_FILE")"
+        if [ -n "$PRIMARY" ] && [ -d "/sys/class/net/$PRIMARY" ]; then
+            adopt "$PRIMARY"
+        else
+            # prefer interfaces that report a link
+            cand=""
+            for i in $(wired); do carrier "$i" && cand="$cand $i"; done
+            [ -z "$cand" ] && cand="$(wired)"
+            for i in $cand; do
+                if probe "$i"; then adopt "$i"; break; fi
             done
-        ) &
+        fi
+
+        # keep looking for late (USB) adapters for a while if nothing worked
+        if [ ! -e "$PRIMARY_RUN" ]; then
+            (
+                n=0
+                while [ $n -lt 60 ]; do
+                    sleep 2; n=$((n + 2))
+                    for i in $(wired); do
+                        carrier "$i" || continue
+                        [ -e "/var/run/probe.$i" ] && continue
+                        : > "/var/run/probe.$i"
+                        if probe "$i"; then adopt "$i"; exit 0; fi
+                    done
+                done
+            ) &
+        fi
+
         # give DHCP a moment so the boot banner can show the address
         n=0
-        while [ $n -lt 10 ] && ! ip -4 addr show scope global | grep -q inet; do
+        while [ $n -lt 10 ] && ! ip -4 addr show scope global 2>/dev/null | grep -q inet; do
             sleep 1; n=$((n + 1))
         done
         ;;
     stop)
         killall udhcpc 2>/dev/null
         for i in $(wired); do ifconfig "$i" down 2>/dev/null; done
-        rm -f /var/run/dhcp.*
+        rm -f "$PRIMARY_RUN" /var/run/probe.*
         ;;
     restart) $0 stop; sleep 1; $0 start ;;
 esac
@@ -341,19 +384,78 @@ cat > "$ROOTFS/etc/udhcpc.script" << 'DHCP'
 #!/bin/sh
 case "$1" in
     bound|renew)
-        ifconfig $interface $ip netmask $subnet up
-        if [ -n "$router" ]; then
-            route del default 2>/dev/null
-            for gw in $router; do route add default gw $gw dev $interface; done
+        ifconfig "$interface" "$ip" netmask "$subnet" up
+        # Only the primary interface owns the default route and DNS, so several
+        # NICs can't fight over them.
+        prim="$(tr -d '[:space:]' < /var/run/wayang-primary 2>/dev/null)"
+        if [ -z "$prim" ]; then prim="$interface"; echo "$interface" > /var/run/wayang-primary; fi
+        if [ "$interface" = "$prim" ]; then
+            if [ -n "$router" ]; then
+                route del default 2>/dev/null
+                for gw in $router; do route add default gw "$gw" dev "$interface"; done
+            fi
+            : > /etc/resolv.conf
+            for ns in $dns; do echo "nameserver $ns" >> /etc/resolv.conf; done
         fi
-        : > /etc/resolv.conf
-        for ns in $dns; do echo "nameserver $ns" >> /etc/resolv.conf; done
-        echo "  $interface: $ip (gw: $router)"
+        echo "  $interface: $ip (gw: ${router:-none})"
         ;;
-    deconfig) ifconfig $interface 0.0.0.0 ;;
+    deconfig) ifconfig "$interface" 0.0.0.0 ;;
 esac
 DHCP
 chmod +x "$ROOTFS/etc/udhcpc.script"
+
+# wayang-net — inspect and choose the primary uplink
+cat > "$ROOTFS/usr/bin/wayang-net" << 'WAYANGNET'
+#!/bin/sh
+# wayang-net — choose which wired NIC provides internet.
+#   wayang-net list            show interfaces, link, driver, address
+#   wayang-net use <iface>     make <iface> the primary and renew DHCP now
+#   wayang-net auto            forget the choice and auto-detect again
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+PRIMARY_FILE=/data/etc/network/primary
+PRIMARY_RUN=/var/run/wayang-primary
+
+wired() { for d in /sys/class/net/*; do [ -e "$d/device" ] && [ ! -d "$d/wireless" ] && echo "${d##*/}"; done; }
+link_of() { [ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" = 1 ] && echo link || echo no-link; }
+drv_of() { basename "$(readlink -f "/sys/class/net/$1/device/driver" 2>/dev/null)" 2>/dev/null; }
+ip_of() { ifconfig "$1" 2>/dev/null | awk '/inet /{print $2; exit}'; }
+
+case "$1" in
+    list|status|"")
+        prim="$(tr -d '[:space:]' < "$PRIMARY_FILE" 2>/dev/null)"
+        printf '%-12s %-8s %-12s %-16s %s\n' IFACE LINK DRIVER IPV4 NOTE
+        for i in $(wired); do
+            note=""
+            [ "$i" = "$prim" ] && note="<- primary"
+            printf '%-12s %-8s %-12s %-16s %s\n' "$i" "$(link_of "$i")" "$(drv_of "$i")" "$(ip_of "$i")" "$note"
+        done
+        echo "default route: $(ip route show default 2>/dev/null | head -1)"
+        ;;
+    use)
+        i="$2"
+        [ -n "$i" ] && [ -d "/sys/class/net/$i" ] || { echo "usage: wayang-net use <iface>" >&2; exit 1; }
+        killall udhcpc 2>/dev/null
+        route del default 2>/dev/null
+        mkdir -p /data/etc/network 2>/dev/null
+        echo "$i" > "$PRIMARY_FILE" 2>/dev/null
+        echo "$i" > "$PRIMARY_RUN"
+        ifconfig "$i" up
+        udhcpc -n -q -t 5 -T 3 -i "$i" -s /etc/udhcpc.script || { echo "no lease on $i" >&2; exit 1; }
+        udhcpc -b -i "$i" -s /etc/udhcpc.script >/dev/null 2>&1
+        echo "primary -> $i ($(ip_of "$i"))"
+        ;;
+    auto)
+        killall udhcpc 2>/dev/null
+        rm -f "$PRIMARY_FILE" "$PRIMARY_RUN" /var/run/probe.*
+        /etc/init.d/network restart
+        ;;
+    *)
+        echo "usage: wayang-net list | use <iface> | auto" >&2
+        exit 1
+        ;;
+esac
+WAYANGNET
+chmod +x "$ROOTFS/usr/bin/wayang-net"
 
 # SSH init script
 cat > "$ROOTFS/etc/init.d/sshd" << 'SSHD'
