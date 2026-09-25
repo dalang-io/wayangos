@@ -47,6 +47,9 @@ package manager.
 
 Also runs on any x86_64 machine via QEMU or bare metal.
 
+**Minimum (x86_64, tested):** 72 MiB RAM, 1 CPU (any x86-64), no disk — it
+runs from RAM. 128 MiB recommended. See [`docs/MINIMUM-SPEC.md`](docs/MINIMUM-SPEC.md).
+
 ## Architecture
 
 - **Rendering:** Direct framebuffer writes to `/dev/fb0` (32-bit BGRA)

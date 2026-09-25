@@ -51,7 +51,10 @@ initramfs/`init` flow runs.
 
 | Component | Size |
 |-----------|------|
-| Kernel | ~14 MB (defconfig-qemu) |
-| initramfs | ~2-3 MB |
-| Runtime RAM | ~20 MB |
-| **Recommended minimum** | **~128 MB** |
+| Kernel | 14 MB bzImage (defconfig-qemu), 15 MB (defconfig-intel); ~41 MB of RAM once running |
+| initramfs | 4.7 MB compressed, 10.3 MB unpacked |
+| Runtime RAM | ~12 MB used after boot |
+| **Tested minimum** | **72 MiB** (defconfig-intel), 70 MiB (defconfig-qemu), 1 vCPU, no disk |
+| **Recommended** | **128 MiB** |
+
+Details and the test method: [`MINIMUM-SPEC.md`](MINIMUM-SPEC.md).
