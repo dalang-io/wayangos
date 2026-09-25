@@ -81,45 +81,6 @@ jobs:
       - name: Verify binary
         run: test -x "$HOME/wayangos-build/wayang-pos-static"
 
-  dcheck:
-    name: Build dcheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-unknown-freebsd
-
-      - name: Test
-        run: cargo test --manifest-path dcheck/Cargo.toml --locked
-
-      - name: Build linux/amd64 static
-        run: cargo build --release --locked --target x86_64-unknown-linux-musl --manifest-path dcheck/Cargo.toml
-
-      - name: Build linux/arm64 static
-        run: cargo build --release --locked --target aarch64-unknown-linux-musl --manifest-path dcheck/Cargo.toml
-
-      - name: Check FreeBSD build
-        run: cargo check --locked --target x86_64-unknown-freebsd --manifest-path dcheck/Cargo.toml
-
-      - name: Verify static ELF
-        run: |
-          file dcheck/target/x86_64-unknown-linux-musl/release/dcheck
-          test -x dcheck/target/x86_64-unknown-linux-musl/release/dcheck
-
-      - name: Fixture test (static binary)
-        env:
-          DCHECK_BIN: dcheck/target/x86_64-unknown-linux-musl/release/dcheck
-        run: ./scripts/test-dcheck.sh
-
-      - name: JSON output smoke test
-        env:
-          DCHECK_DEMO: "1"
-        run: |
-          dcheck/target/x86_64-unknown-linux-musl/release/dcheck storage --json \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,list) and d; print("json ok:", len(d), "devices")'
-
   smoke:
     name: Rootfs smoke build
     if: github.event_name == 'workflow_dispatch'

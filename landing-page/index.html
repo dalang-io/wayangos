@@ -33,7 +33,7 @@
         "contactType": "sales",
         "availableLanguage": ["Indonesian", "English"]
       },
-      "sameAs": ["https://github.com/mashanz/wayangos"]
+      "sameAs": ["https://github.com/dalang-io/wayangos"]
     }
     </script>
     <link rel="stylesheet" href="/assets/tailwind.css?v=b01b14e">
@@ -61,7 +61,7 @@
                 <li><a href="download.html" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">Download</a></li>
                 <li><a href="apps.html" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">Apps</a></li>
                 <li><a href="about.html" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">About</a></li>
-                <li><a href="https://github.com/mashanz/wayangos" target="_blank" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">GitHub</a></li>
+                <li><a href="https://github.com/dalang-io/wayangos" target="_blank" class="text-w-text2 no-underline text-sm hover:text-w-gold transition-colors">GitHub</a></li>
                 <li>
                     <div class="lang-switch flex gap-1 items-center ml-2">
                         <button onclick="setLang('en')" id="btn-en" class="px-2 py-0.5 rounded text-xs font-semibold bg-transparent text-w-text2 border border-w-border cursor-pointer">EN</button>
@@ -85,7 +85,7 @@
         <p class="text-[clamp(0.95rem,2vw,1.1rem)] text-w-text2 max-w-[620px] mb-12 relative z-[1]">Ultra-minimal deployment Linux. Boot in 2 seconds, SSH ready, deploy static binaries via scp. No package manager, no systemd, no bloat.</p>
         <div class="hero-buttons-stack flex gap-4 relative z-[1]">
             <a href="#download" class="px-8 py-3.5 rounded-md text-sm font-semibold no-underline bg-w-gold text-w-bg hover:bg-w-gold-b hover:shadow-[0_0_30px_#c8941a44] transition-all"><span data-en="Get Started" data-id="Mulai Sekarang">Get Started</span></a>
-            <a href="https://github.com/mashanz/wayangos" class="px-8 py-3.5 rounded-md text-sm font-semibold no-underline bg-transparent text-w-text border border-w-border-g hover:border-w-gold hover:text-w-gold transition-all" target="_blank">View Source →</a>
+            <a href="https://github.com/dalang-io/wayangos" class="px-8 py-3.5 rounded-md text-sm font-semibold no-underline bg-transparent text-w-text border border-w-border-g hover:border-w-gold hover:text-w-gold transition-all" target="_blank">View Source →</a>
         </div>
         <div class="flex gap-12 mt-20 relative z-[1] flex-wrap justify-center max-md:gap-4 max-md:mt-12">
             <div class="text-center min-w-[80px]">
@@ -303,11 +303,11 @@
                         <p class="text-w-text2 text-sm mb-3">Select your GPU/platform and grab the bootable ISO. UEFI + BIOS hybrid — works on any modern or legacy hardware.</p>
                         <select id="install-iso-select" class="dl-select block mb-3">
                             <option value="">-- Select your GPU / Platform --</option>
-                            <option value="https://github.com/mashanz/wayangos/releases/download/v0.6.0/wayangos-intel.iso">🔵 Intel GPU (HD/UHD/Iris) — 30 MB</option>
-                            <option value="https://github.com/mashanz/wayangos/releases/download/v0.6.0/wayangos-amd.iso">🔴 AMD GPU (Radeon/RX/Vega) — 35 MB</option>
-                            <option value="https://github.com/mashanz/wayangos/releases/download/v0.6.0/wayangos-nvidia.iso">🟢 NVIDIA GPU (GeForce/GTX/RTX) — 31 MB</option>
-                            <option value="https://github.com/mashanz/wayangos/releases/download/v0.6.0/wayangos-rpi3-gpu.zip">🍓 Raspberry Pi 3 — 18 MB</option>
-                            <option value="https://github.com/mashanz/wayangos/releases/download/v0.6.0/wayangos-orangepi-zero2w.zip">🍊 Orange Pi Zero 2W — 17 MB</option>
+                            <option value="https://github.com/dalang-io/wayangos/releases/download/v0.6.0/wayangos-intel.iso">🔵 Intel GPU (HD/UHD/Iris) — 30 MB</option>
+                            <option value="https://github.com/dalang-io/wayangos/releases/download/v0.6.0/wayangos-amd.iso">🔴 AMD GPU (Radeon/RX/Vega) — 35 MB</option>
+                            <option value="https://github.com/dalang-io/wayangos/releases/download/v0.6.0/wayangos-nvidia.iso">🟢 NVIDIA GPU (GeForce/GTX/RTX) — 31 MB</option>
+                            <option value="https://github.com/dalang-io/wayangos/releases/download/v0.6.0/wayangos-rpi3-gpu.zip">🍓 Raspberry Pi 3 — 18 MB</option>
+                            <option value="https://github.com/dalang-io/wayangos/releases/download/v0.6.0/wayangos-orangepi-zero2w.zip">🍊 Orange Pi Zero 2W — 17 MB</option>
                         </select>
                         <a id="install-download-btn" href="#" onclick="var sel=document.getElementById('install-iso-select');if(sel.value){window.location.href=sel.value}else{alert('Please select your GPU/platform first.')};return false;" class="inline-block bg-w-gold text-black px-6 py-2.5 rounded-md font-semibold no-underline text-sm opacity-50 pointer-events-none">⬇ Download Selected</a>
                         <script>document.getElementById('install-iso-select').addEventListener('change',function(){var btn=document.getElementById('install-download-btn');if(this.value){btn.style.opacity='1';btn.style.pointerEvents='auto';btn.href=this.value;}else{btn.style.opacity='0.5';btn.style.pointerEvents='none';btn.href='#';}});</script>
@@ -392,7 +392,7 @@
             <!-- Build from Source -->
             <div class="text-center">
                 <p class="text-w-text2 text-sm mb-3">Want to customize? Build from source:</p>
-                <a href="https://github.com/mashanz/wayangos" target="_blank" class="text-w-gold text-sm no-underline bg-w-card border border-w-border px-5 py-2.5 rounded-md inline-block">🔧 WayangOS Source</a>
+                <a href="https://github.com/dalang-io/wayangos" target="_blank" class="text-w-gold text-sm no-underline bg-w-card border border-w-border px-5 py-2.5 rounded-md inline-block">🔧 WayangOS Source</a>
             </div>
         </div>
     </section>
@@ -515,7 +515,7 @@
             <p class="text-w-text2 text-sm italic mb-2">Ancient Art. Bare Metal.</p>
             <p class="text-w-dim text-sm">
                 &copy; 2026 Dalang Pte Ltd ·
-                <a href="https://github.com/mashanz/wayangos" target="_blank" class="text-w-gold no-underline hover:underline">WayangOS</a> ·
+                <a href="https://github.com/dalang-io/wayangos" target="_blank" class="text-w-gold no-underline hover:underline">WayangOS</a> ·
                 <a href="apps.html" class="text-w-gold no-underline hover:underline">Apps</a> ·
                 GPLv2 (kernel) · MIT (userspace)
             </p>

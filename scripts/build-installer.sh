@@ -6,7 +6,7 @@
 #   TARGET   rust target triple (default: x86_64-unknown-linux-musl)
 #   OUT      output path (default: <repo>/dist/wayang-installer-<target>)
 #
-# Cross-linking from macOS uses `zig cc`, same as scripts/build-dcheck.sh.
+# Cross-linking from macOS uses `zig cc` (as dcheck does, dalang-io/dcheck).
 set -e
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"

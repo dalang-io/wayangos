@@ -46,9 +46,8 @@ wx-static
 node_modules/
 .wrangler/
 
-# Rust / dcheck
+# Rust
 dist/
-dcheck/target/
 installer/target/
 
 # Temp files
