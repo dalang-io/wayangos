@@ -6,11 +6,13 @@
 
 mod authenticity;
 mod bench;
+mod board;
 mod cache;
 mod config;
 mod cpu;
 mod enumerate;
 mod health;
+mod ipmi;
 mod json;
 mod kernlog;
 mod model;
@@ -107,6 +109,7 @@ fn run(args: &[String]) -> i32 {
         Some("undelete") => undelete::cmd(&args[1..]),
         Some("ram") => ram_cmd(&args[1..]),
         Some("cpu") => cpu_cmd(&args[1..]),
+        Some("board") | Some("motherboard") | Some("mobo") => board_cmd(&args[1..]),
         Some(other) => {
             eprintln!("dcheck: unknown command '{other}'\n");
             print_help();
@@ -244,6 +247,8 @@ USAGE:
     dcheck snapshot DIR     Render every TUI screen to SVG (docs/screenshots)
     dcheck demo             Run with built-in sample devices (no sysfs needed)
     dcheck ram | cpu        Memory / CPU report (--json)
+    dcheck board            Motherboard: maker, BIOS, PCIe/USB devices, sensors,
+                            BMC event log and health (--json; root for IPMI)
     dcheck --version
 
 On hosts without /sys (e.g. macOS) dcheck automatically falls back to demo data.
@@ -662,6 +667,18 @@ fn cpu_cmd(args: &[String]) -> i32 {
         println!("{}", report::cpu_json(&info));
     } else {
         for line in report::cpu_report_lines(&cpu::read()) {
+            println!("{line}");
+        }
+    }
+    0
+}
+
+fn board_cmd(args: &[String]) -> i32 {
+    let info = board::read();
+    if args.iter().any(|a| a == "--json") {
+        println!("{}", report::board_json(&info));
+    } else {
+        for line in report::board_report_lines(&info) {
             println!("{line}");
         }
     }

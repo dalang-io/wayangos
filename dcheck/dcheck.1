@@ -111,8 +111,16 @@ into
 which must be on another disk. The source is only read. Other filesystems:
 .B \-\-carve
 recovers JPEG, PNG, PDF and ZIP/Office files by their signatures.
+.TP
+.BR board " [" \-\-json "]"
+Motherboard: system / board / chassis identity (DMI), BIOS version, date and
+boot mode, BMC firmware, PCIe devices (driver, link, AER errors), USB
+devices, board sensors (hwmon) and, as root on servers, the BMC over native
+IPMI (fans, temperatures, voltages, power supplies, event log). Verdict OK,
+MONITOR or CRITICAL. Aliases:
+.BR motherboard ", " mobo .
 .SH KEYS (TUI)
-↑/↓ or j/k move; Enter open; Esc/b back; 1/2/3 jump to storage/memory/processor;
+↑/↓ or j/k move; Enter open; Esc/b back; 1/2/3/4 jump to storage/memory/processor/motherboard;
 PgUp/PgDn page; Home/End or g/G jump; r rescan/refresh; c copy log (OSC52);
 ? command reference; q quit. Any key skips the start-up splash.
 On a disk: u recovery chance and disk map (read-only), then d deleted files

@@ -58,6 +58,7 @@ dcheck storage <dev> --json   # full JSON report for one device
 dcheck tui              # force the terminal UI
 dcheck demo             # run with built-in sample devices
 dcheck ram | cpu        # memory / CPU report (or --json)
+dcheck board            # motherboard: maker, BIOS, PCIe/USB, sensors, BMC log (--json)
 dcheck verify <dev>     # prove the real capacity (fake drives; writes test files)
 dcheck recover <dev|path>  # deleted a file? chance, steps, disk map (read-only)
 dcheck undelete <dev|image> [--to DIR]  # list / recover deleted files (NTFS, FAT32, exFAT; --carve)
@@ -294,6 +295,29 @@ sudo dcheck undelete /dev/sdb --carve --to /mnt/usb/rescue   # ext4 / XFS / btrf
   `a` all intact) and `w` to recover into a folder you type.
 - Verified with images made on Linux (mkfs, write, delete, write again):
   every recovered file matched the original's SHA-256.
+
+## Motherboard: `dcheck board`
+
+Also in the UI as **04 MOTHERBOARD** (key `4`).
+
+- **Identity**: system, board and chassis from DMI (serials as root);
+  unfilled fields ("Default string") → noted as a generic / white-label board.
+- **Firmware**: BIOS vendor, version, date and age, UEFI / legacy, Secure
+  Boot, BMC firmware.
+- **Sensors**: board hwmon chips (fans, voltages, temperatures with their
+  alarms / limits) and, on servers, the **BMC over native IPMI**
+  (`/dev/ipmi0`, root, no ipmitool): fans, temperatures, voltages, power
+  draw, power supplies, redundancy, intrusion — with the BMC's own status.
+- **BMC event log**: recent events (PSU AC lost, chassis opened, drive
+  faults, memory / processor errors); warning/critical ones from the last
+  30 days raise the verdict.
+- **PCIe devices** (names from pci.ids when present): driver, link speed /
+  width, AER error counters; **USB devices**.
+- **Verdict** OK / MONITOR / CRITICAL: sensor out of range or critical,
+  PSU without AC (MONITOR while another supply runs: redundancy lost),
+  PCIe fatal / non-fatal errors, recent critical BMC events. Notes: old
+  BIOS, devices without a driver, narrower PCIe links, Secure Boot off.
+- macOS: model, chip, firmware version.
 
 ## Monitoring
 

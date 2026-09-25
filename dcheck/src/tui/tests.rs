@@ -71,6 +71,9 @@ fn app(pal: Palette, plain: bool) -> App {
     let c = cpu();
     a.cpu_lines = report::cpu_report_lines(&c);
     a.cpu = Some(c);
+    let b = crate::board::demo();
+    a.board_lines = report::board_report_lines(&b);
+    a.board = Some(b);
     a
 }
 
@@ -109,6 +112,7 @@ fn screens() -> Vec<(Screen, &'static [&'static str])> {
         (Screen::Storage, &["STORAGE ARRAY", "/dev/nvme0n1", "BACK UP NOW"]),
         (Screen::Ram, &["MEMORY BANK", "USED", "SLOTS"]),
         (Screen::Cpu, &["PROCESSOR CORE", "LOAD", "THREADS"]),
+        (Screen::Board, &["MOTHERBOARD", "PowerEdge R630", "MONITOR"]),
     ]
 }
 
@@ -143,7 +147,7 @@ fn report_shows_life_and_endurance_gauges() {
 
 #[test]
 fn menu_cards_follow_selection() {
-    for (i, title) in [(0, "STORAGE ARRAY"), (1, "MEMORY BANK"), (2, "PROCESSOR"), (3, "SESSION")] {
+    for (i, title) in [(0, "STORAGE ARRAY"), (1, "MEMORY BANK"), (2, "PROCESSOR"), (3, "MOTHERBOARD"), (4, "SESSION")] {
         let mut a = app(neon(), false);
         a.menu.select(Some(i));
         let t = text(&render(&mut a, 120, 30));
@@ -482,4 +486,34 @@ fn undelete_screen_recovers_real_files_from_an_image() {
     assert_eq!(std::fs::read(out.join("big.bin")).unwrap(), big);
     assert!(out.join("Dokumen Kantor/Laporan Keuangan 2026.xlsx").exists());
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn motherboard_menu_item_card_and_screen() {
+    let mut a = app(neon(), false);
+    a.menu.select(Some(3));
+    let t = text(&render(&mut a, 120, 36));
+    for e in ["MOTHERBOARD", "PowerEdge R630", "FANS", "no AC input"] {
+        assert!(t.contains(e), "card missing {e:?}:\n{t}");
+    }
+    handle_key(&mut a, KeyCode::Enter);
+    assert_eq!(a.screen, Screen::Board);
+    let t = text(&render(&mut a, 140, 44));
+    for e in ["BIOS", "2.19.0", "BMC", "POWER", "ALERTS", "redundancy lost", "BOARD LOG", "EVENT LOG"] {
+        assert!(t.contains(e), "screen missing {e:?}:\n{t}");
+    }
+    handle_key(&mut a, KeyCode::Esc);
+    assert_eq!(a.screen, Screen::Menu);
+    handle_key(&mut a, KeyCode::Char('4'));
+    assert_eq!(a.screen, Screen::Board);
+    // Plain mode stays ASCII on the card and the screen.
+    a.ui = Ui { plain: true };
+    let t = text(&render(&mut a, 140, 44));
+    assert_ascii(t.split("BOARD LOG").next().unwrap());
+    a.screen = Screen::Menu;
+    a.menu.select(Some(3));
+    assert_ascii(&text(&render(&mut a, 120, 36)));
+    // Exit is now the 5th item.
+    a.menu.select(Some(4));
+    assert!(handle_key(&mut a, KeyCode::Enter));
 }

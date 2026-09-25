@@ -47,6 +47,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::Report => report_view(f, app, body),
         Screen::Ram => ram_view(f, app, body),
         Screen::Cpu => cpu_view(f, app, body),
+        Screen::Board => board_view(f, app, body),
         Screen::Recover => recover_view(f, app, body),
         Screen::Verify => verify_view(f, app, body),
         Screen::Undelete => undelete_view(f, app, body),
@@ -94,6 +95,10 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         Screen::Cpu => {
             let (l, s) = app.cpu_sev();
             (l, s, app.cpu_rx.is_some(), "PROCESSOR".to_string())
+        }
+        Screen::Board => {
+            let (l, s) = app.board_sev();
+            (l, s, app.board_rx.is_some(), "MOTHERBOARD".to_string())
         }
         _ => {
             let s = app.worst_device();
@@ -148,7 +153,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let (p, ui) = (&app.pal, app.ui);
     let nav = if ui.plain { "j/k" } else { "↑↓" };
     let items: &[(&str, &str)] = match app.screen {
-        Screen::Menu => &[(nav, "nav"), ("enter", "open"), ("1-3", "jump"), ("?", "help"), ("q", "quit")],
+        Screen::Menu => &[(nav, "nav"), ("enter", "open"), ("1-4", "jump"), ("?", "help"), ("q", "quit")],
         Screen::Storage => &[
             (nav, "select"),
             ("enter", "report"),
@@ -276,12 +281,14 @@ fn menu(f: &mut Frame, app: &mut App, area: Rect) {
 
     let (_, ram_sev) = app.ram_sev();
     let (_, cpu_sev) = app.cpu_sev();
+    let (_, board_sev) = app.board_sev();
     // (number, name, (severity, loading)) — EXIT has no status.
     type Entry = (&'static str, &'static str, Option<(u8, bool)>);
-    let entries: [Entry; 4] = [
+    let entries: [Entry; 5] = [
         ("01", "STORAGE", Some((app.worst_device(), app.health_rx.is_some()))),
         ("02", "MEMORY", Some((ram_sev, app.ram_rx.is_some()))),
         ("03", "PROCESSOR", Some((cpu_sev, app.cpu_rx.is_some()))),
+        ("04", "MOTHERBOARD", Some((board_sev, app.board_rx.is_some()))),
         ("00", "EXIT", None),
     ];
     let row_w = list_area.width.saturating_sub(2) as usize;
@@ -316,6 +323,7 @@ fn menu(f: &mut Frame, app: &mut App, area: Rect) {
             0 => storage_card(f, app, r),
             1 => ram_card(f, app, r),
             2 => cpu_card(f, app, r),
+            3 => board_card(f, app, r),
             _ => exit_card(f, app, r),
         }
     }
@@ -410,6 +418,18 @@ fn cpu_card(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(format!("enter {} processor diagnostics", ui.arrow()), p.fg(p.dim))));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
+}
+
+fn board_card(f: &mut Frame, app: &App, area: Rect) {
+    let (p, ui) = (&app.pal, app.ui);
+    let inner = w::panel(f, area, "MOTHERBOARD", None, p, ui);
+    let mut lines = match &app.board {
+        Some(b) => board_vitals(b, p, ui, inner.width, true),
+        None => vec![scanning_line(app, "READING BOARD / BMC")],
+    };
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(format!("enter {} board diagnostics", ui.arrow()), p.fg(p.dim))));
+    f.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }), inner);
 }
 
 fn exit_card(f: &mut Frame, app: &App, area: Rect) {
@@ -1635,6 +1655,138 @@ fn verify_view(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
+// ─── motherboard ────────────────────────────────────────────────────────────
+
+fn board_vitals(b: &crate::board::BoardInfo, p: &Palette, ui: Ui, width: u16, compact: bool) -> Vec<Line<'static>> {
+    use crate::board::{placeholder, Kind};
+    use crate::ipmi::Status;
+    let mut h = b.health();
+    if ui.plain {
+        for t in h.issues.iter_mut().chain(h.notes.iter_mut()) {
+            *t = t.replace('—', "-").replace('°', "");
+        }
+    }
+    let name = |i: &crate::board::Ident| {
+        let v: Vec<String> = [&i.vendor, &i.product, &i.version].into_iter().flatten().filter(|s| !placeholder(s)).cloned().collect();
+        if v.is_empty() {
+            "unknown".to_string()
+        } else {
+            v.join(" ")
+        }
+    };
+    let mut lines = vec![
+        w::field("VERDICT", LW - 1, vec![w::badge(h.severity, h.label, p, ui)], p),
+        w::field("SYSTEM", LW, text(name(&b.system), p), p),
+        w::field("BOARD", LW, text(name(&b.board), p), p),
+    ];
+    let mut bios = format!(
+        "{} {}",
+        b.bios.vendor.clone().unwrap_or_default(),
+        b.bios.version.clone().unwrap_or_else(|| "?".into())
+    );
+    if let Some((y, m, d)) = b.bios.date {
+        bios.push_str(&format!(" {} {y}-{m:02}-{d:02}", ui.dot()));
+        if let Some(a) = b.bios_age_years() {
+            bios.push_str(&format!(" ({a:.1} y)"));
+        }
+    }
+    lines.push(w::field("BIOS", LW, text(bios.trim().to_string(), p), p));
+    if !compact {
+        let mut mode = match b.bios.uefi {
+            Some(true) => "UEFI".to_string(),
+            Some(false) => "legacy BIOS".to_string(),
+            None => "?".to_string(),
+        };
+        if let Some(sb) = b.bios.secure_boot {
+            mode.push_str(if sb { " · Secure Boot on" } else { " · Secure Boot off" });
+        }
+        lines.push(w::field("BOOT", LW, text(if ui.plain { mode.replace('·', "-") } else { mode }, p), p));
+        if let Some(f) = &b.bmc_firmware {
+            lines.push(w::field("BMC", LW, text(format!("IPMI firmware {f}"), p), p));
+        }
+    }
+    // Sensors, summarised per kind.
+    let fans: Vec<f64> = b.sensors.iter().filter(|s| s.kind == Kind::Fan).filter_map(|s| s.value).collect();
+    if !fans.is_empty() {
+        let (lo, hi) = fans.iter().fold((f64::MAX, 0f64), |(a, z), v| (a.min(*v), z.max(*v)));
+        let bad = b.sensors.iter().filter(|s| s.kind == Kind::Fan && s.status != Status::Ok).count();
+        let color = if bad > 0 { p.warn } else { p.fg };
+        lines.push(w::field(
+            "FANS",
+            LW,
+            vec![Span::styled(
+                format!(
+                    "{} {} {lo:.0}{}{hi:.0} RPM{}",
+                    fans.len(),
+                    if ui.plain { "x" } else { "×" },
+                    if ui.plain { "-" } else { "–" },
+                    if bad > 0 { format!(" {} {bad} alarm", ui.dot()) } else { String::new() }
+                ),
+                p.fg(color),
+            )],
+            p,
+        ));
+    }
+    if let Some(t) = b.sensors.iter().filter(|s| s.kind == Kind::Temp).filter_map(|s| s.value.map(|v| (v, s))).max_by(|a, b| a.0.total_cmp(&b.0)) {
+        let cells = w::gauge_cells_for(width, LW, VW).min(if compact { 16 } else { 32 });
+        let color = p.level(t.0, 70.0, 85.0);
+        lines.push(w::gauge("HOTTEST", LW, t.0, cells, color, &format!("{:.0}{} {}", t.0, ui.degrees(), t.1.name), p, ui));
+    }
+    let psus: Vec<&crate::board::BoardSensor> = b.sensors.iter().filter(|s| s.kind == Kind::Power && s.state.is_some()).collect();
+    if !psus.is_empty() {
+        let mut spans = Vec::new();
+        for s in &psus {
+            let sev = match s.status {
+                Status::Ok => 0,
+                Status::Warn => 2,
+                Status::Crit => 3,
+            };
+            spans.push(w::status(sev, &s.name, p, ui));
+            spans.push(Span::raw("  "));
+        }
+        lines.push(w::field("POWER", LW, spans, p));
+    }
+    if let Some(wt) = b.sensors.iter().find(|s| s.kind == Kind::Power && s.unit == "W").and_then(|s| s.value) {
+        lines.push(w::field("DRAW", LW, text(format!("{wt:.0} W"), p), p));
+    }
+    let devs = b.pci.iter().filter(|d| !d.internal()).count();
+    lines.push(w::field(
+        "DEVICES",
+        LW,
+        text(format!("{devs} PCIe {} {} USB{}", ui.dot(), b.usb.len(), if b.events.is_empty() { String::new() } else { format!(" {} {} BMC events", ui.dot(), b.sel_entries) }), p),
+        p,
+    ));
+    if !compact && (!h.issues.is_empty() || !h.notes.is_empty()) {
+        lines.push(Line::from(""));
+        lines.push(w::caption("ALERTS", width, p, ui));
+        let color = if h.severity >= 3 { p.bad } else { p.warn };
+        for i in &h.issues {
+            lines.push(Line::from(Span::styled(format!("{} {i}", ui.sym(h.severity.max(2))), p.fg(color))));
+        }
+        for n in &h.notes {
+            lines.push(Line::from(Span::styled(format!("{} {n}", ui.bullet()), p.fg(p.dim))));
+        }
+    } else if compact && !h.issues.is_empty() {
+        lines.push(Line::from(Span::styled(format!("{} {}", ui.sym(h.severity), h.issues[0]), p.fg(if h.severity >= 3 { p.bad } else { p.warn }))));
+    }
+    lines
+}
+
+fn board_view(f: &mut Frame, app: &mut App, area: Rect) {
+    let (p, ui) = (app.pal.clone(), app.ui);
+    let loading = app.board_rx.is_some();
+    let lines = match &app.board {
+        Some(b) => board_vitals(b, &p, ui, area.width.saturating_sub(2), false),
+        None => vec![scanning_line(&*app, "READING BOARD, DEVICES AND BMC")],
+    };
+    let rows = display_rows(&lines, area.width.saturating_sub(2));
+    let (top, bottom) = dashboard_split(area, rows);
+    let inner = w::panel(f, top, "MOTHERBOARD", None, &p, ui);
+    f.render_widget(Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }), inner);
+    let log = app.board_lines.clone();
+    log_pane(f, app, bottom, "BOARD LOG  (sensors, BMC events, PCIe / USB devices)", loading && app.board.is_none(), log);
+}
+
 // ─── help overlay ───────────────────────────────────────────────────────────
 
 fn help(f: &mut Frame, app: &App, body: Rect) {
@@ -1657,7 +1809,7 @@ fn help(f: &mut Frame, app: &App, body: Rect) {
         key("g G  home end", "top / bottom"),
         key("enter", "open"),
         key("esc  b", "back"),
-        key("1 2 3", "jump to storage / memory / processor"),
+        key("1 2 3 4", "jump to storage / memory / processor / board"),
         w::caption("ACTIONS", inner.width, p, ui),
         key("r", "rescan devices / refresh reading"),
         key("u", "deleted a file? recovery chance + disk map"),

@@ -39,7 +39,7 @@ use crate::smartctl::SmartData;
 pub use theme::{ColorMode, Palette, Ui};
 
 const SPLASH: Duration = Duration::from_millis(500);
-const MENU_ITEMS: usize = 4;
+const MENU_ITEMS: usize = 5;
 
 /// TUI options resolved by `main` from flags, env and config.
 pub struct Options {
@@ -59,6 +59,8 @@ enum Screen {
     Report,
     Ram,
     Cpu,
+    /// Motherboard: identity, firmware, devices, sensors, BMC log.
+    Board,
     /// Can deleted files still be recovered? (read-only)
     Recover,
     /// Capacity test in free space (writes test files; asks first).
@@ -180,6 +182,9 @@ struct App {
     cpu: Option<CpuInfo>,
     cpu_lines: Vec<String>,
     cpu_rx: Option<Receiver<CpuInfo>>,
+    board: Option<crate::board::BoardInfo>,
+    board_lines: Vec<String>,
+    board_rx: Option<Receiver<crate::board::BoardInfo>>,
 
     /// Device of the recovery / capacity screens, and the screen to go
     /// back to.
@@ -245,6 +250,9 @@ impl App {
             cpu: None,
             cpu_lines: Vec::new(),
             cpu_rx: None,
+            board: None,
+            board_lines: Vec::new(),
+            board_rx: None,
             tool_dev: None,
             tool_back: Screen::Storage,
             recover: None,
@@ -272,6 +280,24 @@ impl App {
         self.spawn_health();
         self.spawn_ram();
         self.spawn_cpu();
+        self.spawn_board();
+    }
+
+    fn spawn_board(&mut self) {
+        let demo = self.demo;
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(if demo { crate::board::demo() } else { crate::board::read() });
+        });
+        self.board_rx = Some(rx);
+    }
+
+    fn open_board(&mut self) {
+        if self.board_rx.is_none() && self.board.is_none() {
+            self.spawn_board();
+        }
+        self.scroll = 0;
+        self.screen = Screen::Board;
     }
 
     fn spawn_health(&mut self) {
@@ -554,6 +580,10 @@ impl App {
             self.cpu_lines = report::cpu_report_lines(&c);
             self.cpu = Some(c);
         }
+        if let Some(b) = poll(&mut self.board_rx) {
+            self.board_lines = report::board_report_lines(&b);
+            self.board = Some(b);
+        }
         self.drain_recover();
         self.drain_verify();
         match poll(&mut self.undel_rx) {
@@ -654,6 +684,7 @@ impl App {
             || self.report_rx.is_some()
             || self.ram_rx.is_some()
             || self.cpu_rx.is_some()
+            || self.board_rx.is_some()
             || self.recover_rx.is_some()
             || self.undel_rx.is_some()
             || matches!(self.verify, VerifyState::Running { .. })
@@ -670,6 +701,10 @@ impl App {
             .unwrap_or(("UNKNOWN", 1))
     }
 
+    fn board_sev(&self) -> (&'static str, u8) {
+        self.board.as_ref().map(|b| b.verdict()).unwrap_or(("UNKNOWN", 1))
+    }
+
     fn worst_device(&self) -> u8 {
         self.health.iter().map(|h| h.sev).max().unwrap_or(1)
     }
@@ -680,6 +715,7 @@ impl App {
             Screen::Report => self.report_lines.len(),
             Screen::Ram => self.ram_lines.len(),
             Screen::Cpu => self.cpu_lines.len(),
+            Screen::Board => self.board_lines.len(),
             Screen::Recover => self.recover_lines.len(),
             Screen::Verify => self.verify_lines.len(),
             _ => 0,
@@ -982,10 +1018,12 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             KeyCode::Char('1') => app.screen = Screen::Storage,
             KeyCode::Char('2') => app.open_ram(),
             KeyCode::Char('3') => app.open_cpu(),
+            KeyCode::Char('4') => app.open_board(),
             KeyCode::Enter => match app.menu.selected().unwrap_or(0) {
                 0 => app.screen = Screen::Storage,
                 1 => app.open_ram(),
                 2 => app.open_cpu(),
+                3 => app.open_board(),
                 _ => return true,
             },
             _ => {}
@@ -1025,7 +1063,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         },
         Screen::Verify => handle_verify_key(app, code),
         Screen::Undelete => handle_undelete_key(app, code),
-        Screen::Report | Screen::Ram | Screen::Cpu | Screen::Recover => match code {
+        Screen::Report | Screen::Ram | Screen::Cpu | Screen::Board | Screen::Recover => match code {
             KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') => {
                 app.screen = match app.screen {
                     Screen::Report => Screen::Storage,
@@ -1057,6 +1095,9 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
                 Screen::Ram => {
                     app.spawn_ram();
                 }
+                Screen::Board => {
+                    app.spawn_board();
+                }
                 Screen::Recover => {
                     if let Some(i) = app.tool_dev {
                         let back = app.tool_back;
@@ -1087,7 +1128,7 @@ fn handle_mouse(app: &mut App, kind: MouseEventKind) {
         _ => return,
     };
     match app.screen {
-        Screen::Report | Screen::Ram | Screen::Cpu | Screen::Recover | Screen::Verify => app.scroll_by(delta * 3),
+        Screen::Report | Screen::Ram | Screen::Cpu | Screen::Board | Screen::Recover | Screen::Verify => app.scroll_by(delta * 3),
         Screen::Undelete => {
             let n = app.undel.as_ref().map_or(0, |s| s.files.len()) as i32;
             let i = app.undel_table.selected().unwrap_or(0) as i32 + delta;
@@ -1112,6 +1153,7 @@ fn copy_current(app: &mut App) {
         Screen::Report => app.report_lines.join("\n"),
         Screen::Ram => app.ram_lines.join("\n"),
         Screen::Cpu => app.cpu_lines.join("\n"),
+        Screen::Board => app.board_lines.join("\n"),
         Screen::Recover => app.recover_lines.join("\n"),
         Screen::Verify => app.verify_lines.join("\n"),
         Screen::Undelete => app.undel.as_ref().map(|s| crate::undelete::scan_lines(s).join("\n")).unwrap_or_default(),

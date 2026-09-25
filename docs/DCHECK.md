@@ -65,6 +65,7 @@ dcheck storage              # TUI: storage device list
 dcheck storage <dev>        # direct report for one device (e.g. /dev/nvme0n1)
 dcheck storage --json       # machine-readable report for all devices
 dcheck ram | dcheck cpu     # memory / CPU report (or --json)
+dcheck board                # motherboard: DMI, BIOS, PCIe/USB, sensors, IPMI log
 dcheck check | watch        # health gate / monitoring loop
 dcheck prometheus           # metrics
 dcheck verify <dev>         # prove the real capacity (writes test files; asks)
@@ -83,6 +84,7 @@ Screen 1 — Command deck
   │  ▸ Storage                   │   (card: disks + worst verdict)
   │    Memory                    │   (card: usage, slots, ECC)
   │    Processor                 │   (card: load, temperature)
+  │    Motherboard               │   (card: board, BIOS, fans, PSUs)
   │    Quit                      │
   └──────────────────────────────┘
 
@@ -127,6 +129,8 @@ dcheck/
 │   ├── bench.rs       # read-only O_DIRECT benchmark
 │   ├── ram.rs         # memory, ECC, SMBIOS modules
 │   ├── cpu.rs         # CPU identity, topology, temp, load
+│   ├── board.rs       # motherboard: DMI, BIOS, PCIe, USB, hwmon, health
+│   ├── ipmi.rs        # native IPMI (SDR, readings, SEL) via /dev/ipmi0
 │   ├── report.rs      # text reports, JSON, Prometheus
 │   ├── monitor.rs     # check / watch / webhook
 │   ├── config.rs      # config.json (read once per process)
@@ -453,6 +457,14 @@ can verify on real hardware (Fedora SATA + Dell R630 SAS).
 - **AC:** verified — HDD ext4 → MEDIUM, ~92% of free space holds old data;
   SSD with discard → ALMOST NONE, ~0%; recovered files from real FAT32 /
   exFAT / NTFS images match the originals' SHA-256.
+
+### M16 — Motherboard — DONE
+- `dcheck board` / UI 04: identity, firmware, PCIe (driver, link, AER),
+  USB, hwmon sensors, native IPMI (sensors + SEL), verdict.
+- **AC:** verified — R630s: readings match `ipmitool sdr elist`, the
+  unplugged redundant PSU is reported (MONITOR, redundancy lost) and the
+  BMC log shows the past AC-lost / chassis-opened events; generic X99 board
+  flagged as white-label with its GPU missing a driver.
 
 ## 17. Risks
 

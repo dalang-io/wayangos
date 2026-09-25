@@ -8,7 +8,7 @@ desain lengkapnya di [`../docs/DCHECK.md`](../docs/DCHECK.md).
 ## 1. Apa itu dcheck
 
 Tool CLI/TUI untuk mengecek kesehatan **storage** (SAS, SATA, NVMe), **RAM**,
-dan **CPU**. Satu binary tanpa dependency (Linux: musl statis; macOS). Target
+**CPU** dan **motherboard**. Satu binary tanpa dependency (Linux: musl statis; macOS). Target
 utamanya teknisi server:
 
 - SMART dibaca **native**: ATA HDIO, SCSI/SAS log pages, NVMe admin, dan
@@ -32,6 +32,10 @@ utamanya teknisi server:
 - **`dcheck undelete`**: daftar dan pulihkan file terhapus di NTFS / FAT32 /
   exFAT (nama tetap), `--carve` untuk filesystem lain; tujuan wajib di disk
   lain.
+- **`dcheck board`**: identitas DMI, BIOS, PCIe (driver, link, AER), USB,
+  sensor hwmon dan **IPMI native** (`ipmi.rs`, `/dev/ipmi0`, tanpa
+  ipmitool): kipas, suhu, tegangan, PSU, log event BMC. PSU tanpa AC →
+  MONITOR (redundansi hilang) atau CRITICAL (tidak ada PSU lain).
 - TUI bertema "sci-fi HUD", dengan fallback ANSI / `--plain` / `NO_COLOR`.
   Di disk: `u` RECOVERY → `d` DELETED FILES (peta blok), `v` CAPACITY TEST.
 - Self-update: `dcheck update` (verifikasi SHA-256).
@@ -58,6 +62,8 @@ Landing page: <https://wayang.dalang.io/apps/dcheck.html> (juga ada bagian di
 | `undelete.rs` | `dcheck undelete`: NTFS/FAT32/exFAT (nama tetap), carving, status INTACT/REUSED, peta alokasi; fixture `testdata/undelete/*.sparse` (format teks sparse) |
 | `recover.rs` | `dcheck recover`: peluang pemulihan file terhapus (media, TRIM, discard, fstrim, filesystem), langkah + tool, peta disk sampling (read-only) |
 | `verify.rs` | `dcheck verify`: tulis data berlabel alamat lalu baca ulang (kapasitas palsu); mode free space dan `--destructive` |
+| `board.rs` | Motherboard: DMI, BIOS, PCIe (pci.ids), USB, hwmon, health; `demo()` untuk mode demo |
+| `ipmi.rs` | IPMI native via ioctl `/dev/ipmi0`: Device ID, SDR (full/compact, konversi M/B/exp), reading, SEL; parser teruji |
 | `update.rs` | Self-update dari `https://wayang.dalang.io/dcheck` |
 | `tui/` | `mod.rs` (state/event; RECOVERY `u` dan CAPACITY TEST `v`), `views.rs` (layar), `widgets.rs`, `theme.rs`, `snapshot.rs` (render layar ke SVG), `tests.rs` |
 | `config.rs` | `~/.config/dcheck/config.json` (dibaca sekali per proses) |
@@ -132,6 +138,10 @@ Rilis (jalankan dari Mac, supaya build macOS ikut):
 - **ntfs3 (driver NTFS Linux) membuang `$FILE_NAME`** saat file dihapus;
   Windows/ntfs-3g tidak. Karena itu ada dua fixture NTFS (`ntfs` dan
   `ntfs3`).
+- **IPMI** hanya perintah baca (Get Device ID, SDR, Sensor Reading, SEL).
+  Dell memberi nama sensor yang sama ("Status", "Temp"); pembeda ada di
+  entity (10.x = PSU, 3.x = CPU) → `disambiguate`. Bandingkan dengan
+  `ipmitool sdr elist` di 10.0.0.177 kalau mengubah konversi.
 - **Uji TUI di mesin asli lewat pty**: ratatui hanya mengirim sel yang
   berubah, jadi teks di stream pty bisa terpotong; cek hasil (file, exit
   code) atau pakai `dcheck snapshot`, bukan grep teks layar.

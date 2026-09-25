@@ -733,3 +733,58 @@ seperti kecepatan internet.
       Contoh lab-243: 76 MB/s → 608 Mbps.
 - [x] Landing page: contoh output ikut diganti.
 - Catatan: `storage --bench` (benchmark baca) masih MB/s — belum diminta.
+
+## S. Modul MOTHERBOARD (identitas, BIOS, perangkat, kesehatan)
+
+Permintaan: selain storage/RAM/processor, tambah motherboard: pabrikan,
+versi BIOS, perangkat (peripheral), dan kesehatannya.
+
+Probe read-only:
+- 10.0.0.251 (R630): DMI Dell PowerEdge R630, board 02C2CP A04, BIOS Dell
+  2.19.0 (2023-12-12), boot legacy. Tidak ada sensor board di hwmon (hanya
+  coretemp + i350), tapi **/dev/ipmi0** ada (BMC/iDRAC) → kipas, PSU,
+  tegangan, suhu, dan SEL lewat IPMI. PCIe: igb x4/x4, PERC x8/x8, AER 0.
+- lab-243: DMI "INTEL X99 / Default string" → board generik (DMI tidak
+  diisi), BIOS AMI 5.11 (2024-03-05). **GPU AMD 02:00.0 tanpa driver.**
+  Tidak ada sensor board (driver nct/it87 tidak ter-load), tidak ada IPMI.
+- Bridge PCIe dengan slot kosong melaporkan lebar x0 → abaikan bridge dan
+  link x0; cek penurunan hanya pada perangkat ujung.
+
+Desain:
+- Identitas: sistem, board, chassis (DMI sysfs; serial hanya root).
+- BIOS: vendor, versi, tanggal + umur, mode UEFI/legacy, Secure Boot.
+- PCIe: kelas, nama (pci.ids bila ada, else tabel vendor + nama kelas),
+  driver, link sekarang vs maks, AER (correctable / nonfatal / fatal).
+- USB: vendor/produk/kecepatan (tanpa root hub).
+- Sensor: hwmon chip board (bukan coretemp/nvme/drivetemp/RAM) dengan alarm;
+  IPMI native via /dev/ipmi0 (SDR full/compact, pembacaan + status
+  threshold) + SEL (event terakhir, hitung kritis) — tanpa ipmitool.
+- Kesehatan → OK / MONITOR / REPLACE + alasan: sensor kritis, alarm kipas/
+  tegangan, AER fatal/nonfatal, link turun, SEL kritis baru-baru ini
+  (PSU, memori, prosesor); catatan: BIOS tua, board generik, perangkat
+  tanpa driver, intrusi chassis.
+- CLI `dcheck board` (alias motherboard/mobo, `--json`), menu TUI item 4
+  "Motherboard", kartu di command deck, snapshot.
+- macOS: model, chip, firmware (system_profiler).
+
+Tugas:
+- [x] board.rs (DMI, BIOS, PCI, USB, hwmon, notes/verdict) + test fixture sysfs
+- [x] IPMI native (SDR + reading + SEL) + test parser; banding dengan
+      ipmitool di 10.0.0.177
+- [x] Report teks/JSON, CLI, TUI (menu, kartu, layar), snapshot, docs
+- [x] Uji nyata R630 .251/.177 dan lab-243 (rilis menyusul)
+- Hasil nyata:
+  - 10.0.0.177: IPMI native cocok dengan ipmitool (Temp CPU 66/75 °C,
+    Voltage 2 220 V, Current 2 1 A, CPU Usage 25 %, "Status 10.1: AC lost").
+    **PSU 1 tanpa AC** → MONITOR "redundancy lost"; SEL: AC lost + chassis
+    dibuka 31 Mei, 9 Juni, 18 Juni (temuan lama TODO G kini terlihat).
+    BCM5720 onboard x1 dari x2 → catatan (desain Dell), bukan masalah.
+  - 10.0.0.251: **PSU 2 tanpa AC** → MONITOR; 14 kipas, suhu, daya 112 W;
+    SEL 130 entri. Pembacaan ~2 dtk.
+  - lab-243: board generik ("Default string"), BIOS AMI 5.11, GPU AMD
+    tanpa driver → catatan; tidak ada sensor board (tanpa BMC / driver
+    hwmon).
+  - macOS: model, chip, versi firmware.
+- Keputusan: PSU tanpa AC = CRITICAL kalau tidak ada PSU lain yang hidup,
+  MONITOR kalau ada (redundansi hilang). Nama sensor IPMI yang sama (Dell
+  "Status", "Temp") diberi entity: "Status (PSU 1)", "Temp (CPU 2)".

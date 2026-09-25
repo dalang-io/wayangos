@@ -789,6 +789,259 @@ pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
 }
 
 /// RAM JSON object.
+/// Motherboard report: identity, firmware, health, sensors, event log,
+/// devices.
+pub fn board_report_lines(b: &crate::board::BoardInfo) -> Vec<String> {
+    use crate::board::Kind;
+    use crate::ipmi::Status;
+    let opt_s = |v: &Option<String>| v.clone().unwrap_or_else(|| "-".into());
+    let joined = |i: &crate::board::Ident| {
+        let parts: Vec<String> = [&i.vendor, &i.product, &i.version]
+            .into_iter()
+            .flatten()
+            .filter(|v| !crate::board::placeholder(v))
+            .cloned()
+            .collect();
+        if parts.is_empty() {
+            "-".to_string()
+        } else {
+            parts.join(" ")
+        }
+    };
+    let mut out = vec![section("MOTHERBOARD")];
+    out.push(format!("  System       : {}", joined(&b.system)));
+    out.push(format!("  Board        : {}", joined(&b.board)));
+    if let Some(c) = &b.chassis {
+        out.push(format!("  Chassis      : {c}"));
+    }
+    if let Some(s) = [&b.system.serial, &b.board.serial].into_iter().flatten().find(|s| !crate::board::placeholder(s)) {
+        out.push(format!("  Serial       : {s}"));
+    }
+    out.push(String::new());
+    out.push(section("FIRMWARE"));
+    out.push(format!("  BIOS         : {} {}", opt_s(&b.bios.vendor), opt_s(&b.bios.version)));
+    if let Some((y, m, d)) = b.bios.date {
+        let age = b.bios_age_years().map(|a| format!(" ({a:.1} years old)")).unwrap_or_default();
+        out.push(format!("  BIOS date    : {y}-{m:02}-{d:02}{age}"));
+    }
+    if let Some(u) = b.bios.uefi {
+        let sb = match b.bios.secure_boot {
+            Some(true) => ", Secure Boot on",
+            Some(false) => ", Secure Boot off",
+            None => "",
+        };
+        out.push(format!("  Boot mode    : {}{sb}", if u { "UEFI" } else { "legacy BIOS" }));
+    }
+    if let Some(f) = &b.bmc_firmware {
+        out.push(format!("  BMC firmware : {f} (IPMI)"));
+    }
+    out.push(String::new());
+    out.push(section("HEALTH"));
+    let h = b.health();
+    out.push(format!("  Verdict      : {}", h.label));
+    for i in &h.issues {
+        out.push(format!("  Issue        : {i}"));
+    }
+    for n in &h.notes {
+        out.push(format!("  Note         : {n}"));
+    }
+    if h.issues.is_empty() && h.severity == 0 {
+        out.push("  Reason       : no sensor alarms, PCIe errors or recent critical events".into());
+    }
+    if !b.sensors.is_empty() {
+        out.push(String::new());
+        out.push(section("SENSORS"));
+        for (kind, title) in [
+            (Kind::Fan, "Fans"),
+            (Kind::Temp, "Temperatures"),
+            (Kind::Volt, "Voltages"),
+            (Kind::Current, "Currents"),
+            (Kind::Power, "Power"),
+            (Kind::Other, "Other"),
+        ] {
+            let list: Vec<&crate::board::BoardSensor> = b.sensors.iter().filter(|s| s.kind == kind).collect();
+            if list.is_empty() {
+                continue;
+            }
+            out.push(format!("  {title}:"));
+            for s in list {
+                let val = match (&s.value, &s.state) {
+                    (Some(v), _) if s.unit == "RPM" || s.unit == "W" => format!("{v:.0} {}", s.unit),
+                    (Some(v), _) if s.unit == "°C" => format!("{v:.0}{}", s.unit),
+                    (Some(v), _) => format!("{v:.2} {}", s.unit),
+                    (None, Some(st)) => st.clone(),
+                    _ => "-".into(),
+                };
+                let flag = match s.status {
+                    Status::Ok => "ok",
+                    Status::Warn => "WARN",
+                    Status::Crit => "CRITICAL",
+                };
+                out.push(format!("    {:<24} {:>14}  {flag:<8} {}", s.name, val, s.source));
+            }
+        }
+    }
+    if !b.events.is_empty() {
+        out.push(String::new());
+        out.push(section(&format!("EVENT LOG (BMC, last {} of {})", b.events.len().min(10), b.sel_entries)));
+        for e in b.events.iter().rev().take(10) {
+            let t = if e.time < 86_400 * 365 { "(clock unset)   ".to_string() } else { crate::board::fmt_time(e.time) };
+            let flag = match e.status {
+                Status::Ok => "  ",
+                Status::Warn => "! ",
+                Status::Crit => "!!",
+            };
+            out.push(format!("  {flag} {t}  {:<22} {}", e.sensor, e.text));
+        }
+    }
+    let shown: Vec<&crate::board::PciDev> = b.pci.iter().filter(|d| !d.internal()).collect();
+    if !shown.is_empty() {
+        out.push(String::new());
+        out.push(section(&format!("PCIe DEVICES ({} + {} chipset internal)", shown.len(), b.pci.len() - shown.len())));
+        for d in shown {
+            let link = d
+                .link
+                .as_ref()
+                .map(|l| format!("  {} GT/s x{} (max {} GT/s x{})", l.cur_gts, l.cur_w, l.max_gts, l.max_w))
+                .unwrap_or_default();
+            let aer = match d.aer {
+                Some([c, n, f]) if c + n + f > 0 => format!("  AER {c}/{n}/{f}"),
+                _ => String::new(),
+            };
+            out.push(format!("  {}  {:<20} {}", d.addr.trim_start_matches("0000:"), d.class_name(), d.name));
+            out.push(format!(
+                "  {:>7}  driver: {}{link}{aer}",
+                "",
+                d.driver.as_deref().unwrap_or("NONE")
+            ));
+        }
+    }
+    if !b.usb.is_empty() {
+        out.push(String::new());
+        out.push(section("USB DEVICES"));
+        for u in &b.usb {
+            let speed = if u.speed_mbps >= 1000.0 { format!("{} Gbps", u.speed_mbps / 1000.0) } else { format!("{} Mbps", u.speed_mbps) };
+            out.push(format!("  {:<8} {:04x}:{:04x}  {:<36} {speed}", u.id, u.vendor_id, u.product_id, u.name));
+        }
+    }
+    out
+}
+
+pub fn board_json(b: &crate::board::BoardInfo) -> crate::json::Json {
+    use crate::json::{num, object, string, Json};
+    let st = |s: crate::ipmi::Status| string(format!("{s:?}").to_lowercase());
+    let ident = |i: &crate::board::Ident| {
+        object(vec![
+            ("vendor", opt_json(&i.vendor)),
+            ("product", opt_json(&i.product)),
+            ("version", opt_json(&i.version)),
+            ("serial", opt_json(&i.serial)),
+        ])
+    };
+    let h = b.health();
+    object(vec![
+        ("system", ident(&b.system)),
+        ("board", ident(&b.board)),
+        ("chassis", opt_json(&b.chassis)),
+        (
+            "bios",
+            object(vec![
+                ("vendor", opt_json(&b.bios.vendor)),
+                ("version", opt_json(&b.bios.version)),
+                ("date", b.bios.date.map_or(Json::Null, |(y, m, d)| string(format!("{y}-{m:02}-{d:02}")))),
+                ("uefi", opt_bool(b.bios.uefi)),
+                ("secure_boot", opt_bool(b.bios.secure_boot)),
+            ]),
+        ),
+        ("bmc_firmware", opt_json(&b.bmc_firmware)),
+        (
+            "health",
+            object(vec![
+                ("verdict", string(h.label)),
+                ("severity", num(h.severity as f64)),
+                ("issues", Json::Arr(h.issues.into_iter().map(string).collect())),
+                ("notes", Json::Arr(h.notes.into_iter().map(string).collect())),
+            ]),
+        ),
+        (
+            "sensors",
+            Json::Arr(
+                b.sensors
+                    .iter()
+                    .map(|s| {
+                        object(vec![
+                            ("source", string(s.source.clone())),
+                            ("name", string(s.name.clone())),
+                            ("kind", string(format!("{:?}", s.kind).to_lowercase())),
+                            ("value", opt_num(s.value)),
+                            ("unit", string(s.unit)),
+                            ("state", opt_json(&s.state)),
+                            ("status", st(s.status)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            "events",
+            Json::Arr(
+                b.events
+                    .iter()
+                    .map(|e| {
+                        object(vec![
+                            ("time", num(e.time as f64)),
+                            ("sensor", string(e.sensor.clone())),
+                            ("text", string(e.text.clone())),
+                            ("status", st(e.status)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            "pci",
+            Json::Arr(
+                b.pci
+                    .iter()
+                    .map(|d| {
+                        object(vec![
+                            ("address", string(d.addr.clone())),
+                            ("class", string(d.class_name())),
+                            ("id", string(format!("{:04x}:{:04x}", d.vendor_id, d.device_id))),
+                            ("name", string(d.name.clone())),
+                            ("driver", opt_json(&d.driver)),
+                            ("link_width", d.link.as_ref().map_or(Json::Null, |l| num(l.cur_w as f64))),
+                            ("link_max_width", d.link.as_ref().map_or(Json::Null, |l| num(l.max_w as f64))),
+                            ("link_gts", d.link.as_ref().map_or(Json::Null, |l| num(l.cur_gts as f64))),
+                            (
+                                "aer",
+                                d.aer.map_or(Json::Null, |[c, n, f]| {
+                                    object(vec![("correctable", num(c as f64)), ("nonfatal", num(n as f64)), ("fatal", num(f as f64))])
+                                }),
+                            ),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            "usb",
+            Json::Arr(
+                b.usb
+                    .iter()
+                    .map(|u| {
+                        object(vec![
+                            ("id", string(format!("{:04x}:{:04x}", u.vendor_id, u.product_id))),
+                            ("name", string(u.name.clone())),
+                            ("speed_mbps", num(u.speed_mbps)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
 pub fn ram_json(r: &crate::ram::RamInfo) -> crate::json::Json {
     let (verdict, _) = r.verdict();
     crate::json::object(vec![

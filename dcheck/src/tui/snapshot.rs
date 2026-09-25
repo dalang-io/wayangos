@@ -148,6 +148,27 @@ pub fn run(dir: &Path, mut devices: Vec<Device>, opts: &Options) -> io::Result<V
     shot(&mut app, "07-memory")?;
     app.screen = Screen::Cpu;
     shot(&mut app, "08-processor")?;
+    let board = if opts.demo { crate::board::demo() } else { crate::board::read() };
+    app.board_lines = report::board_report_lines(&board).iter().map(|l| scrub(l)).collect();
+    if opts.mask_serials {
+        let mut b = board;
+        b.system.serial = b.system.serial.as_deref().map(mask);
+        b.board.serial = b.board.serial.as_deref().map(mask);
+        app.board_lines = report::board_report_lines(&b)
+            .iter()
+            .map(|l| scrub(l))
+            .collect();
+        app.board = Some(b);
+    } else {
+        app.board = Some(board);
+    }
+    app.scroll = 0;
+    app.screen = Screen::Board;
+    shot(&mut app, "08b-motherboard")?;
+    app.menu.select(Some(3));
+    app.screen = Screen::Menu;
+    shot(&mut app, "04b-deck-motherboard")?;
+    app.menu.select(Some(0));
 
     app.screen = Screen::Storage;
     app.table.select(Some(0));
