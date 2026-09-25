@@ -1,0 +1,89 @@
+name: Installer ISO
+
+# Build the bare-metal USB installer ISO (UEFI+BIOS hybrid) and publish it as a
+# release asset named `wayangos-installer.iso`, so it can be dropped onto a
+# Ventoy USB or dd'd to a stick. Kernels are built from source; the build dir is
+# cached to keep runs reasonable.
+#
+# Trigger: manual (workflow_dispatch) or a version tag (v*).
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_config:
+        description: Kernel config name in configs/
+        default: defconfig-intel
+      version:
+        description: WayangOS version written to /etc/wayang/version
+        default: "1.0.0"
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  installer-iso:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_DIR: ${{ github.workspace }}/wayangos-build
+      KERNEL_CONFIG: ${{ github.event.inputs.kernel_config || 'defconfig-intel' }}
+      # tag ref_name looks like v1.4.1; strip the leading v below.
+      WAYANG_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      WAYANG_EDITION: installer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential flex bison bc libelf-dev libssl-dev \
+            cpio gzip xz-utils bzip2 unzip wget git \
+            grub-pc-bin grub-efi-amd64-bin xorriso mtools
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Normalize version (strip leading v)
+        run: echo "WAYANG_VERSION=${WAYANG_VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Cache build directory
+        uses: actions/cache@v4
+        with:
+          path: wayangos-build
+          key: wayangos-build-${{ github.event.inputs.kernel_config || 'defconfig-intel' }}-v1
+
+      - name: Fetch external sources
+        run: ./scripts/fetch-sources.sh
+
+      - name: Build updater + installer binaries
+        run: |
+          ./scripts/build-wayang.sh
+          ./scripts/build-installer.sh
+
+      - name: Build kernel (${{ env.KERNEL_CONFIG }})
+        run: ./scripts/build-kernel.sh "$KERNEL_CONFIG" bzImage-installer
+
+      - name: Build rootfs (includes the wayang updater)
+        run: ./scripts/build-rootfs.sh
+
+      - name: Build installer ISO
+        run: |
+          ./scripts/build-installer-iso.sh \
+            "$BUILD_DIR/bzImage-installer" \
+            "$BUILD_DIR/wayangos-initramfs.img" \
+            "$BUILD_DIR/wayangos-installer.iso"
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wayangos-installer-iso
+          path: wayangos-build/wayangos-installer.iso
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: wayangos-build/wayangos-installer.iso
