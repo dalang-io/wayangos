@@ -195,7 +195,11 @@ echo "  Version:   $VERSION (major $MAJOR)"
 echo "  Arch:      $ARCH"
 echo "  Edition:   $EDITION"
 echo "  Channel:   $CHANNEL"
-echo "  Signed:    $([ "$SIGNED" -eq 1 ] && echo "yes (keyid $EFFECTIVE_KEYID)" || echo "no")"
+if [ "$SIGNED" -eq 1 ]; then
+    echo "  Signed:    yes (keyid $EFFECTIVE_KEYID)"
+else
+    echo "  Signed:    no"
+fi
 echo "  Kernel:    $KERNEL_SHA"
 echo "  Initramfs: $INITRAMFS_SHA"
 echo "  Size:      $(du -h "$OUT_FILE" | cut -f1)"

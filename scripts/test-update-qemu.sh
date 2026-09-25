@@ -100,8 +100,10 @@ make_keys() {
     note "keygen"
     "$WAYANG" keygen --out "$WORK/keys" >/dev/null
     "$WAYANG" keygen --out "$WORK/keys" --keyid imposter >/dev/null
-    [ -f "$WORK/keys/release.key" ] && [ -f "$WORK/keys/release.pub" ] \
-        || { echo "ERROR: keygen produced no release key" >&2; exit 1; }
+    if [ ! -f "$WORK/keys/release.key" ] || [ ! -f "$WORK/keys/release.pub" ]; then
+        echo "ERROR: keygen produced no release key" >&2
+        exit 1
+    fi
 }
 
 build_bundle() { # version arch key keyid outdir

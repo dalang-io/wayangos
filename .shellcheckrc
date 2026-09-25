@@ -1,0 +1,5 @@
+# ShellCheck policy for CI.
+#
+# Fail on errors and warnings, but ignore info/style nits so the build is stable
+# across the different ShellCheck versions shipped by distros/CI images.
+severity=warning

@@ -267,7 +267,9 @@ echo ""
 
 # The system booted: clear the GRUB attempt counter and mark this slot good
 # (see docs/UPDATE-DESIGN.md). A no-op when the updater is not installed.
-[ -x /usr/bin/wayang ] && wayang mark-ok >/dev/null 2>&1 || true
+if [ -x /usr/bin/wayang ]; then
+    wayang mark-ok >/dev/null 2>&1 || true
+fi
 INIT
 chmod +x "$ROOTFS/etc/init.d/rcS"
 
