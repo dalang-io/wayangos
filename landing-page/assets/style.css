@@ -569,3 +569,7 @@ details[open] .legacy-toggle .arrow { transform: rotate(180deg); }
   .hero-buttons-stack > * { text-align: center; width: 100%; min-height: 44px; }
   .screenshot-grid-2 { grid-template-columns: 1fr !important; }
 }
+
+/* ꦮꦪꦁ drawn from an SVG mask: takes the text colour and scales with font-size,
+   so it renders the same everywhere without a Javanese font installed */
+.aksara-wayang { display: inline-block; height: .75em; aspect-ratio: 2263 / 784; vertical-align: -.05em; background-color: currentColor; -webkit-mask: url(aksara-wayang.svg) center / contain no-repeat; mask: url(aksara-wayang.svg) center / contain no-repeat; }
