@@ -141,7 +141,7 @@ jobs:
           path: |
             wayangos-build/wayangos-installer.iso
             wayangos-build/wayang-*.wup
-            wayangos-build/channel/**/manifest.json
+            wayangos-build/channel/**
             wayangos-build/SHA256SUMS
 
       - name: Publish to GitHub Release

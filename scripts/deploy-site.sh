@@ -28,8 +28,10 @@ rsync -a \
 echo "=== uploading to $HOST:$REMOTE_DIR ==="
 # shellcheck disable=SC2029 # the path is meant to expand locally
 ssh "$HOST" "mkdir -p '$REMOTE_DIR'"
-# --delete keeps the server in sync with the repo, except the dcheck channel.
+# --delete keeps the server in sync with the repo, except the release channels
+# (dcheck + wayang), which are published separately and must not be wiped.
 rsync -rlptz --delete --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
     --filter='P /dcheck/' \
+    --filter='P /channel/' \
     "$STAGE/" "$HOST:$REMOTE_DIR/"
 echo "done."

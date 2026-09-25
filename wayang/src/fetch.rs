@@ -8,7 +8,7 @@ use std::process::Command;
 
 use crate::error::{AppError, Result};
 
-pub const DEFAULT_BASE: &str = "https://github.com/dalang-io/wayangos/releases/latest/download";
+pub const DEFAULT_BASE: &str = "https://wayang.dalang.io/channel";
 
 pub fn base_url() -> String {
     std::env::var("WAYANG_REPO_URL")

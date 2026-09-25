@@ -112,7 +112,7 @@ failure · `4` incompatible (arch/min_from).
 GET <base>/<channel>/<arch>/manifest.json      # same schema as bundle manifest
 GET <base>/<channel>/<arch>/wayang-<version>-<arch>.wup
 ```
-`base` default: `https://github.com/dalang-io/wayangos/releases/latest/download`
+`base` default: `https://wayang.dalang.io/channel`
 (overridable with `WAYANG_REPO_URL`). `arch` ∈ `x86_64`, `arm64`.
 
 ## File ownership (parallel work)
@@ -133,7 +133,7 @@ Releases publish this tree (e.g. as GitHub release assets or a CDN/Pages dir):
 <base>/<channel>/<arch>/wayang-<version>-<arch>.wup
 ```
 
-`<base>` default `https://github.com/dalang-io/wayangos/releases/latest/download`
+`<base>` default `https://wayang.dalang.io/channel`
 (override `WAYANG_REPO_URL`). `manifest.json` is the same schema as the bundle's
 manifest. `scripts/release-wayang.sh` must emit this tree under `dist/channel/…`
 plus `SHA256SUMS`, and print (not run) the publish command.
