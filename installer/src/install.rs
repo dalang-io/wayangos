@@ -2,7 +2,10 @@
 //!
 //! Disk layout (GPT):
 //!   p1  512 MiB  EFI system, FAT32 `WAYANGBOOT`: GRUB at the UEFI fallback
-//!                path \EFI\BOOT\BOOTX64.EFI + kernel + initramfs
+//!                path \EFI\BOOT\BOOTX64.EFI plus the A/B payload:
+//!                /boot/grub/grub.cfg, /boot/grub/grubenv, /boot/A/vmlinuz,
+//!                /boot/A/initramfs.img and /boot/var/meta-A.json. Slot B is
+//!                empty until `wayang` stages an update into it.
 //!   p2  rest     Linux, ext4 `WAYANGDATA`: mounted at /data by the installed
 //!                system; holds hostname, authorized_keys and SSH host keys
 //! WayangOS itself still runs from RAM.
@@ -12,19 +15,43 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::disks::Disk;
+use crate::sha256;
 use crate::sys;
 
 pub const PAYLOAD: &str = "/usr/share/wayang-install";
-/// (payload file, directory on the ESP)
+
+/// Version recorded in `/boot/var/meta-A.json` (the rootfs ships the same value
+/// in `/etc/wayang/version`). Overridable at build time with `WAYANG_VERSION`,
+/// otherwise the installer crate version.
+pub const VERSION: &str = match option_env!("WAYANG_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+/// Edition recorded in `/boot/var/meta-A.json`. Overridable with
+/// `WAYANG_EDITION`, otherwise `generic`.
+pub const EDITION: &str = match option_env!("WAYANG_EDITION") {
+    Some(e) => e,
+    None => "generic",
+};
+
+/// Files copied verbatim from the payload: (payload path, path on the ESP).
 const BOOT_FILES: [(&str, &str); 4] = [
-    ("BOOTX64.EFI", "EFI/BOOT"),
-    ("grub.cfg", "boot/grub"),
-    ("vmlinuz", "boot"),
-    ("initramfs.img", "boot"),
+    ("BOOTX64.EFI", "EFI/BOOT/BOOTX64.EFI"),
+    ("grub.cfg", "boot/grub/grub.cfg"),
+    ("A/vmlinuz", "boot/A/vmlinuz"),
+    ("A/initramfs.img", "boot/A/initramfs.img"),
 ];
+
+/// GRUB fallback state, written fresh on every install.
+const GRUBENV: &str = "boot/grub/grubenv";
+/// Metadata for slot A, written with hashes of the copied payload.
+const META_A: &str = "boot/var/meta-A.json";
+/// GRUB environment block is always exactly this many bytes.
+const GRUBENV_SIZE: usize = 1024;
 // full-featured tools shipped with the installer; BusyBox's mke2fs (earlier
 // in init's PATH) can't make ext4
 const SFDISK: &str = "/usr/sbin/sfdisk";
@@ -159,9 +186,11 @@ fn real(plan: &Plan, tx: &Sender<Msg>) -> Result<(), String> {
     fs::create_dir_all(mnt).map_err(|e| format!("{mnt}: {e}"))?;
     sys::run("mount", &["-t", "vfat", &boot, mnt])?;
     let copied = copy_boot_files(mnt, tx);
+    let state = write_boot_state(mnt);
     let _ = sys::run("sync", &[]);
     sys::run("umount", &[mnt])?;
     copied?;
+    state?;
 
     let _ = tx.send(Msg::Step(5));
     sys::run("mount", &["-t", "ext4", &data, mnt])?;
@@ -183,27 +212,95 @@ fn copy_boot_files(mnt: &str, tx: &Sender<Msg>) -> Result<(), String> {
         .max(1);
     let mut done = 0u64;
     let mut buf = vec![0u8; 1 << 20];
-    for (file, dir) in BOOT_FILES {
-        let dest_dir = Path::new(mnt).join(dir);
-        fs::create_dir_all(&dest_dir).map_err(|e| format!("{}: {e}", dest_dir.display()))?;
-        log(tx, format!("copy {file} -> /{dir}/"));
-        let src_path = Path::new(PAYLOAD).join(file);
+    for (src_rel, dest_rel) in BOOT_FILES {
+        let src_path = Path::new(PAYLOAD).join(src_rel);
+        let dest = Path::new(mnt).join(dest_rel);
+        if let Some(dir) = dest.parent() {
+            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        log(tx, format!("copy {src_rel} -> /{dest_rel}"));
         let mut src = File::open(&src_path).map_err(|e| format!("{}: {e}", src_path.display()))?;
-        let dest_path = dest_dir.join(file);
-        let mut dst =
-            File::create(&dest_path).map_err(|e| format!("{}: {e}", dest_path.display()))?;
+        let mut dst = File::create(&dest).map_err(|e| format!("{}: {e}", dest.display()))?;
         loop {
-            let n = src.read(&mut buf).map_err(|e| format!("{file}: {e}"))?;
+            let n = src.read(&mut buf).map_err(|e| format!("{src_rel}: {e}"))?;
             if n == 0 {
                 break;
             }
             dst.write_all(&buf[..n])
-                .map_err(|e| format!("{file}: {e}"))?;
+                .map_err(|e| format!("{src_rel}: {e}"))?;
             done += n as u64;
             let _ = tx.send(Msg::Copy(done as f64 / total as f64));
         }
-        dst.sync_all().map_err(|e| format!("{file}: {e}"))?;
+        dst.sync_all().map_err(|e| format!("{src_rel}: {e}"))?;
     }
+    Ok(())
+}
+
+/// The GRUB environment block that boots slot A and counts boot attempts.
+///
+/// GRUB's 1024-byte format: `# GRUB Environment Block\n`, then `key=value\n`
+/// lines, then `#` padding to the end. GRUB scans back over the trailing `#`
+/// run and appends before it, so the final byte stays `#`.
+pub fn grubenv() -> Vec<u8> {
+    let mut buf = Vec::with_capacity(GRUBENV_SIZE);
+    buf.extend_from_slice(b"# GRUB Environment Block\n");
+    buf.extend_from_slice(b"wayang_slot=A\n");
+    buf.extend_from_slice(b"wayang_good=A\n");
+    buf.extend_from_slice(b"wayang_attempts=0\n");
+    buf.resize(GRUBENV_SIZE, b'#');
+    buf
+}
+
+/// Write the fallback state (`grubenv`) and slot-A metadata to the ESP.
+fn write_boot_state(mnt: &str) -> Result<(), String> {
+    write_sync(&Path::new(mnt).join(GRUBENV), &grubenv())?;
+    let meta = meta_a_json()?;
+    write_sync(&Path::new(mnt).join(META_A), meta.as_bytes())
+}
+
+/// `meta-A.json` for the freshly installed slot, hashing the payload bytes.
+fn meta_a_json() -> Result<String, String> {
+    let kernel = sha256_hex(&Path::new(PAYLOAD).join("A/vmlinuz"))?;
+    let initramfs = sha256_hex(&Path::new(PAYLOAD).join("A/initramfs.img"))?;
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // The installer runs the same initramfs that is installed, so its
+    // /etc/wayang/version is the authoritative version for slot A.
+    let version = installed_version();
+    Ok(format!(
+        "{{\"version\":\"{version}\",\"arch\":\"x86_64\",\"edition\":\"{EDITION}\",\"kernel_sha256\":\"{kernel}\",\"initramfs_sha256\":\"{initramfs}\",\"time\":{time}}}\n"
+    ))
+}
+
+/// `/etc/wayang/version` of the running (and to-be-installed) rootfs, else the
+/// build-time [`VERSION`].
+fn installed_version() -> String {
+    fs::read_to_string("/etc/wayang/version")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| VERSION.to_string())
+}
+
+fn sha256_hex(path: &Path) -> Result<String, String> {
+    let data = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(sha256::sha256(&data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
+fn write_sync(path: &Path, data: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let mut f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    f.write_all(data)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    f.sync_all()
+        .map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(())
 }
 
@@ -244,4 +341,39 @@ fn fake(tx: &Sender<Msg>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grubenv_is_a_valid_1024_byte_block() {
+        let env = grubenv();
+        assert_eq!(env.len(), GRUBENV_SIZE);
+        assert!(env.starts_with(b"# GRUB Environment Block\n"));
+        assert_eq!(env.last(), Some(&b'#'), "block must end with # padding");
+        let text = String::from_utf8_lossy(&env);
+        assert!(text.contains("\nwayang_slot=A\n"));
+        assert!(text.contains("\nwayang_good=A\n"));
+        assert!(text.contains("\nwayang_attempts=0\n"));
+        // exactly one signature line, and no stray newline after the padding
+        assert_eq!(
+            text.matches("# GRUB Environment Block\n").count(),
+            1,
+            "signature must be the first line"
+        );
+    }
+
+    #[test]
+    fn boot_files_use_the_ab_layout() {
+        let dests: Vec<&str> = BOOT_FILES.iter().map(|(_, d)| *d).collect();
+        assert!(dests.contains(&"boot/A/vmlinuz"));
+        assert!(dests.contains(&"boot/A/initramfs.img"));
+        assert!(dests.contains(&"boot/grub/grub.cfg"));
+        assert!(dests.contains(&"EFI/BOOT/BOOTX64.EFI"));
+        // the old flat layout must be gone
+        assert!(!dests.contains(&"boot/vmlinuz"));
+        assert!(!dests.contains(&"boot/initramfs.img"));
+    }
 }

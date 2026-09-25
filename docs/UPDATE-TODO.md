@@ -4,7 +4,20 @@ Tujuan: box yang sudah terpasang bisa **patch** (minor/patch, major sama) dan
 **upgrade** (major, mis. v1 → v2) tanpa reinstall, tetap aman (anti-brick,
 rollback), dan bisa offline.
 
-Status: **rencana** (belum diimplementasi).
+## Status
+
+Implementasi paralel. **`docs/UPDATE-DESIGN.md` adalah sumber kebenaran untuk
+semua antarmuka (interface) yang dibekukan** — baca itu dulu sebelum mengubah
+apa pun di sini.
+
+- **A — updater**: `wayang/**`, `scripts/build-wayang.sh`, job CI.
+- **B — boot/installer/rootfs**: `installer/**`, `scripts/build-rootfs.sh`,
+  `scripts/build-iso.sh`, `scripts/build-installer-iso.sh`.
+- **C — bundle/release/docs**: `scripts/build-bundle.sh`,
+  `scripts/release-wayang.sh`, `docs/UPDATE-TODO.md`, `landing-page/**`.
+
+Progres: M0 ✅ · M2 bundling ✅ (`scripts/build-bundle.sh`), verifier/signature
+menunggu CLI `wayang` (A) · M1 menunggu CLI (A).
 
 ## Semantik
 
@@ -71,6 +84,10 @@ ESP /boot/
 
 ## Format bundle `*.wup` (tar.gz + tanda tangan)
 
+> Skema kanonik: lihat `docs/UPDATE-DESIGN.md` — field manifest yang dipakai
+> adalah `product, channel, version, major, arch, edition, kernel_sha256,
+> initramfs_sha256, min_from, notes, time, keyid`.
+
 ```
 manifest.json      { product:"wayangos", channel, version, major, arch,
                      kernel:"vmlinuz", initramfs:"initramfs.img",
@@ -114,16 +131,16 @@ manifest.json.sig  detached signature (ed25519 / minisign)
 
 ## Milestones
 
-| # | Deliverable | AC |
-|---|---|---|
-| M0 | Dokumen ini | ✅ |
-| M1 | CLI `wayang` (status/version) + `/etc/wayang/version` di rootfs | `wayang status` jalan; versi benar |
-| M2 | `scripts/build-bundle.sh` + verifier + penandatanganan | bundle v1 dibuat & terverifikasi; bundle rusak/unsigned ditolak |
-| M3 | Layout A/B di installer + GRUB fallback + mark-ok/attempts | install bersih; simulasi boot gagal → otomatis balik ke slot lama (QEMU) |
-| M4 | `wayang update` online (check → stage → reboot) + `--from` | v1 → patch → reboot → versi baru, `/data` utuh |
-| M5 | `wayang upgrade` (major) + `--rollback` | lintas major terpasang; rollback berhasil |
-| M6 | Otomasi rilis + kunci + docs/landing | bundle rilis tersedia & terpasang dari channel |
-| M7 | A/B ARM64 | update di RPi/OPi |
+| # | Deliverable | AC | Owner | Status |
+|---|---|---|---|---|
+| M0 | Dokumen ini | ✅ | C | ✅ |
+| M1 | CLI `wayang` (status/version) + `/etc/wayang/version` di rootfs | `wayang status` jalan; versi benar | A | ⏳ |
+| M2 | `scripts/build-bundle.sh` + verifier + penandatanganan | bundle v1 dibuat & terverifikasi; bundle rusak/unsigned ditolak | C (bundle) / A (verifier) | 🟡 bundle ✅ |
+| M3 | Layout A/B di installer + GRUB fallback + mark-ok/attempts | install bersih; simulasi boot gagal → otomatis balik ke slot lama (QEMU) | B | ⏳ |
+| M4 | `wayang update` online (check → stage → reboot) + `--from` | v1 → patch → reboot → versi baru, `/data` utuh | A | ⏳ |
+| M5 | `wayang upgrade` (major) + `--rollback` | lintas major terpasang; rollback berhasil | A | ⏳ |
+| M6 | Otomasi rilis + kunci + docs/landing | bundle rilis tersedia & terpasang dari channel | C | 🟡 rilis+docs |
+| M7 | A/B ARM64 | update di RPi/OPi | B | ⏳ |
 
 ## Open questions
 

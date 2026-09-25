@@ -12,9 +12,18 @@ INITRAMFS="$BUILD/wayangos-initramfs.img"
 BUSYBOX="$BUILD/busybox-1.37.0/busybox"
 BUSYBOX_DIR="$BUILD/busybox-1.37.0"
 DROPBEAR_DIR="$BUILD/dropbear-2024.86"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Public key(s) allowed to log in as root over SSH (root is pubkey-only)
 SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
+
+# Update metadata baked into the rootfs.
+#   wayang/version      what the installed system reports (see `wayang status`)
+#   wayang/channel      stable | edge
+#   wayang/trusted_keys release signing keys, if any
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.0}"
+WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
+WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 
 ARCH="${ARCH:-x86_64}"
 case "$ARCH" in
@@ -255,6 +264,10 @@ echo ""
 echo "  $(wayang-logo)WayangOS ready"
 ip -4 addr show scope global 2>/dev/null | grep inet | awk '{print "  IP: " $2}'
 echo ""
+
+# The system booted: clear the GRUB attempt counter and mark this slot good
+# (see docs/UPDATE-DESIGN.md). A no-op when the updater is not installed.
+[ -x /usr/bin/wayang ] && wayang mark-ok >/dev/null 2>&1 || true
 INIT
 chmod +x "$ROOTFS/etc/init.d/rcS"
 
@@ -421,6 +434,46 @@ else
 fi
 ADDKEY
 chmod +x "$ROOTFS/usr/bin/wayang-addkey"
+
+# ============================================
+# Update metadata (/etc/wayang) and the `wayang` CLI
+# ============================================
+mkdir -p "$ROOTFS/etc/wayang"
+printf '%s\n' "$WAYANG_VERSION" > "$ROOTFS/etc/wayang/version"
+printf '%s\n' "$WAYANG_CHANNEL" > "$ROOTFS/etc/wayang/channel"
+if [ -n "$WAYANG_TRUSTED_KEYS" ]; then
+    [ -f "$WAYANG_TRUSTED_KEYS" ] || { echo "ERROR: WAYANG_TRUSTED_KEYS=$WAYANG_TRUSTED_KEYS not found" >&2; exit 1; }
+    cp "$WAYANG_TRUSTED_KEYS" "$ROOTFS/etc/wayang/trusted_keys"
+else
+    cat > "$ROOTFS/etc/wayang/trusted_keys" << 'KEYS'
+# WayangOS release signing keys: <keyid> <64-hex-ed25519-public-key>
+# (one per line). Empty until the project publishes release keys.
+KEYS
+fi
+chmod 644 "$ROOTFS/etc/wayang/version" "$ROOTFS/etc/wayang/channel" "$ROOTFS/etc/wayang/trusted_keys"
+echo "  /etc/wayang: version=$WAYANG_VERSION channel=$WAYANG_CHANNEL"
+
+# `wayang` updater CLI — built by another job (wayang/); optional here.
+case "$ARCH" in
+    x86_64) WAYANG_TRIPLE="x86_64-unknown-linux-musl" ;;
+    arm64)  WAYANG_TRIPLE="aarch64-unknown-linux-musl" ;;
+esac
+WAYANG_BIN=""
+for cand in "$REPO_DIR/dist/wayang-$WAYANG_TRIPLE" "$REPO_DIR/dist/wayang-$ARCH"; do
+    if [ -f "$cand" ]; then WAYANG_BIN="$cand"; break; fi
+done
+if [ -z "$WAYANG_BIN" ]; then
+    for cand in "$REPO_DIR"/dist/wayang-*; do
+        case "${cand##*/}" in wayang-installer-*) continue ;; esac
+        if [ -f "$cand" ]; then WAYANG_BIN="$cand"; break; fi
+    done
+fi
+if [ -n "$WAYANG_BIN" ]; then
+    install -m 755 "$WAYANG_BIN" "$ROOTFS/usr/bin/wayang"
+    echo "  wayang: $(du -h "$ROOTFS/usr/bin/wayang" | cut -f1)"
+else
+    echo "  wayang CLI not in dist/ (optional; install it with an update)"
+fi
 
 # DNS fallback
 cat > "$ROOTFS/etc/resolv.conf" << 'EOF'

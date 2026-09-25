@@ -49,6 +49,7 @@ node_modules/
 # Rust
 dist/
 installer/target/
+wayang/target/
 
 # Temp files
 *.tmp

@@ -288,6 +288,32 @@
             <a href="index.html#download" class="inline-block bg-w-bg2 text-w-gold border border-w-gold px-7 py-3 rounded-lg font-semibold no-underline text-sm hover:bg-w-gold-dim transition-all"><span data-id="Lihat Panduan Instalasi →">View Install Guide →</span></a>
         </div>
 
+        <!-- Keeping WayangOS updated -->
+        <div class="mb-12" id="updates">
+            <div class="flex items-center gap-3 mb-5 pb-3 border-b border-w-border">
+                <h2 class="text-xl font-bold text-w-text" data-en="🔄 Keeping WayangOS Updated" data-id="🔄 Merawat WayangOS Tetap Terbaru" data-i18n-html>🔄 Keeping WayangOS Updated</h2>
+                <span class="text-w-dim text-sm" data-en="A/B slots · rollback · offline" data-id="Slot A/B · rollback · offline" data-i18n-html>A/B slots · rollback · offline</span>
+            </div>
+            <p class="text-w-text2 text-sm mb-5" data-en="Patch and upgrade an installed box without reinstalling. WayangOS keeps two boot slots (A/B): the new image is written to the idle slot, verified, then booted. If it fails to start, GRUB falls back to the last good slot automatically, and you can roll back at any time." data-id="Patch dan upgrade box yang sudah terpasang tanpa reinstall. WayangOS menyimpan dua slot boot (A/B): image baru ditulis ke slot idle, diverifikasi, lalu di-boot. Jika gagal boot, GRUB otomatis kembali ke slot terakhir yang sehat, dan Anda bisa rollback kapan saja." data-i18n-html>Patch and upgrade an installed box without reinstalling. WayangOS keeps two boot slots (A/B): the new image is written to the idle slot, verified, then booted. If it fails to start, GRUB falls back to the last good slot automatically, and you can roll back at any time.</p>
+            <div class="bg-w-card border border-w-border rounded-xl p-7 max-md:p-5 transition-all hover:border-w-gold">
+                <pre class="bg-w-bg2 border border-w-border rounded-lg p-4 text-left text-xs leading-relaxed overflow-x-auto font-mono mb-3"><code><span class="text-w-dim"># minor / patch within the installed major</span>
+<span class="text-w-gold">sudo wayang update</span>
+
+<span class="text-w-dim"># cross-major upgrade (explicit)</span>
+<span class="text-w-gold">sudo wayang upgrade</span>
+
+<span class="text-w-dim"># check only — change nothing</span>
+<span class="text-w-gold">sudo wayang update --check</span>
+
+<span class="text-w-dim"># offline bundle from USB (no internet)</span>
+<span class="text-w-gold">sudo wayang update --from /run/media/usb/wayang-1.4.1-x86_64.wup</span>
+
+<span class="text-w-dim"># go back to the previous slot</span>
+<span class="text-w-gold">sudo wayang update --rollback</span></code></pre>
+                <p class="text-w-dim text-xs" data-en="Updates are signature-verified and only reboot when you ask (add --reboot). /data is never touched." data-id="Update diverifikasi tanda tangan dan hanya reboot saat Anda minta (tambahkan --reboot). /data tidak pernah disentuh." data-i18n-html>Updates are signature-verified and only reboot when you ask (add --reboot). /data is never touched.</p>
+            </div>
+        </div>
+
         <!-- Build from Source -->
         <div class="text-center mb-12">
             <p class="text-w-text2 text-sm mb-3"><span data-id="Ingin kustomisasi? Build dari source:">Want to customize? Build from source:</span></p>
