@@ -1,8 +1,8 @@
 # dcheck — Handover
 
-Status per 2026-09-24 · versi rilis **0.4.1** (tag `dcheck-v0.4.1`, master
-`31224af` + commit dokumentasi ini).
-Catatan kerja rinci per topik ada di [`TODO.md`](TODO.md) (bagian A–R), dan
+Status per 2026-09-25 · versi rilis **0.5.0** (tag `dcheck-v0.5.0`, master
+`07e97fd` + commit dokumentasi ini).
+Catatan kerja rinci per topik ada di [`TODO.md`](TODO.md) (bagian A–S), dan
 desain lengkapnya di [`../docs/DCHECK.md`](../docs/DCHECK.md).
 
 ## 1. Apa itu dcheck
@@ -43,7 +43,7 @@ utamanya teknisi server:
 Landing page: <https://wayang.dalang.io/apps/dcheck.html> (juga ada bagian di
 `download.html`).
 
-## 2. Peta kode (`dcheck/src`, ±19.3k baris)
+## 2. Peta kode (`dcheck/src`, ±21.4k baris)
 
 | File | Isi |
 |---|---|
@@ -78,7 +78,7 @@ Linux dari macOS memakai `zig cc`.
 
 ```bash
 cd dcheck
-cargo test                                  # ±136 unit test (termasuk render TUI)
+cargo test                                  # ±145 unit test (termasuk render TUI)
 cargo clippy --all-targets                  # harus bersih
 cargo clippy --target x86_64-unknown-linux-musl --all-targets   # modul linux
 ../scripts/test-dcheck.sh                   # e2e fixture (40 assertion)
@@ -178,19 +178,26 @@ minta langsung ke pemilik.
    (sekarang diasumsikan berurutan), NTFS `$ATTRIBUTE_LIST`, nama file
    ntfs3 dari index slack direktori, carving hanya di free space, macOS.
 3. **Kesehatan RAM (TODO G):** ECC per DIMM + label slot (EDAC sudah
-   terbaca), `HardwareCorrupted`, riwayat rasdaemon, SPD, IPMI SEL. Di R630
-   "b", SEL berisi event "Power Supply AC lost" yang belum pernah
-   ditindaklanjuti.
+   terbaca), `HardwareCorrupted`, riwayat rasdaemon, SPD. IPMI SEL sudah
+   dibaca oleh modul board (event memori tampil di EVENT LOG), tapi belum
+   dikaitkan ke layar RAM.
 4. **Kesehatan CPU (TODO G):** MCE, counter throttling, core offline,
    microcode/vulnerabilities.
-5. **Kecil:**
+5. **Motherboard (TODO S).** Sisa: sensor hwmon board belum pernah diuji
+   di hardware asli (tidak ada mesin uji dengan driver nct/it87 ter-load;
+   hanya fixture), IPMI baru diuji di Dell iDRAC 8 (belum HPE iLO /
+   Supermicro / Lenovo), metrik board belum di `prometheus`, IPMI SEL OEM
+   record (Dell) dilewati.
+   **Temuan terbuka di lapangan:** R630 .177 PSU 1 dan .251 PSU 2 tanpa AC
+   (redundansi hilang) — pemilik perlu cek kabel / PDU.
+6. **Kecil:**
    - `dcheck storage` (daftar teks) masih menampilkan HEALTH "?".
    - `storage --bench` masih MB/s (verify sudah Mbps, TODO R).
    - `prometheus` belum mengekspor metrik baru (design life, overdue, grown
      defects, phy errors, suhu lifetime, port gagal).
    - Error ATA runtime per port (sudah dihitung di `kernlog::PortState.errors`)
      belum ditampilkan untuk disk yang masih hidup.
-6. **Verifikasi hardware yang belum pernah dilakukan:** NVMe native di mesin
+7. **Verifikasi hardware yang belum pernah dilakukan:** NVMe native di mesin
    Linux asli, aarch64 di hardware asli (baru dicek dengan `file`), USB
    bridge lewat SAT, FreeBSD.
 

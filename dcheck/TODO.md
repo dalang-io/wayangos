@@ -279,7 +279,8 @@ Tugas:
       rasdaemon/kernel log
 - [ ] Deteksi konfigurasi (speed / mixed / channel balance / non-ECC)
 - [ ] SPD (opsional, bila driver ada) + tanggal produksi DIMM
-- [ ] IPMI SEL / sensor (bila `ipmitool` atau `/dev/ipmi0` ada)
+- [x] IPMI SEL / sensor (native via `/dev/ipmi0`, tanpa ipmitool) —
+      dikerjakan di modul board (TODO S, 0.5.0)
 - [ ] `dcheck ram --test` (opsional, eksplisit)
 
 ### 3. CPU health
@@ -772,7 +773,8 @@ Tugas:
 - [x] IPMI native (SDR + reading + SEL) + test parser; banding dengan
       ipmitool di 10.0.0.177
 - [x] Report teks/JSON, CLI, TUI (menu, kartu, layar), snapshot, docs
-- [x] Uji nyata R630 .251/.177 dan lab-243 (rilis menyusul)
+- [x] Uji nyata R630 .251/.177 dan lab-243; rilis 0.5.0 (2026-09-25),
+      `dcheck update` 0.4.1 → 0.5.0 diuji di Mac dan .251
 - Hasil nyata:
   - 10.0.0.177: IPMI native cocok dengan ipmitool (Temp CPU 66/75 °C,
     Voltage 2 220 V, Current 2 1 A, CPU Usage 25 %, "Status 10.1: AC lost").
