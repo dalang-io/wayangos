@@ -162,7 +162,7 @@ fi
 exec /bin/sh -l
 EOF
 chmod 755 "$WORK/root/usr/sbin/wayang-console"
-sed -i 's|^::respawn:-/bin/sh$|::respawn:/usr/sbin/wayang-console|' "$WORK/root/etc/inittab"
+sed -i 's|^::respawn:/bin/cttyhack /bin/sh -l$|::respawn:/bin/cttyhack /usr/sbin/wayang-console|' "$WORK/root/etc/inittab"
 grep -q wayang-console "$WORK/root/etc/inittab" || { echo "ERROR: console entry not found in /etc/inittab" >&2; exit 1; }
 
 (cd "$WORK/root" && find . | cpio -o -H newc -R 0:0 --quiet | gzip -9 > "$WORK/installer.img")

@@ -183,10 +183,11 @@ echo "  The Shadow that Powers the Machine"
 echo ""
 PROFILE
 
-# /etc/inittab
+# /etc/inittab — cttyhack gives the console shell its real tty (e.g. tty1) as
+# controlling terminal; on bare /dev/console, Ctrl+C and job control don't work
 cat > "$ROOTFS/etc/inittab" << 'EOF'
 ::sysinit:/etc/init.d/rcS
-::respawn:-/bin/sh
+::respawn:/bin/cttyhack /bin/sh -l
 tty2::askfirst:-/bin/sh
 tty3::askfirst:-/bin/sh
 ::ctrlaltdel:/sbin/reboot
