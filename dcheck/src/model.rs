@@ -88,7 +88,11 @@ impl Device {
     /// Human label for the device: "Vendor Model" or the kernel name.
     pub fn label(&self) -> String {
         match (&self.vendor, &self.model) {
-            (Some(v), Some(m)) if !v.is_empty() && !m.is_empty() => format!("{v} {m}"),
+            // "QEMU" + "QEMU HARDDISK": don't repeat the vendor.
+            (Some(v), Some(m)) if !v.is_empty() && !m.is_empty() && !m.to_ascii_lowercase().starts_with(&v.to_ascii_lowercase()) => {
+                format!("{v} {m}")
+            }
+            (Some(_), Some(m)) if !m.is_empty() => m.clone(),
             (None, Some(m)) if !m.is_empty() => m.clone(),
             (Some(v), None) if !v.is_empty() => v.clone(),
             _ => self.name.clone(),

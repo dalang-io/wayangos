@@ -168,7 +168,12 @@ fn build_device(root: &Path, name: &str, mounts: &Mounts) -> Option<Device> {
 
     let bus = classify_bus(name, &resolved);
     let kind = classify_kind(name, rotational);
-    let (vendor, model, firmware, serial) = read_identity(root, name, &base);
+    let (mut vendor, mut model, firmware, serial) = read_identity(root, name, &base);
+    // virtio-blk reports its PCI vendor id (0x1af4) and no model.
+    if vendor.as_deref() == Some("0x1af4") {
+        vendor = Some("VirtIO".into());
+        model = model.or_else(|| Some("virtual disk".into()));
+    }
     let partitions = read_partitions(name, &base, mounts);
 
     Some(Device {

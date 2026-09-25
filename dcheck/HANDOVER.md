@@ -36,6 +36,8 @@ utamanya teknisi server:
   sensor hwmon dan **IPMI native** (`ipmi.rs`, `/dev/ipmi0`, tanpa
   ipmitool): kipas, suhu, tegangan, PSU, log event BMC. PSU tanpa AC →
   MONITOR (redundansi hilang) atau CRITICAL (tidak ada PSU lain).
+- **VM-aware** (`virt.rs`): disk virtual = VIRT / VIRTUAL (severity 0),
+  catatan VM di RAM/CPU/board, saran snapshot provider di recover.
 - TUI bertema "sci-fi HUD", dengan fallback ANSI / `--plain` / `NO_COLOR`.
   Di disk: `u` RECOVERY → `d` DELETED FILES (peta blok), `v` CAPACITY TEST.
 - Self-update: `dcheck update` (verifikasi SHA-256).
@@ -64,6 +66,7 @@ Landing page: <https://wayang.dalang.io/apps/dcheck.html> (juga ada bagian di
 | `verify.rs` | `dcheck verify`: tulis data berlabel alamat lalu baca ulang (kapasitas palsu); mode free space dan `--destructive` |
 | `board.rs` | Motherboard: DMI, BIOS, PCIe (pci.ids), USB, hwmon, health; `demo()` untuk mode demo |
 | `ipmi.rs` | IPMI native via ioctl `/dev/ipmi0`: Device ID, SDR (full/compact, konversi M/B/exp), reading, SEL; parser teruji |
+| `virt.rs` | Deteksi VM (DMI, /sys/hypervisor, flag cpu) dan disk virtual |
 | `update.rs` | Self-update dari `https://wayang.dalang.io/dcheck` |
 | `tui/` | `mod.rs` (state/event; RECOVERY `u` dan CAPACITY TEST `v`), `views.rs` (layar), `widgets.rs`, `theme.rs`, `snapshot.rs` (render layar ke SVG), `tests.rs` |
 | `config.rs` | `~/.config/dcheck/config.json` (dibaca sekali per proses) |
@@ -142,6 +145,10 @@ Rilis (jalankan dari Mac, supaya build macOS ikut):
   Dell memberi nama sensor yang sama ("Status", "Temp"); pembeda ada di
   entity (10.x = PSU, 3.x = CPU) → `disambiguate`. Bandingkan dengan
   `ipmitool sdr elist` di 10.0.0.177 kalau mengubah konversi.
+- **NVMe Get Log Page butuh NUMDL** (jumlah dword − 1) di cdw10; tanpa itu
+  hanya dword pertama yang terisi (suhu benar, jam/TBW 0). Ada unit test
+  `nvme_log_page_asks_for_the_whole_log`. Bandingkan dengan smartctl di
+  melbicom-ded (`DCHECK_NATIVE=1` memaksa jalur native).
 - **Uji TUI di mesin asli lewat pty**: ratatui hanya mengirim sel yang
   berubah, jadi teks di stream pty bisa terpotong; cek hasil (file, exit
   code) atau pakai `dcheck snapshot`, bukan grep teks layar.
@@ -164,6 +171,10 @@ Rilis (jalankan dari Mac, supaya build macOS ikut):
 |---|---|---|
 | Dell R630 "a" | PERC H330 (MegaRAID 3008), 3 HDD SAS (2 sudah lewat design life → MONITOR), Xeon E5-2673 v4 ×2 | SAS native, umur HDD, cache (sda lambat ~3 dtk/baca), ketidakcocokan SMBIOS/EDAC |
 | Dell R630 "b" | PERC H730 (MegaRAID 3108), SSD SATA SM863a + 4 HDD SAS Toshiba, Ceph RBD, ipmitool | SAT di belakang RAID, device statistics, penyaringan RBD, suhu CPU per socket |
+| VM "biznetgio" (`ssh biznetgio`) | KVM di Biznet Gio Cloud, Ubuntu 26.04, disk "QEMU HARDDISK" 60 GB | Disk virtual non-virtio, TUI lewat pty di VM |
+| Dedicated "melbicom-ded" (`ssh melbicom-ded`) | Supermicro H13SRD-F (AMD Ryzen 7 7700), NVMe Dell PE8110 (SK hynix), BMC Supermicro + ipmitool | **NVMe native** dan **IPMI non-Dell** (bandingkan dengan smartctl / ipmitool) |
+| Workstation "aiserver" (`ssh aiserver`) | ASUS Z9PE-D8 WS, 2× Xeon E5-2665, 3× RTX 3060 Ti, SSD Samsung MZ7WD960 di SAS C602 (isci), tanpa smartctl / BMC | SAT native lewat isci, wear atribut 177, board tanpa driver sensor |
+| VM "idch" (`ssh idch`) | KVM/QEMU di IDCloudHost, Ubuntu 24.04, disk virtio 20 GB, root | Perilaku di VM (disk VIRT/VIRTUAL, board QEMU, recover + discard) — TODO T |
 | lab-243 | Fedora 44, board X99/C610 AHCI, SSD generik "SSD 1TB" (WWN nol), 4×32 GiB DDR3 (BIOS hanya mencatat 2) | Jalur HDIO/SAT, cek silang RAM, **SSD mati di ata1** (deteksi via kernel log) |
 
 Akses: SSH key milik pemilik. Kredensial tidak dicatat di repo publik ini;
@@ -185,9 +196,9 @@ minta langsung ke pemilik.
    microcode/vulnerabilities.
 5. **Motherboard (TODO S).** Sisa: sensor hwmon board belum pernah diuji
    di hardware asli (tidak ada mesin uji dengan driver nct/it87 ter-load;
-   hanya fixture), IPMI baru diuji di Dell iDRAC 8 (belum HPE iLO /
-   Supermicro / Lenovo), metrik board belum di `prometheus`, IPMI SEL OEM
-   record (Dell) dilewati.
+   hanya fixture), IPMI sudah diuji di Dell iDRAC 8 dan Supermicro (belum
+   HPE iLO / Lenovo), metrik board belum di `prometheus`, event SEL OEM
+   hanya ditulis "OEM event" (tanpa dekode vendor).
    **Temuan terbuka di lapangan:** R630 .177 PSU 1 dan .251 PSU 2 tanpa AC
    (redundansi hilang) — pemilik perlu cek kabel / PDU.
 6. **Kecil:**
@@ -197,8 +208,7 @@ minta langsung ke pemilik.
      defects, phy errors, suhu lifetime, port gagal).
    - Error ATA runtime per port (sudah dihitung di `kernlog::PortState.errors`)
      belum ditampilkan untuk disk yang masih hidup.
-7. **Verifikasi hardware yang belum pernah dilakukan:** NVMe native di mesin
-   Linux asli, aarch64 di hardware asli (baru dicek dengan `file`), USB
+7. **Verifikasi hardware yang belum pernah dilakukan:** aarch64 di hardware asli (baru dicek dengan `file`), USB
    bridge lewat SAT, FreeBSD.
 
 ## 8. Konvensi kerja dengan pemilik

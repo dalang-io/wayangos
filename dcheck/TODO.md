@@ -790,3 +790,78 @@ Tugas:
 - Keputusan: PSU tanpa AC = CRITICAL kalau tidak ada PSU lain yang hidup,
   MONITOR kalau ada (redundansi hilang). Nama sensor IPMI yang sama (Dell
   "Status", "Temp") diberi entity: "Status (PSU 1)", "Temp (CPU 2)".
+
+## T. Berjalan di VM (uji di `ssh idch`: KVM/QEMU, IDCloudHost, Ubuntu 24.04)
+
+Temuan (0.5.0, read-only):
+- storage: `/dev/vda` (virtio) tampil **HDD** (QEMU melaporkan rotational=1),
+  vendor "0x1af4", verdict **UNKNOWN** + "Unable to detect device type (run
+  as root)" padahal sudah root → menyesatkan. `check` exit 1 → monitoring
+  di VM selalu "gagal".
+- board: QEMU i440FX, SeaBIOS 2014 → catatan palsu "BIOS 12 tahun", "VGA
+  tanpa driver", "tidak ada sensor board".
+- recover: "HDD: isi tetap di piringan" + "boot live USB"; padahal disk
+  virtual di-mount `discard` (host bisa membuang blok, thin provisioning),
+  dan di VM langkah terbaik = **snapshot di panel provider**.
+- ram/cpu normal; undelete, verify (menolak disk sistem), authenticity n/a,
+  JSON: benar.
+
+Perbaikan:
+- [x] `virt.rs`: deteksi VM (DMI, /sys/hypervisor, flag `hypervisor`) dan
+      disk virtual (virtio, vd*/xvd*, QEMU/VBOX/VMware/Msft/EBS/PD)
+- [x] Disk virtual: tipe VIRT, vendor VirtIO, smartctl dilewati, verdict
+      **VIRTUAL** (severity 0, `check` exit 0) + penjelasan; prometheus ikut
+- [x] RAM/CPU: catatan VM; board: "Virtual machine: KVM / QEMU", tanpa
+      catatan BIOS tua / driver / sensor
+- [x] recover: media "virtual disk", discard → LOW + langkah snapshot
+- [x] Uji ulang di idch
+- Hasil ulang di idch: vda = VIRT / "VirtIO virtual disk", verdict VIRTUAL
+  (severity 0), `check` exit 0, prometheus severity 0; RAM/CPU/board dengan
+  catatan VM tanpa catatan palsu; recover LOW + langkah snapshot provider
+  dan rescue mode. Versi terinstal di idch (0.5.0) tidak diubah; uji pakai
+  binary sementara.
+- Belum: `dcheck storage` (daftar teks) masih HEALTH "?" (temuan lama G).
+
+Uji lanjutan (permintaan "test dulu" sebelum rilis):
+- `ssh biznetgio` (Biznet Gio Cloud, KVM, Ubuntu 26.04, kernel 7.0, disk
+  `sda` "QEMU HARDDISK" — bukan virtio-blk): VIRT/VIRTUAL, exit 0, catatan
+  VM, recover LOW + snapshot. Walk TUI lewat pty (17 langkah: storage,
+  report, u, d, v, board, help, ram, cpu) tanpa panic, exit 0.
+  Diperbaiki: model "QEMU QEMU HARDDISK" (vendor diulang) → "QEMU HARDDISK".
+- Snapshot TUI di idch menemukan bug: baris storage kembali ke UNKNOWN
+  setelah report dibuka dan di snapshot (3 tempat menghitung health baris)
+  → satu helper `DevHealth::for_device`, plus test.
+- `ssh melbicom-ded` (server dedicated Supermicro H13SRD-F, Ryzen 7 7700,
+  NVMe Dell PE8110 = SK hynix, BMC Supermicro): **pertama kali NVMe native
+  dan IPMI non-Dell diuji di hardware asli**. Temuan + perbaikan:
+  - **NVMe native membaca 0 jam / 0 cycle / 0 TB**: Get Log Page dikirim
+    dengan NUMDL = 0 → controller hanya mengembalikan dword pertama (suhu
+    benar, sisanya 0). cdw10 sekarang `(512/4 − 1) << 16 | 0x02`. Hasil
+    native = smartctl: 4548 jam, 25 cycle, 1.5 TB tulis, 5.2 GB baca.
+  - smartctl dibuang kalau JSON berisi pesan error (di sini "self-test log
+    failed", exit 4) padahal data lengkap → data tetap dipakai.
+  - OUI NVMe diambil dari `/sys/block/*/eui` (EUI-64 `ace42e` = SK hynix);
+    `wwid` berisi NGUID → sebelumnya "d5b42c" tidak dikenal. Sekarang
+    CONSISTENT (SK hynix).
+  - Board Supermicro dengan satu placeholder ("0123456789" di versi produk)
+    tidak lagi dianggap generik; generik = vendor/produk kosong atau ≥2
+    placeholder (lab-243 tetap generik).
+  - IPMI Supermicro: 20 sensor **cocok dengan ipmitool** (CPU 48 °C, FAN1,
+    MB 12V 12.25 V, VBAT, PS1/PS2). Event SEL OEM (tipe 0xd1; ipmitool juga
+    "Unknown") ditulis "OEM event", bukan "Sensor event (offset 2)".
+- Regresi bare metal (R630 .251/.177, lab-243, Mac) dan kedua VM: verdict,
+  exit code `check` dan sumber SMART sama seperti sebelumnya.
+- `ssh aiserver` (workstation ASUS Z9PE-D8 WS, 2× Xeon E5-2665, 4× 32 GiB
+  DDR3, 3× RTX 3060 Ti, SSD Samsung MZ7WD960 di controller SAS Intel C602
+  (isci), tanpa smartctl, tanpa BMC): SAT native OK (8528 jam, 21.7 TB),
+  authenticity CONSISTENT Samsung, RAM SMBIOS = EDAC, BIOS 2012 dicatat.
+  Temuan + perbaikan:
+  - "Life left: unknown": Samsung menaruh wear di atribut **177**
+    (Wear_Leveling_Count, normalized 94 = 6% terpakai), bukan 231/233 →
+    177 dan 202 (Micron) dipakai kalau 231/233 tidak ada. Sekarang 6%,
+    ~15 tahun, confidence high.
+  - Atribut **184 End-to-End_Error 100/97 (raw 0)** ditandai "warn" (aturan
+    "kurang dari threshold + 10") → peringatan palsu di SSD Samsung sehat;
+    sekarang "warn" hanya kalau nilai sudah turun (< 100) atau raw > 0.
+  - Chip sensor board (Nuvoton) tidak ter-load → catatan kini menyarankan
+    `sensors-detect` / `modprobe nct6775` / `it87`.

@@ -128,6 +128,15 @@ impl DevHealth {
         }
     }
 
+    /// Health of a list row: a virtual disk without SMART is VIRTUAL, not
+    /// UNKNOWN.
+    fn for_device(d: &Device, m: Option<&(SmartData, Health)>) -> Self {
+        match m {
+            None if crate::virt::is_virtual_disk(d) => DevHealth { label: "VIRTUAL".into(), sev: 0, life: None, temp: None },
+            _ => DevHealth::from_metrics(m),
+        }
+    }
+
     fn from_metrics(m: Option<&(SmartData, Health)>) -> Self {
         match m {
             Some((s, h)) => DevHealth {
@@ -307,7 +316,8 @@ impl App {
         std::thread::spawn(move || {
             let out: Vec<DevHealth> = report::metrics_all(&devices)
                 .iter()
-                .map(|m| DevHealth::from_metrics(m.as_ref()))
+                .zip(&devices)
+                .map(|(m, d)| DevHealth::for_device(d, m.as_ref()))
                 .collect();
             let _ = tx.send(out);
         });
@@ -567,7 +577,9 @@ impl App {
             if let Some(i) = self.report_dev {
                 if let Some(row) = self.health.get_mut(i) {
                     if self.health_rx.is_none() {
-                        *row = DevHealth::from_metrics(self.report_metrics.as_ref());
+                        if let Some(d) = self.devices.get(i) {
+                            *row = DevHealth::for_device(d, self.report_metrics.as_ref());
+                        }
                     }
                 }
             }

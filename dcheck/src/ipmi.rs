@@ -311,6 +311,7 @@ pub fn parse_sel(rec: &[u8], names: &dyn Fn(u8) -> Option<String>) -> Option<Eve
                 (0x13, _) => ("critical interrupt (PCIe / NMI)".into(), Status::Crit),
                 (0x1D, _) => ("boot".into(), Status::Ok),
                 (0x0F, _) => ("POST error".into(), Status::Warn),
+                (k, _) if k >= 0xC0 || sensor_type_name(k) == "Sensor" => (format!("OEM event (sensor type {k:#04x})"), Status::Ok),
                 _ => (format!("{} event (offset {offset})", sensor_type_name(kind)), Status::Ok),
             },
         },

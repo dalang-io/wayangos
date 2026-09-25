@@ -97,7 +97,7 @@ pub fn print_list(devices: &[Device]) {
         println!(
             "{:<14} {:<5} {:<7} {:<28} {:>10}  {:<9} {}",
             d.path,
-            d.kind.to_string(),
+            crate::virt::kind_label(d),
             d.bus.to_string(),
             truncate(&d.label(), 28),
             human_size(d.size_bytes),
@@ -200,7 +200,7 @@ pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>)
     out.push(format!("  Serial       : {}", opt(&serial)));
     out.push(format!("  Firmware     : {}", opt(&firmware)));
     out.push(format!("  Bus          : {}", d.bus));
-    out.push(format!("  Type         : {}", d.kind));
+    out.push(format!("  Type         : {}", crate::virt::kind_label(d)));
     if let Some(ff) = smart.and_then(|s| s.form_factor.clone()) {
         out.push(format!("  Form factor  : {ff}"));
     }
@@ -285,6 +285,13 @@ pub fn device_report_lines_with(d: &Device, smart: Option<&smartctl::SmartData>)
     out.push(section("HEALTH"));
     match smart {
         Some(s) => health_lines(d, s, &mut out),
+        None if crate::virt::is_virtual_disk(d) => {
+            out.push("  Verdict      : VIRTUAL".into());
+            out.push(format!("  Note         : {}", crate::virt::DISK_NOTE));
+            if let Some(v) = crate::virt::detect() {
+                out.push(format!("  Hypervisor   : {} — check the provider's status page for storage health", v.label()));
+            }
+        }
         None => {
             let (why, hint) = smart_unavailable(d);
             out.push(format!("  SMART        : unavailable — {why}"));
@@ -662,6 +669,12 @@ pub fn ram_report_lines(r: &crate::ram::RamInfo) -> Vec<String> {
     out.push(section("HEALTH"));
     let (label, sev) = r.verdict();
     out.push(format!("  Verdict      : {label}"));
+    if let Some(v) = crate::virt::detect() {
+        out.push(format!(
+            "  Note         : virtual machine ({}): this is the memory the host assigns; the physical DIMMs and their ECC are the host's",
+            v.label()
+        ));
+    }
     if r.ecc_correctable > 0 || r.ecc_uncorrectable > 0 {
         out.push(format!(
             "  ECC          : {} correctable, {} uncorrectable",
@@ -773,6 +786,12 @@ pub fn cpu_report_lines(c: &crate::cpu::CpuInfo) -> Vec<String> {
     out.push(section("HEALTH"));
     let h = c.health();
     out.push(format!("  Verdict      : {}", h.label));
+    if let Some(v) = crate::virt::detect() {
+        out.push(format!(
+            "  Note         : virtual machine ({}): virtual CPUs have no temperature sensors; the physical CPU is the host's",
+            v.label()
+        ));
+    }
     if !h.issues.is_empty() {
         out.push("  Issues       :".into());
         for i in &h.issues {
@@ -811,6 +830,9 @@ pub fn board_report_lines(b: &crate::board::BoardInfo) -> Vec<String> {
     let mut out = vec![section("MOTHERBOARD")];
     out.push(format!("  System       : {}", joined(&b.system)));
     out.push(format!("  Board        : {}", joined(&b.board)));
+    if let Some(v) = &b.virt {
+        out.push(format!("  Virtual      : yes — {v}"));
+    }
     if let Some(c) = &b.chassis {
         out.push(format!("  Chassis      : {c}"));
     }
@@ -1142,6 +1164,9 @@ pub fn cpu_json(c: &crate::cpu::CpuInfo) -> crate::json::Json {
 /// Why SMART data is missing for `d`, plus an optional hint.
 pub fn smart_unavailable(d: &Device) -> (String, Option<String>) {
     use crate::model::Bus;
+    if crate::virt::is_virtual_disk(d) {
+        return (crate::virt::DISK_NOTE.into(), Some("check the provider's status page / panel".into()));
+    }
     if !crate::native::is_root() && !crate::enumerate::is_demo() {
         return (
             "reading SMART needs root".into(),
@@ -1191,6 +1216,9 @@ pub fn prometheus(devices: &[Device]) -> String {
     out.push_str("# HELP dcheck_health_severity 0=ok 1=unknown 2=monitor 3=backup/replace.\n");
     out.push_str("# TYPE dcheck_health_severity gauge\n");
     for (d, m) in devices.iter().zip(&all) {
+        if m.is_none() && crate::virt::is_virtual_disk(d) {
+            out.push_str(&metric("dcheck_health_severity", &d.path, Some("VIRTUAL"), 0.0));
+        }
         if let Some((_, h)) = m {
             let sev = match h.verdict {
                 health::Verdict::Ok => 0.0,
@@ -1248,6 +1276,10 @@ fn read_smart_uncached(d: &Device) -> Option<smartctl::SmartData> {
     if crate::enumerate::is_demo() {
         return crate::enumerate::demo_smart(d);
     }
+    // Virtual disks have no SMART (smartctl only reports an error).
+    if crate::virt::is_virtual_disk(d) {
+        return None;
+    }
     // A port the kernel gave up on: nothing to read, the log is the evidence.
     if d.failure.is_some() {
         return Some(smartctl::SmartData {
@@ -1266,6 +1298,14 @@ fn read_smart_uncached(d: &Device) -> Option<smartctl::SmartData> {
     };
     let native = crate::native::read(d);
 
+    // smartctl reports an error for e.g. a failed self-test-log read while
+    // the health data is complete: keep it then.
+    let smartctl = smartctl.map(|mut s| {
+        if s.error.is_some() && (s.power_on_hours.is_some() || s.temperature_c.is_some() || !s.attributes.is_empty()) {
+            s.error = None;
+        }
+        s
+    });
     match (smartctl, native) {
         (Some(mut s), Some(n)) if s.error.is_none() => {
             s.fill_from(&n);
@@ -1303,7 +1343,7 @@ pub fn device_json_basic(d: &Device) -> crate::json::Json {
         ("vendor", opt_json(&d.vendor)),
         ("model", opt_json(&d.model)),
         ("bus", crate::json::string(d.bus.to_string())),
-        ("type", crate::json::string(d.kind.to_string())),
+        ("type", crate::json::string(crate::virt::kind_label(d))),
         ("removable", crate::json::Json::Bool(d.removable)),
         ("capacity_bytes", crate::json::num(d.size_bytes as f64)),
         ("logical_block_size", crate::json::num(d.logical_block_size as f64)),

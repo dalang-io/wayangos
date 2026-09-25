@@ -28,6 +28,7 @@ mod tui;
 mod undelete;
 mod update;
 mod verify;
+mod virt;
 
 use std::io::{self, IsTerminal, Write};
 

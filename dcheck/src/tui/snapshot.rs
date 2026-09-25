@@ -81,7 +81,7 @@ pub fn run(dir: &Path, mut devices: Vec<Device>, opts: &Options) -> io::Result<V
     if let Some(h) = &opts.host {
         app.host = h.clone();
     }
-    app.health = metrics.iter().map(|m| DevHealth::from_metrics(m.as_ref())).collect();
+    app.health = app.devices.iter().zip(&metrics).map(|(d, m)| DevHealth::for_device(d, m.as_ref())).collect();
     let ram = crate::ram::read();
     app.ram_lines = report::ram_report_lines(&ram);
     app.ram = Some(ram);

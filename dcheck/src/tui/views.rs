@@ -372,7 +372,7 @@ fn storage_card(f: &mut Frame, app: &App, area: Rect) {
         let mut spans = vec![
             Span::styled(format!("{} ", ui.arrow()), p.fg(p.accent)),
             Span::styled(format!("{:<10}", w::clip(&d.name, 10, ui)), p.bold(p.fg)),
-            Span::styled(format!(" {:<5}", d.kind.to_string()), p.fg(p.dim)),
+            Span::styled(format!(" {:<5}", crate::virt::kind_label(d)), p.fg(p.dim)),
             Span::styled(format!("{:>9}  ", human_size(d.size_bytes)), p.fg(p.fg)),
         ];
         if app.health_rx.is_some() {
@@ -666,6 +666,17 @@ fn cpu_vitals(
 fn report_vitals(app: &App, width: u16) -> Vec<Line<'static>> {
     let (p, ui) = (&app.pal, app.ui);
     let Some((s, h)) = &app.report_metrics else {
+        if app.report_dev.and_then(|i| app.devices.get(i)).is_some_and(crate::virt::is_virtual_disk) {
+            let mut lines = vec![
+                w::field("VERDICT", LW - 1, vec![w::badge(0, "VIRTUAL", p, ui)], p),
+                Line::from(""),
+                Line::from(Span::styled(crate::virt::DISK_NOTE, p.fg(p.fg))),
+            ];
+            if let Some(v) = crate::virt::detect() {
+                lines.push(Line::from(Span::styled(format!("{} hypervisor: {}", ui.bullet(), v.label()), p.fg(p.dim))));
+            }
+            return lines;
+        }
         let mut lines = vec![
             w::field("VERDICT", LW - 1, vec![w::badge(1, "UNKNOWN", p, ui)], p),
             Line::from(""),
@@ -1015,7 +1026,7 @@ fn storage(f: &mut Frame, app: &mut App, area: Rect) {
             let h = app.health.get(i).cloned().unwrap_or_else(super::DevHealth::pending);
             let mut cells = vec![
                 Cell::from(Span::styled(d.path.clone(), p.bold(p.fg))),
-                Cell::from(Span::styled(d.kind.to_string(), p.fg(p.dim))),
+                Cell::from(Span::styled(crate::virt::kind_label(d), p.fg(p.dim))),
             ];
             if show_bus {
                 cells.push(Cell::from(Span::styled(d.bus.to_string(), p.fg(p.dim))));

@@ -517,3 +517,28 @@ fn motherboard_menu_item_card_and_screen() {
     a.menu.select(Some(4));
     assert!(handle_key(&mut a, KeyCode::Enter));
 }
+
+#[test]
+fn virtual_disk_rows_stay_virtual() {
+    let mut a = app(neon(), false);
+    a.devices[1].name = "vda".into();
+    a.devices[1].bus = crate::model::Bus::Virtio;
+    let d = a.devices[1].clone();
+    assert_eq!(DevHealth::for_device(&d, None).label, "VIRTUAL");
+    assert_eq!(DevHealth::for_device(&d, None).sev, 0);
+    // A real disk without SMART stays UNKNOWN.
+    assert_eq!(DevHealth::for_device(&a.devices[3], None).label, "UNKNOWN");
+    // Opening its report (no SMART) keeps the row VIRTUAL.
+    a.report_dev = Some(1);
+    a.health[1] = DevHealth::for_device(&d, None);
+    a.report_rx = Some({
+        let (tx, rx) = mpsc::channel();
+        tx.send((vec!["x".to_string()], None)).unwrap();
+        rx
+    });
+    a.drain();
+    assert_eq!(a.health[1].label, "VIRTUAL");
+    a.screen = Screen::Report;
+    let t = text(&render(&mut a, 120, 30));
+    assert!(t.contains("VIRTUAL"), "{t}");
+}

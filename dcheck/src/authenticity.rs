@@ -260,12 +260,13 @@ pub fn is_placeholder_serial(serial: &str) -> bool {
 
 /// OUI of a WWN (hex digits after the NAA nibble for NAA 5/6; bytes 0–2 of
 /// an EUI-64), or `None` when the WWN is absent or all zeros.
-fn wwn_oui(wwn: &str) -> Option<String> {
+fn wwn_oui(wwn: &str, nvme: bool) -> Option<String> {
     let hex: String = wwn.chars().filter(|c| c.is_ascii_hexdigit()).collect::<String>().to_ascii_lowercase();
     if hex.len() < 7 || hex.chars().all(|c| c == '0') {
         return None;
     }
-    Some(hex[1..7].to_string())
+    // NVMe EUI-64: the OUI is the first 3 bytes; NAA 5/6: after the NAA nibble.
+    Some(if nvme { hex[0..6].to_string() } else { hex[1..7].to_string() })
 }
 
 fn is_zero_wwn(wwn: &str) -> bool {
@@ -304,7 +305,7 @@ pub fn assess(e: &Evidence) -> Authenticity {
     let mut good = false;
 
     // WWN / OUI (SATA and SAS; NVMe namespaces use an EUI-64 instead).
-    let oui = e.wwn.as_deref().and_then(wwn_oui);
+    let oui = e.wwn.as_deref().and_then(|w| wwn_oui(w, e.nvme));
     let wwn_maker = oui.as_deref().and_then(maker_by_oui);
     match (&e.wwn, &oui) {
         (Some(w), None) if is_zero_wwn(w) && !e.nvme => {
@@ -439,6 +440,8 @@ pub fn for_device(d: &Device, smart: Option<&SmartData>, model: &str, serial: Op
         })
     };
     let no_wwn = wwid.as_deref().is_some_and(|w| w.starts_with("t10.ATA"));
+    // NVMe: the namespace EUI-64 ("ac e4 2e 00 …"); `wwid` may be an NGUID.
+    let nvme_eui = sys("eui").map(|e| e.split_whitespace().collect::<String>()).filter(|e| e.len() == 16);
     let pci_vendor = if nvme {
         sys("device/device/vendor")
             .and_then(|v| u64::from_str_radix(v.trim_start_matches("0x"), 16).ok())
@@ -453,7 +456,11 @@ pub fn for_device(d: &Device, smart: Option<&SmartData>, model: &str, serial: Op
         model: model.to_string(),
         serial: serial.map(str::to_string),
         nvme,
-        wwn: smart.and_then(|s| s.wwn.clone()).or(sys_wwn).or_else(by_id_wwn),
+        wwn: if nvme {
+            nvme_eui.or(sys_wwn.filter(|w| w.len() == 16))
+        } else {
+            smart.and_then(|s| s.wwn.clone()).or(sys_wwn).or_else(by_id_wwn)
+        },
         no_wwn,
         pci_vendor,
         in_smartctl_database: smart.and_then(|s| s.in_smartctl_database),
@@ -569,6 +576,14 @@ mod tests {
         assert_eq!(a.level, Level::Consistent);
         let a = assess(&ev("ST4000NM0035-1V4107", Some("5000c500a1b2c3d4")));
         assert_eq!(a.brand, Some("Seagate"));
+        assert_eq!(a.level, Level::Consistent);
+    }
+
+    #[test]
+    fn nvme_eui64_oui() {
+        // Dell-branded SK hynix PE8110 (melbicom-ded): EUI-64 ace42e0045470185.
+        let a = assess(&Evidence { nvme: true, pci_vendor: Some(0x1c5c), ..ev("DELL NVME ISE PE8110 RI U.2 960GB", Some("ace42e0045470185")) });
+        assert_eq!(a.maker, Some("SK hynix"));
         assert_eq!(a.level, Level::Consistent);
     }
 

@@ -243,7 +243,13 @@ impl SmartAttribute {
     pub fn status(&self) -> &'static str {
         if self.failing() {
             "FAIL"
-        } else if self.prefailure && self.threshold > 0 && self.value < self.threshold + 10 {
+        } else if self.prefailure
+            && self.threshold > 0
+            && self.value < self.threshold + 10
+            // Near a high threshold but never dropped (Samsung 184: value 100,
+            // threshold 97, raw 0) is not a warning.
+            && (self.value < 100 || self.raw > 0)
+        {
             "warn"
         } else {
             "ok"
@@ -487,6 +493,9 @@ fn parse_smart(j: &Json) -> SmartData {
                 Some(199) => s.crc_errors = raw,
                 // Vendor "100 = new" wear indicators.
                 Some(231) | Some(233) => s.life_percent = value,
+                // Samsung Wear_Leveling_Count / Micron Percent_Lifetime_Remain
+                // (normalized, 100 = new) when 231/233 are absent.
+                Some(177) | Some(202) if s.life_percent.is_none() && value.is_some_and(|v| v <= 100) => s.life_percent = value,
                 Some(241) => s.lba_written = raw,
                 Some(242) => s.lba_read = raw,
                 _ => {}
@@ -769,6 +778,26 @@ fn str_at(j: &Json, path: &[&str]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn attribute_status_ignores_untouched_high_thresholds() {
+        let a = |id: u8, value: u8, threshold: u8, raw: u64| SmartAttribute {
+            id,
+            name: attr_name(id).into(),
+            value,
+            worst: value,
+            threshold,
+            raw,
+            prefailure: true,
+            online: true,
+        };
+        // aiserver: Samsung MZ7WD960 attribute 184 = 100 / 97, raw 0.
+        assert_eq!(a(184, 100, 97, 0).status(), "ok");
+        assert_eq!(a(184, 99, 97, 1).status(), "warn");
+        assert_eq!(a(5, 15, 10, 120).status(), "warn");
+        assert_eq!(a(5, 10, 10, 400).status(), "FAIL");
+    }
+
     use super::*;
 
     #[test]

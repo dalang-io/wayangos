@@ -73,6 +73,8 @@ pub struct Facts {
     pub system: bool,
     /// dm-crypt / LUKS in the stack.
     pub encrypted: bool,
+    /// A disk the hypervisor provides (inside a VM).
+    pub virtual_disk: bool,
 }
 
 impl Facts {
@@ -138,9 +140,16 @@ pub fn assess(f: &Facts) -> Assessment {
     let mut reasons = Vec::new();
     let fs = f.fs();
     let family = fs_family(fs);
-    let ssd = f.rotational == Some(false);
+    let ssd = f.rotational == Some(false) && !f.virtual_disk;
 
-    let mut chance = if ssd && f.trim && f.discard_mount() {
+    let mut chance = if f.virtual_disk && f.trim && f.discard_mount() {
+        reasons.push(format!(
+            "virtual disk mounted with `{}`: freed blocks are handed back to the host (thin provisioning) and \
+             often read back as zeros — whether they are depends on the provider; the disk map shows what is left",
+            f.mount_opts.iter().find(|o| o.starts_with("discard")).map_or("discard", |s| s.as_str())
+        ));
+        Chance::Low
+    } else if ssd && f.trim && f.discard_mount() {
         reasons.push(format!(
             "SSD mounted with `{}`: the drive is told about deleted blocks right away and erases them \
              (reads return zeros) — usually within seconds to minutes",
@@ -195,7 +204,11 @@ pub fn assess(f: &Facts) -> Assessment {
                 }
             }
         } else {
-            if ssd {
+            if f.virtual_disk {
+                reasons.push(
+                    "virtual disk: deleted data stays until overwritten, unless the host reclaims free space".into(),
+                );
+            } else if ssd {
                 reasons.push("SSD, but TRIM does not reach it (RAID controller / USB bridge / not supported): \
                               deleted blocks are not erased"
                     .into());
@@ -233,10 +246,22 @@ pub fn assess(f: &Facts) -> Assessment {
                     only chance, so do them now or not at all."
             .into());
     }
-    if ssd && f.trim && f.fstrim_timer.as_ref().is_some_and(|t| t.enabled) {
+    if (ssd || f.virtual_disk) && f.trim && f.fstrim_timer.as_ref().is_some_and(|t| t.enabled) {
         steps.push("Stop TRIM now: `sudo systemctl stop fstrim.timer`.".into());
     }
+    if f.virtual_disk {
+        steps.push(
+            "This is a virtual machine: take a snapshot of the VM / its disk in the provider's panel NOW — it \
+             freezes the deleted data. Then recover from a clone of that snapshot attached to a rescue VM."
+                .into(),
+        );
+    }
     match (mnt, f.system) {
+        (Some(_), true) if f.virtual_disk => steps.push(
+            "Stop writing: this disk runs the VM — after the snapshot, shut the VM down or boot it into the \
+             provider's rescue mode; do not keep working on it."
+                .into(),
+        ),
         (Some(_), true) => steps.push(
             "Stop writing: this disk runs the system — shut down cleanly and boot a live USB (WayangOS or \
              any rescue system); do not keep working on this machine."
@@ -380,6 +405,7 @@ pub fn report_lines(g: &Gathered) -> Vec<String> {
     for (f, a) in &g.fss {
         out.push(crate::report::section(&format!("RECOVERY {dot} {}", f.device)));
         let media = match (f.rotational, f.trim) {
+            _ if f.virtual_disk => "virtual disk",
             (Some(true), _) => "HDD",
             (Some(false), true) => "SSD / flash, TRIM supported",
             (Some(false), false) => "SSD / flash, no TRIM reaches it",
@@ -488,6 +514,7 @@ pub fn demo(d: &crate::model::Device) -> (Gathered, DiskMap) {
         used_pct: Some(if ssd { 38.0 } else { 63.0 }),
         system: ssd,
         encrypted: false,
+        virtual_disk: false,
     };
     let a = assess(&f);
     let cells = 512usize;
@@ -658,6 +685,13 @@ mod imp {
             fstrim_timer: None,
             system,
             encrypted: encrypted(name),
+            virtual_disk: disk.starts_with("vd")
+                || disk.starts_with("xvd")
+                || sys(&disk, "device/vendor").as_deref() == Some("0x1af4")
+                || sys(&disk, "device/model").is_some_and(|m| {
+                    let m = m.to_ascii_lowercase();
+                    m.contains("qemu") || m.contains("virtual") || m.contains("vbox")
+                }),
         }
     }
 
@@ -938,6 +972,21 @@ mod tests {
         let a = assess(&f);
         assert!(a.steps.iter().any(|s| s.contains("live USB")));
         assert!(!a.steps.iter().any(|s| s.contains("umount")));
+    }
+
+    #[test]
+    fn virtual_disks_get_vm_advice() {
+        // idch: virtio disk, ext4 mounted with discard, rotational=1.
+        let mut f = facts("ext4", Some(true), true, &["rw", "discard"]);
+        f.virtual_disk = true;
+        f.system = true;
+        let a = assess(&f);
+        assert_eq!(a.chance, Chance::Low);
+        assert!(a.reasons[0].contains("thin provisioning"), "{:?}", a.reasons);
+        assert!(!a.reasons.iter().any(|r| r.contains("platters")));
+        assert!(a.steps.iter().any(|s| s.contains("snapshot")));
+        assert!(a.steps.iter().any(|s| s.contains("rescue mode")));
+        assert!(!a.steps.iter().any(|s| s.contains("live USB")));
     }
 
     #[test]

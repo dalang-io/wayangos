@@ -319,6 +319,22 @@ Also in the UI as **04 MOTHERBOARD** (key `4`).
   BIOS, devices without a driver, narrower PCIe links, Secure Boot off.
 - macOS: model, chip, firmware version.
 
+## Virtual machines
+
+Inside a VM (KVM / QEMU, VMware, Hyper-V, Xen, VirtualBox; detected from DMI,
+`/sys/hypervisor` and the CPU `hypervisor` flag) dcheck reports what a VM
+can know:
+
+- Virtual disks (virtio `vd*`, `xvd*`, "QEMU HARDDISK", "VMware Virtual
+  disk", EBS …) show as type **VIRT** with verdict **VIRTUAL** (severity 0):
+  the hypervisor exposes no SMART; the physical disks are the provider's.
+  `dcheck check` therefore exits 0 in a healthy VM.
+- RAM, CPU and board note that the physical hardware belongs to the host;
+  the emulated firmware (e.g. SeaBIOS dated 2014) is not reported as old.
+- `dcheck recover` on a virtual disk: a `discard` mount lowers the chance
+  (the host may reclaim freed blocks) and the first step is a **snapshot in
+  the provider's panel**, then the provider's rescue mode.
+
 ## Monitoring
 
 - `dcheck check` → exit 0 ok / 1 unknown / 2 monitor / 3 backup-or-replace.

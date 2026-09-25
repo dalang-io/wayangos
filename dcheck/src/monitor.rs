@@ -28,6 +28,13 @@ pub fn snapshot(devices: &[Device]) -> Vec<DevState> {
                 issues: h.issues.clone(),
                 notes: h.notes.clone(),
             },
+            None if crate::virt::is_virtual_disk(d) => DevState {
+                device: d.path.clone(),
+                severity: 0,
+                verdict: "VIRTUAL",
+                issues: Vec::new(),
+                notes: vec![crate::virt::DISK_NOTE.into()],
+            },
             None => DevState {
                 device: d.path.clone(),
                 severity: 1,
@@ -114,7 +121,8 @@ pub fn check(devices: &[Device], as_json: bool) -> i32 {
         println!("{}", states_json(&states));
     } else {
         for s in &states {
-            println!("{:<14} {:<12} {}", s.device, s.verdict, s.issues.join("; "));
+            let detail = if s.verdict == "VIRTUAL" { s.notes.join("; ") } else { s.issues.join("; ") };
+            println!("{:<14} {:<12} {}", s.device, s.verdict, detail);
         }
     }
     exit_code(worst(&states))

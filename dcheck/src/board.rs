@@ -115,6 +115,8 @@ pub struct BoardInfo {
     pub sel_entries: u16,
     /// IPMI device exists but could not be read (usually: not root).
     pub ipmi_note: Option<String>,
+    /// Hypervisor, when this is a virtual machine.
+    pub virt: Option<String>,
     pub source: String,
 }
 
@@ -554,7 +556,8 @@ pub fn read() -> BoardInfo {
             _ => PathBuf::from("/"),
         };
         let mut b = read_from(&root);
-        if std::env::var_os("DCHECK_SYS_ROOT").is_none() {
+        b.virt = crate::virt::read_from(&root).map(|v| v.label());
+        if std::env::var_os("DCHECK_SYS_ROOT").is_none() && b.virt.is_none() {
             if let Some(i) = crate::ipmi::read() {
                 add_ipmi(&mut b, i);
             } else if root.join("dev/ipmi0").exists() && !crate::native::is_root() {
@@ -653,6 +656,7 @@ pub fn demo() -> BoardInfo {
         ],
         sel_entries: 28,
         ipmi_note: None,
+        virt: None,
         source: "demo".into(),
     }
 }
@@ -718,6 +722,19 @@ impl BoardInfo {
         if bad.len() > new.len() {
             notes.push(format!("{} older warning/critical event(s) in the BMC log (see EVENT LOG)", bad.len() - new.len()));
         }
+        // A VM: the chipset, firmware and sensors are emulated; only real
+        // alarms (none, normally) would count.
+        if let Some(v) = &self.virt {
+            notes.push(format!(
+                "virtual machine ({v}): board, firmware, fans and power supplies are the host's — their health is the provider's to monitor"
+            ));
+            let label = match sev {
+                0 => "OK",
+                2 => "MONITOR",
+                _ => "CRITICAL",
+            };
+            return BoardHealth { label, severity: sev, issues, notes };
+        }
         // Narrow links, grouped per (device name, width, allowed width).
         let mut narrow: Vec<((String, u8, u8), Vec<String>)> = Vec::new();
         for d in &self.pci {
@@ -769,8 +786,16 @@ impl BoardInfo {
                 ));
             }
         }
-        let generic = |i: &Ident| i.vendor.as_deref().is_some_and(placeholder) || i.product.as_deref().is_some_and(placeholder) || i.version.as_deref().is_some_and(placeholder);
-        if generic(&self.board) || generic(&self.system) {
+        // Vendor / product left unfilled, or several placeholder fields. One
+        // placeholder alone is common on real server boards (Supermicro's
+        // product version "0123456789").
+        let unfilled = |i: &Ident| i.vendor.as_deref().is_some_and(placeholder) || i.product.as_deref().is_some_and(placeholder);
+        let placeholders = [&self.system, &self.board]
+            .iter()
+            .flat_map(|i| [&i.vendor, &i.product, &i.version, &i.serial])
+            .filter(|v| v.as_deref().is_some_and(placeholder))
+            .count();
+        if unfilled(&self.board) || unfilled(&self.system) || placeholders >= 2 {
             notes.push("the maker left the board identity unfilled (\"Default string\"): a generic / white-label board".into());
         }
         if self.bios.uefi == Some(true) && self.bios.secure_boot == Some(false) {
@@ -780,7 +805,11 @@ impl BoardInfo {
             notes.push(n.clone());
         }
         if self.sensors.is_empty() && self.bmc_firmware.is_none() && self.source == "sysfs" {
-            notes.push("no board sensors exposed (no BMC, and no hwmon driver for the board's sensor chip)".into());
+            notes.push(
+                "no board sensors exposed: no BMC, and the driver for the board's sensor chip is not loaded — \
+                 try `sudo sensors-detect` or `sudo modprobe nct6775` (Nuvoton) / `it87` (ITE)"
+                    .into(),
+            );
         }
         let known = self.system.vendor.is_some() || self.board.product.is_some() || !self.pci.is_empty();
         let label = match sev {
@@ -944,6 +973,33 @@ mod tests {
         assert!(h.issues.iter().any(|i| i.contains("1 warning/critical event(s)")));
         assert!(h.notes.iter().any(|n| n.contains("1 older")));
         assert_eq!(b.sensors.iter().find(|s| s.name == "PS2 Status").unwrap().kind, Kind::Power);
+    }
+
+    #[test]
+    fn virtual_machines_skip_hardware_notes() {
+        let root = tree();
+        let mut b = read_from(&root);
+        b.virt = Some("KVM / QEMU".into());
+        let h = b.health();
+        let all = format!("{:?}", h.notes);
+        assert!(all.contains("virtual machine (KVM / QEMU)"), "{all}");
+        for e in ["BIOS is", "no driver", "white-label", "no board sensors"] {
+            assert!(!all.contains(e), "{e:?} should not be noted in a VM: {all}");
+        }
+        // Real sensor alarms still count (the fixture's failed fan).
+        assert_eq!(h.label, "MONITOR");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn one_placeholder_is_not_a_generic_board() {
+        // melbicom-ded: Supermicro with product version "0123456789".
+        let id = |v: &str, p: &str, ver: &str| Ident { vendor: Some(v.into()), product: Some(p.into()), version: Some(ver.into()), serial: None };
+        let b = BoardInfo { system: id("Supermicro", "AS -3015MR-H8TNR", "0123456789"), board: id("Supermicro", "H13SRD-F", "1.00"), source: "sysfs".into(), ..Default::default() };
+        assert!(!format!("{:?}", b.health().notes).contains("white-label"));
+        // lab-243: "Default string" in system and board version.
+        let b = BoardInfo { system: id("INTEL", "X99", "Default string"), board: id("INTEL", "X99", "Default string"), source: "sysfs".into(), ..Default::default() };
+        assert!(format!("{:?}", b.health().notes).contains("white-label"));
     }
 
     #[test]

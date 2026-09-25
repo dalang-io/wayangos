@@ -197,6 +197,12 @@ fn nonempty(s: String) -> Option<String> {
     }
 }
 
+/// CDW10 of Get Log Page: log id and the number of dwords to return, minus
+/// one (lower 16 bits of NUMD).
+pub fn nvme_log_cdw10(lid: u8, bytes: usize) -> u32 {
+    ((((bytes / 4) as u32).saturating_sub(1) & 0xFFFF) << 16) | lid as u32
+}
+
 /// Parse the 512-byte ATA SMART READ DATA structure.
 pub fn parse_ata_smart(data: &[u8]) -> SmartData {
     let mut s = SmartData {
@@ -229,6 +235,9 @@ pub fn parse_ata_smart(data: &[u8]) -> SmartData {
             198 => s.uncorrectable = Some(raw),
             199 => s.crc_errors = Some(raw),
             231 | 233 => s.life_percent = Some(value as u64),
+            // Samsung Wear_Leveling_Count / Micron Percent_Lifetime_Remain:
+            // normalized "100 = new", used when 231/233 are absent.
+            177 | 202 if s.life_percent.is_none() && value <= 100 => s.life_percent = Some(value as u64),
             241 => s.lba_written = Some(raw),
             242 => s.lba_read = Some(raw),
             _ => {}
@@ -855,7 +864,7 @@ mod linux {
             let product = ascii_trim(&inq[16..32]);
             // SATA disks reached via SCSI INQUIRY report vendor "ATA"; keep the
             // product only, otherwise prepend the real vendor.
-            let model = if vendor.is_empty() || vendor == "ATA" {
+            let model = if vendor.is_empty() || vendor == "ATA" || product.to_ascii_lowercase().starts_with(&vendor.to_ascii_lowercase()) {
                 product
             } else {
                 format!("{vendor} {product}")
@@ -1032,7 +1041,9 @@ mod linux {
             addr: data.as_mut_ptr() as u64,
             metadata_len: 0,
             data_len: data.len() as u32,
-            cdw10: 0x02,
+            // Log page 0x02 (SMART / health), NUMDL = dwords - 1: without it the
+            // controller returns only the first dword (temperature, spare).
+            cdw10: super::nvme_log_cdw10(0x02, 512),
             cdw11: 0,
             cdw12: 0,
             cdw13: 0,
@@ -1121,6 +1132,30 @@ mod tests {
         page[3] = (page.len() - 4) as u8;
         assert_eq!(parse_vpd83_naa(&page).as_deref(), Some("5000c50071781f63"));
         assert_eq!(parse_vpd83_naa(&[0, 0x80, 0, 0]), None);
+    }
+
+    #[test]
+    fn samsung_wear_leveling_count_gives_life() {
+        // Attribute table with 177 (value 94) and no 231/233.
+        let mut data = vec![0u8; 512];
+        let put = |d: &mut Vec<u8>, slot: usize, id: u8, value: u8| {
+            let o = 2 + slot * 12;
+            d[o] = id;
+            d[o + 3] = value;
+            d[o + 4] = value;
+        };
+        put(&mut data, 0, 9, 98);
+        put(&mut data, 1, 177, 94);
+        assert_eq!(parse_ata_smart(&data).life_percent, Some(94));
+        put(&mut data, 2, 233, 90);
+        assert_eq!(parse_ata_smart(&data).life_percent, Some(90));
+    }
+
+    #[test]
+    fn nvme_log_page_asks_for_the_whole_log() {
+        // 512 bytes = 128 dwords → NUMDL 127 (found on a Supermicro with a
+        // PE8110: NUMDL 0 returned only the temperature).
+        assert_eq!(nvme_log_cdw10(0x02, 512), 0x007F_0002);
     }
 
     #[test]
