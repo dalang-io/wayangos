@@ -1,0 +1,21 @@
+[package]
+name = "wayang-installer"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.1"
+description = "WayangOS disk installer — HUD-style TUI in the look of dcheck"
+publish = false
+
+[[bin]]
+name = "wayang-installer"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dependencies]
+ratatui = "0.29.0"

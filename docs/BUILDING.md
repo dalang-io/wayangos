@@ -10,9 +10,9 @@ only cover per-component details.
 
 | Component | Version | Source location | Provided by |
 |-----------|---------|-----------------|-------------|
-| Linux kernel | 6.19.7 | `$BUILD_DIR/linux-6.19.7` | `scripts/fetch-sources.sh` |
+| Linux kernel | 7.2.7 | `$BUILD_DIR/linux-7.2.7` | `scripts/fetch-sources.sh` |
 | Linux kernel (RT) | 6.19.3-rt1 | `$BUILD_DIR/linux-6.19.3-rt1` | `KERNEL_FLAVOR=rt scripts/fetch-sources.sh` |
-| ARM64 kernel | 6.19.7 | `$BUILD_DIR/linux-6.19.7` | built with `ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-` |
+| ARM64 kernel | 7.2.7 | `$BUILD_DIR/linux-7.2.7` | built with `ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-` |
 | BusyBox | 1.37.0 | `$BUILD_DIR/busybox-1.37.0/busybox` | `scripts/fetch-sources.sh` (prebuilt static) |
 | Dropbear SSH | 2024.86 | `$BUILD_DIR/dropbear-2024.86` | `scripts/fetch-sources.sh` |
 | SQLite | amalgamation | `$BUILD_DIR/sqlite3.c` / `.h` | `scripts/fetch-sources.sh` |

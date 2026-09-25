@@ -8,18 +8,18 @@ Target market: Indonesian UMKM (warung, kafe, toko) and industrial kiosks. Fully
 
 | Edition | Kernel | Arch | ISO size | Config |
 |---------|--------|------|----------|--------|
-| Headless | 6.19.7 | x86_64 | 20 MB | `defconfig-qemu` |
+| Headless | 7.2.7 | x86_64 | 20 MB | `defconfig-qemu` |
 | Headless RT | 6.19.3-rt1 | x86_64 | 20 MB | `defconfig-rt` |
-| GUI | 6.19.7 | x86_64 | 21 MB | `defconfig-qemu` |
+| GUI | 7.2.7 | x86_64 | 21 MB | `defconfig-qemu` |
 | GUI RT | 6.19.3-rt1 | x86_64 | 21 MB | `defconfig-rt` |
-| Intel GPU | 6.19.7 | x86_64 | 30 MB | `defconfig-intel` |
-| AMD GPU | 6.19.7 | x86_64 | 35 MB | `defconfig-amd` |
-| NVIDIA GPU | 6.19.7 | x86_64 | 31 MB | `defconfig-nvidia` |
-| Raspberry Pi 3 | 6.19.7 | ARM64 | 18 MB | `defconfig-arm64-rpi3` |
-| Orange Pi Zero 2W | 6.19.7 | ARM64 | 17 MB | `defconfig-arm64-orangepi-zero2w` |
+| Intel GPU | 7.2.7 | x86_64 | 30 MB | `defconfig-intel` |
+| AMD GPU | 7.2.7 | x86_64 | 35 MB | `defconfig-amd` |
+| NVIDIA GPU | 7.2.7 | x86_64 | 31 MB | `defconfig-nvidia` |
+| Raspberry Pi 3 | 7.2.7 | ARM64 | 18 MB | `defconfig-arm64-rpi3` |
+| Orange Pi Zero 2W | 7.2.7 | ARM64 | 17 MB | `defconfig-arm64-orangepi-zero2w` |
 
 RT editions use the PREEMPT_RT kernel tree (`6.19.3-rt1`); all other editions use
-the base kernel (`6.19.7`).
+the base kernel (`7.2.7`).
 
 ## What's in this repo
 
@@ -30,6 +30,7 @@ the base kernel (`6.19.7`).
 | `scripts/deprecated/` | Historical build scripts, kept for reference only |
 | `wayangos-pos/` | Wayang POS source (`fbpos-v3.c`) — direct framebuffer, evdev, SQLite |
 | `dcheck/` | `dcheck` device health checker (Rust) — storage/SSD/HDD/NVMe, plan in `docs/DCHECK.md` |
+| `installer/` | `wayang-installer` — the USB installer's TUI (Rust, dcheck's HUD look): pick a disk, add SSH keys, install |
 | `userspace/` | Reference init scripts (legacy — see `userspace/README.md`) |
 | `docs/` | Architecture and per-component build notes |
 | `landing-page/` | Static website (wayang.dalang.io) |
@@ -72,16 +73,17 @@ Full instructions, prerequisites, the edition matrix, and QEMU testing are in
 
 ## Default Login
 
-- **OS shell (SSH/serial):** root, no password by default (development image)
+- **OS shell (serial/console):** root shell, no login prompt (development image)
+- **SSH:** root, public key only — keys are added per box in the installer (GitHub/GitLab user, USB stick, or pasted), later with `wayang-addkey`, or baked in with `SSH_AUTHORIZED_KEYS=~/.ssh/id_ed25519.pub ./scripts/build-rootfs.sh`
 - **POS app:** username `admin`, PIN `1234`
 
-> **Security:** the default rootfs ships with passwordless root SSH for development convenience. Do not expose it to untrusted networks. See the Security section in `BUILDING.md`.
+> **Security:** root SSH accepts public keys only; password logins are disabled. The local console still drops straight into a root shell. See the Security section in `BUILDING.md`.
 
 ## Security
 
 The base rootfs is intended for development and controlled deployments. Before shipping to the field:
 
-- Set a root password or add an SSH key to `/root/.ssh/authorized_keys`
+- Build with only the deployment's keys in `SSH_AUTHORIZED_KEYS`
 - Restrict or disable Dropbear on port 22
 - Change the default POS admin PIN
 
