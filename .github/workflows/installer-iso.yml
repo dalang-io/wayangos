@@ -1,9 +1,20 @@
-name: Installer ISO
+name: Installer ISO + update bundle
 
-# Build the bare-metal USB installer ISO (UEFI+BIOS hybrid) and publish it as a
-# release asset named `wayangos-installer.iso`, so it can be dropped onto a
-# Ventoy USB or dd'd to a stick. Kernels are built from source; the build dir is
-# cached to keep runs reasonable.
+# Build the bare-metal USB installer ISO (UEFI+BIOS hybrid) AND the signed
+# update bundle (.wup) for the same kernel/rootfs, then publish them as release
+# assets:
+#   wayangos-installer.iso        drop onto a Ventoy USB or dd to a stick
+#   wayang-<ver>-x86_64.wup       `wayang update` bundle
+#   channel/stable/x86_64/manifest.json
+#   SHA256SUMS
+#
+# Kernels are built from source; the build dir is cached.
+#
+# Signing (optional, recommended for releases):
+#   secrets.WAYANG_SIGNING_KEY   ed25519 seed (64 hex) from `wayang keygen`
+#   secrets.WAYANG_TRUSTED_KEYS  trusted_keys content ("release <64hex>") baked
+#                                into the rootfs so installed systems trust it
+#   secrets.WAYANG_KEYID         key id (default "release")
 #
 # Trigger: manual (workflow_dispatch) or a version tag (v*).
 
@@ -23,11 +34,13 @@ permissions:
   contents: write
 
 jobs:
-  installer-iso:
+  installer:
     runs-on: ubuntu-latest
     env:
       BUILD_DIR: ${{ github.workspace }}/wayangos-build
       KERNEL_CONFIG: ${{ github.event.inputs.kernel_config || 'defconfig-intel' }}
+      CHANNEL: stable
+      WAYANG_KEYID: ${{ secrets.WAYANG_KEYID || 'release' }}
       # tag ref_name looks like v1.4.1; strip the leading v below.
       WAYANG_VERSION: ${{ github.event.inputs.version || github.ref_name }}
       WAYANG_EDITION: installer
@@ -63,10 +76,29 @@ jobs:
           ./scripts/build-wayang.sh
           ./scripts/build-installer.sh
 
+      - name: Prepare signing & trusted keys
+        env:
+          SIGNING_KEY: ${{ secrets.WAYANG_SIGNING_KEY }}
+          TRUSTED: ${{ secrets.WAYANG_TRUSTED_KEYS }}
+        run: |
+          mkdir -p "$BUILD_DIR/keys"
+          if [ -n "$SIGNING_KEY" ]; then
+            printf '%s\n' "$SIGNING_KEY" > "$BUILD_DIR/keys/release.key"
+            echo "WAYANG_SIGN_KEY=$BUILD_DIR/keys/release.key" >> "$GITHUB_ENV"
+          else
+            echo "::warning::WAYANG_SIGNING_KEY not set — update bundle will be UNSIGNED"
+          fi
+          if [ -n "$TRUSTED" ]; then
+            printf '%s\n' "$TRUSTED" > "$BUILD_DIR/keys/trusted_keys"
+            echo "WAYANG_TRUSTED_KEYS=$BUILD_DIR/keys/trusted_keys" >> "$GITHUB_ENV"
+          elif [ -n "$SIGNING_KEY" ]; then
+            echo "::warning::WAYANG_TRUSTED_KEYS not set — installed systems won't trust the new key"
+          fi
+
       - name: Build kernel (${{ env.KERNEL_CONFIG }})
         run: ./scripts/build-kernel.sh "$KERNEL_CONFIG" bzImage-installer
 
-      - name: Build rootfs (includes the wayang updater)
+      - name: Build rootfs (updater + trusted keys)
         run: ./scripts/build-rootfs.sh
 
       - name: Build installer ISO
@@ -76,14 +108,48 @@ jobs:
             "$BUILD_DIR/wayangos-initramfs.img" \
             "$BUILD_DIR/wayangos-installer.iso"
 
-      - name: Upload ISO artifact
+      - name: Build update bundle + channel tree
+        env:
+          WAYANG_BIN: ${{ github.workspace }}/dist/wayang-x86_64-unknown-linux-musl
+        run: |
+          set -eu
+          V="$BUILD_DIR/bzImage-installer"
+          I="$BUILD_DIR/wayangos-initramfs.img"
+          if [ -n "${WAYANG_SIGN_KEY:-}" ] && [ -x "$WAYANG_BIN" ]; then
+            ./scripts/build-bundle.sh "$V" "$I" "$WAYANG_VERSION" x86_64 installer \
+              --out "$BUILD_DIR" --channel "$CHANNEL" \
+              --key "$WAYANG_SIGN_KEY" --keyid "$WAYANG_KEYID"
+          else
+            ./scripts/build-bundle.sh "$V" "$I" "$WAYANG_VERSION" x86_64 installer \
+              --out "$BUILD_DIR" --channel "$CHANNEL"
+          fi
+          WUP="$BUILD_DIR/wayang-$WAYANG_VERSION-x86_64.wup"
+          DEST="$BUILD_DIR/channel/$CHANNEL/x86_64"
+          mkdir -p "$DEST"
+          cp "$WUP" "$DEST/"
+          tar -xzf "$WUP" -C "$DEST" manifest.json
+          ( cd "$BUILD_DIR" && sha256sum \
+              wayangos-installer.iso \
+              "$(basename "$WUP")" \
+              "channel/$CHANNEL/x86_64/manifest.json" > SHA256SUMS )
+          echo "=== release assets ==="; ls -l "$BUILD_DIR"/*.iso "$BUILD_DIR"/*.wup "$DEST"/*
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wayangos-installer-iso
-          path: wayangos-build/wayangos-installer.iso
+          name: wayangos-release
+          path: |
+            wayangos-build/wayangos-installer.iso
+            wayangos-build/wayang-*.wup
+            wayangos-build/channel/**/manifest.json
+            wayangos-build/SHA256SUMS
 
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: wayangos-build/wayangos-installer.iso
+          files: |
+            wayangos-build/wayangos-installer.iso
+            wayangos-build/wayang-${{ env.WAYANG_VERSION }}-x86_64.wup
+            wayangos-build/channel/${{ env.CHANNEL }}/x86_64/manifest.json
+            wayangos-build/SHA256SUMS

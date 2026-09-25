@@ -229,3 +229,23 @@ peringatan.
 (`<channel>/<edition>/<arch>/…`) agar intel/amd/nvidia/rpi3/orangepi bisa
 disajikan bersamaan. Layout v0 yang dibekukan tetap arch-only sampai
 `UPDATE-DESIGN.md` diperbarui.
+
+## CI/CD
+
+Rilis otomatis via GitHub Actions:
+
+| Workflow | Trigger | Hasil |
+|---|---|---|
+| `.github/workflows/ci.yml` | push `master`, PR | lint (shellcheck), validasi config kernel, build `wayang`, build POS |
+| `.github/workflows/release.yml` | tag `v*` | dry-run: validasi pipeline channel + cetak perintah publish (tanpa build kernel) |
+| `.github/workflows/installer-iso.yml` | tag `v*` atau manual | build kernel→rootfs→**installer ISO** + **bundle `.wup`** + channel tree, upload & attach ke Release |
+
+`installer-iso.yml` memakai secret berikut (opsional tapi disarankan):
+
+- `WAYANG_SIGNING_KEY` — seed ed25519 (64 hex) dari `wayang keygen --out keys`.
+- `WAYANG_TRUSTED_KEYS` — isi `trusted_keys` (mis. `release <64hex>`), di-*bake* ke rootfs agar box terpasang mempercayai update.
+- `WAYANG_KEYID` — id kunci (default `release`).
+
+Tanpa `WAYANG_SIGNING_KEY`, bundle dibuat **tanpa tanda tangan** (peringatan) — tetap berguna untuk uji, tapi jangan dipakai di produksi. Bunding lokal juga bisa: `WAYANG_VERSION=1.4.1 WAYANG_KEY=keys/release.key ./scripts/release-wayang.sh`.
+
+Aset yang diunggah: `wayangos-installer.iso`, `wayang-<ver>-x86_64.wup`, `channel/stable/x86_64/manifest.json`, `SHA256SUMS`.
