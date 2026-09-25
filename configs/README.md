@@ -1,6 +1,6 @@
 # WayangOS Kernel Configs
 
-Configs for the WayangOS Linux kernel. The base kernel version is **6.19.7**
+Configs for the WayangOS Linux kernel. The base kernel version is **7.2.7**
 (x86_64); the real-time flavor uses the **6.19.3-rt1** PREEMPT_RT tree.
 
 ## Config format

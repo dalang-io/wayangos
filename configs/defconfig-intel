@@ -7,3 +7,36 @@
 CONFIG_DRM=y
 CONFIG_DRM_FBDEV_EMULATION=y
 CONFIG_DRM_I915=y
+
+# Bare metal (e.g. ThinkStation P320 Tiny): NVMe boot disk, UEFI framebuffer
+# until i915 takes over, and the common USB-to-Ethernet adapters
+CONFIG_BLK_DEV_NVME=y
+CONFIG_SYSFB_SIMPLEFB=y
+CONFIG_DRM_SIMPLEDRM=y
+CONFIG_FB_EFI=y
+CONFIG_EFIVAR_FS=y
+CONFIG_USB_NET_DRIVERS=y
+CONFIG_USB_USBNET=y
+CONFIG_USB_RTL8152=y
+CONFIG_USB_NET_AX88179_178A=y
+CONFIG_USB_NET_AX8817X=y
+CONFIG_USB_NET_CDCETHER=y
+CONFIG_USB_NET_CDC_NCM=y
+# PCIe NICs: Intel I350/I340 (igb), I225/I226 (igc) and 10G (ixgbe, i40e) —
+# the usual multi-port firewall cards. Onboard I219 (e1000e) and Realtek
+# (r8169) come from the base config.
+CONFIG_IGB=y
+CONFIG_IGC=y
+CONFIG_IXGBE=y
+CONFIG_I40E=y
+# SAS HBAs and hardware RAID: LSI/Broadcom SAS2/3 (mpt3sas), MegaRAID/PERC
+# (megaraid_sas), HPE Smart Array (smartpqi, hpsa), and the older LSI SAS1068
+# (mptsas, also what QEMU's mptsas1068 emulates)
+CONFIG_SCSI_MPT3SAS=y
+CONFIG_MEGARAID_SAS=y
+CONFIG_SCSI_SMARTPQI=y
+CONFIG_SCSI_HPSA=y
+CONFIG_FUSION=y
+CONFIG_FUSION_SAS=y
+# USB sticks the installer reads SSH keys from
+CONFIG_EXFAT_FS=y

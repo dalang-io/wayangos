@@ -8,10 +8,10 @@
 #   ARCH            x86_64 (default) or arm64 (cross-builds BusyBox)
 #   CROSS_COMPILE   cross prefix (default: aarch64-linux-gnu- for arm64)
 #   KERNEL_FLAVOR   main (default) or rt (PREEMPT_RT patched tree)
-#   KERNEL_VERSION  kernel version (default: 6.19.7, or 6.19.3 for rt)
+#   KERNEL_VERSION  kernel version (default: 7.2.7, or 6.19.3 for rt)
 #
 # Versions can be overridden, e.g.:
-#   KERNEL_VERSION=6.19.7 BUSYBOX_VERSION=1.37.0 ./scripts/fetch-sources.sh
+#   KERNEL_VERSION=7.2.7 BUSYBOX_VERSION=1.37.0 ./scripts/fetch-sources.sh
 #   KERNEL_FLAVOR=rt ARCH=arm64 ./scripts/fetch-sources.sh
 set -e
 
@@ -29,7 +29,7 @@ esac
 
 KERNEL_FLAVOR="${KERNEL_FLAVOR:-main}"
 case "$KERNEL_FLAVOR" in
-    main) KERNEL_VERSION="${KERNEL_VERSION:-6.19.7}" ;;
+    main) KERNEL_VERSION="${KERNEL_VERSION:-7.2.7}" ;;
     rt)   KERNEL_VERSION="${KERNEL_VERSION:-6.19.3}" ;;
     *)
         echo "ERROR: unsupported KERNEL_FLAVOR=$KERNEL_FLAVOR (allowed: main, rt)" >&2
@@ -74,7 +74,7 @@ elif [ "$KERNEL_FLAVOR" = "rt" ]; then
     echo "[1/4] Downloading Linux $KERNEL_VERSION + PREEMPT_RT patch..."
     KERNEL_TARBALL="linux-$KERNEL_VERSION.tar.xz"
     [ -f "$KERNEL_TARBALL" ] || fetch \
-        "https://cdn.kernel.org/pub/linux/kernel/v6.x/$KERNEL_TARBALL" "$KERNEL_TARBALL"
+        "https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/$KERNEL_TARBALL" "$KERNEL_TARBALL"
     [ -d "linux-$KERNEL_VERSION" ] || tar -xf "$KERNEL_TARBALL"
 
     RT_PATCH="patch-$KERNEL_VERSION-rt1.patch.xz"
@@ -92,7 +92,7 @@ else
     echo "[1/4] Downloading Linux $KERNEL_VERSION..."
     KERNEL_TARBALL="linux-$KERNEL_VERSION.tar.xz"
     [ -f "$KERNEL_TARBALL" ] || fetch \
-        "https://cdn.kernel.org/pub/linux/kernel/v6.x/$KERNEL_TARBALL" "$KERNEL_TARBALL"
+        "https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/$KERNEL_TARBALL" "$KERNEL_TARBALL"
     echo "  Extracting (this takes a moment)..."
     tar -xf "$KERNEL_TARBALL"
 fi
@@ -100,7 +100,7 @@ fi
 # ============================================
 # 2. BusyBox (built static)
 # ============================================
-if [ -x "busybox-$BUSYBOX_VERSION/busybox" ]; then
+if [ -x "busybox-$BUSYBOX_VERSION/busybox" ] && [ -f "busybox-$BUSYBOX_VERSION/busybox.links" ]; then
     echo "[2/4] BusyBox $BUSYBOX_VERSION already built"
 else
     echo "[2/4] Building BusyBox $BUSYBOX_VERSION (static, $ARCH)..."
@@ -110,16 +110,15 @@ else
     [ -d "busybox-$BUSYBOX_VERSION" ] || tar -xf "$BB_TARBALL"
     (
         cd "busybox-$BUSYBOX_VERSION"
-        if [ "$ARCH" = "arm64" ]; then
-            make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" distclean >/dev/null 2>&1 || true
-            make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" defconfig >/dev/null
-            sed -i 's/# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
-            sed -i 's/^CONFIG_TC=y/# CONFIG_TC is not set/' .config
-            make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)" LDFLAGS=-static >/dev/null
-        else
-            make defconfig >/dev/null
-            make -j"$(nproc)" LDFLAGS=-static >/dev/null
-        fi
+        BB_MAKE=(ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE")
+        make "${BB_MAKE[@]}" distclean >/dev/null 2>&1 || true
+        make "${BB_MAKE[@]}" defconfig >/dev/null
+        sed -i 's/# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
+        # tc uses the CBQ qdisc, removed from kernel headers in 6.8
+        sed -i 's/^CONFIG_TC=y/# CONFIG_TC is not set/' .config
+        make "${BB_MAKE[@]}" -j"$(nproc)" LDFLAGS=-static >/dev/null
+        # applet list for build-rootfs.sh (a cross-built binary can't list them)
+        make "${BB_MAKE[@]}" busybox.links >/dev/null
     )
     echo "  BusyBox: $(du -h "busybox-$BUSYBOX_VERSION/busybox" | cut -f1)"
 fi

@@ -49,6 +49,7 @@ node_modules/
 # Rust / dcheck
 dist/
 dcheck/target/
+installer/target/
 
 # Temp files
 *.tmp

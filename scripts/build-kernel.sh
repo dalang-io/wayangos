@@ -8,7 +8,8 @@
 #   ARCH           target arch: x86_64 (default) or arm64
 #   CROSS_COMPILE  cross prefix (default: aarch64-linux-gnu- for arm64)
 #   BUILD          build root (default: ~/wayangos-build)
-#   KDIR           kernel source (default: $BUILD/linux-6.19.7, or
+#   UTS_SYSNAME    what `uname` reports as the OS name (default: WayangOS)
+#   KDIR           kernel source (default: $BUILD/linux-7.2.7, or
 #                  $BUILD/linux-6.19.3-rt1 for configs whose name contains "rt")
 #
 # Configs may be either a full .config (e.g. configs/defconfig-qemu) or a
@@ -40,7 +41,7 @@ CONFIG_NAME="${1:?Usage: $0 <config-name> [output-name]}"
 
 case "$CONFIG_NAME" in
     *rt*) DEFAULT_KDIR="$BUILD/linux-6.19.3-rt1" ;;
-    *)    DEFAULT_KDIR="$BUILD/linux-6.19.7" ;;
+    *)    DEFAULT_KDIR="$BUILD/linux-7.2.7" ;;
 esac
 KDIR="${KDIR:-$DEFAULT_KDIR}"
 
@@ -70,13 +71,18 @@ if [ ! -d "$KDIR" ]; then
     exit 1
 fi
 
-MAKE_ARGS=(ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE")
+UTS_SYSNAME="${UTS_SYSNAME:-WayangOS}"
+
+# include/linux/uts.h only defines UTS_SYSNAME ("Linux") when it is unset, so
+# `uname` reports WayangOS without patching the kernel tree.
+MAKE_ARGS=(ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" "KCFLAGS=-DUTS_SYSNAME=\\\"$UTS_SYSNAME\\\"")
 
 echo "=== Building WayangOS Kernel ==="
 echo "  Config:  $CONFIG_NAME"
 echo "  Arch:    $ARCH"
 echo "  Output:  $OUTPUT_NAME"
 echo "  Source:  $KDIR"
+echo "  uname:   $UTS_SYSNAME"
 
 cd "$KDIR"
 

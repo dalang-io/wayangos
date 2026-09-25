@@ -96,7 +96,7 @@ if ! grep -q "pos-app" etc/init.d/rcS 2>/dev/null; then
 fi
 
 # Rebuild initramfs with POS
-find . -print0 | cpio -0 -o -H newc 2>/dev/null | gzip -9 > "$INITRAMFS"
+find . -print0 | cpio -0 -o -H newc -R 0:0 2>/dev/null | gzip -9 > "$INITRAMFS"
 echo "  POS initramfs: $(du -h "$INITRAMFS" | cut -f1)"
 
 # ============================================
