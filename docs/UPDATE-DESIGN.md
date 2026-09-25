@@ -123,3 +123,40 @@ GET <base>/<channel>/<arch>/wayang-<version>-<arch>.wup
 - **C — bundles/release/docs**: `scripts/build-bundle.sh`,
   `scripts/release-wayang.sh`, `docs/UPDATE-TODO.md`, `landing-page/**`.
 - **Orchestrator**: this file.
+
+## Channel publishing layout (for online `wayang update`)
+
+Releases publish this tree (e.g. as GitHub release assets or a CDN/Pages dir):
+
+```
+<base>/<channel>/<arch>/manifest.json
+<base>/<channel>/<arch>/wayang-<version>-<arch>.wup
+```
+
+`<base>` default `https://github.com/dalang-io/wayangos/releases/latest/download`
+(override `WAYANG_REPO_URL`). `manifest.json` is the same schema as the bundle's
+manifest. `scripts/release-wayang.sh` must emit this tree under `dist/channel/…`
+plus `SHA256SUMS`, and print (not run) the publish command.
+
+## ARM64 slots (M7)
+
+No GRUB on ARM. The FAT **boot partition** is the ESP-equivalent; slot files live
+under a per-slot prefix:
+
+```
+Raspberry Pi (config.txt):   /A/vmlinuz /A/initramfs.img /B/...  + /config.txt (os_prefix)
+Orange Pi (U-Boot/extlinux): /A/... /B/...  + /extlinux/extlinux.cfg (two labels)
+```
+
+Fallback state uses the **same keys** as GRUB env (`wayang_slot`, `wayang_good`,
+`wayang_attempts`) but stored as a plain `key=value` file at
+`<boot>/wayang/vars` (since GRUB env only exists on x86).
+
+`wayang` state backend resolution:
+- if `<boot>/grub/grubenv` exists → use it (x86);
+- else if `<boot>/wayang/vars` exists → use it (ARM);
+- else error with a clear message.
+
+RPi fallback: rely on the firmware `tryboot`/`autoboot.txt` mechanism or a small
+bootloader script; Orange Pi: U-Boot picks the label from the state file (best
+effort). Keep `wayang update --rollback` working on both (swap `wayang_slot`).

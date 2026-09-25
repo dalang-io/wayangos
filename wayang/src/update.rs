@@ -50,7 +50,7 @@ pub fn run(upgrade: bool, a: &UpdateArgs) -> Result<i32> {
 
     sema::check_compat(&installed, &manifest, host)?;
     if let Decision::NoUpdate = sema::decide(upgrade, &installed, &manifest)? {
-        println!(
+        crate::outln!(
             "No update available: installed {} is up to date (bundle {}).",
             installed, manifest.version
         );
@@ -58,12 +58,12 @@ pub fn run(upgrade: bool, a: &UpdateArgs) -> Result<i32> {
     }
 
     if a.check {
-        println!(
+        crate::outln!(
             "Update available: {} -> {} ({} / {}).",
             installed, manifest.version, manifest.channel, manifest.arch
         );
         if let Some(n) = &manifest.notes {
-            println!("notes: {n}");
+            crate::outln!("notes: {n}");
         }
         return Ok(0);
     }
@@ -85,7 +85,7 @@ pub fn run(upgrade: bool, a: &UpdateArgs) -> Result<i32> {
     let target = staging::stage(&boot, &bundle.kernel, &bundle.initramfs, &meta)?;
     drop(boot);
 
-    println!("Staged {} into slot {}.", bundle.manifest.version, target.as_str());
+    crate::outln!("Staged {} into slot {}.", bundle.manifest.version, target.as_str());
     maybe_reboot(a.reboot)?;
     Ok(0)
 }
@@ -113,7 +113,7 @@ pub fn run_rollback(a: &UpdateArgs) -> Result<i32> {
     let boot = mount::open(a.esp.as_deref())?;
     let target = staging::rollback(&boot)?;
     drop(boot);
-    println!("Rollback staged: next boot uses slot {}.", target.as_str());
+    crate::outln!("Rollback staged: next boot uses slot {}.", target.as_str());
     maybe_reboot(a.reboot)?;
     Ok(0)
 }
@@ -121,11 +121,11 @@ pub fn run_rollback(a: &UpdateArgs) -> Result<i32> {
 /// Reboot only for a real invocation that asked for it.
 pub fn maybe_reboot(requested: bool) -> Result<()> {
     if !requested {
-        println!("Reboot to apply (or pass --reboot).");
+        crate::outln!("Reboot to apply (or pass --reboot).");
         return Ok(());
     }
     if std::env::var_os("WAYANG_NO_REBOOT").is_some() || paths::root().is_some() {
-        println!("Reboot suppressed (test environment).");
+        crate::outln!("Reboot suppressed (test environment).");
         return Ok(());
     }
     let status = std::process::Command::new("reboot")

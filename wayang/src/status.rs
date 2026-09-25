@@ -5,11 +5,11 @@ use std::path::Path;
 use serde_json::json;
 
 use crate::error::Result;
-use crate::grubenv::GrubEnv;
 use crate::manifest::SlotMeta;
 use crate::mount;
 use crate::paths;
 use crate::slot::{self, Slot};
+use crate::state::EnvStore;
 use crate::version;
 
 #[derive(Debug, Clone)]
@@ -22,6 +22,7 @@ pub struct SlotInfo {
 pub struct Status {
     pub version: Option<String>,
     pub channel: String,
+    pub backend: String,
     pub active: Slot,
     pub boot_next: Slot,
     pub good: Option<Slot>,
@@ -31,7 +32,7 @@ pub struct Status {
 }
 
 pub fn gather(boot_dir: &Path, version: Option<String>, channel: String, data: bool) -> Status {
-    let env = GrubEnv::read(&boot_dir.join("grub/grubenv")).unwrap_or_default();
+    let env = EnvStore::open_or_empty(boot_dir);
     let slot_info = |s: Slot| SlotInfo {
         slot: s,
         meta: SlotMeta::read(&boot_dir.join("var").join(format!("meta-{}.json", s.as_str()))),
@@ -39,6 +40,7 @@ pub fn gather(boot_dir: &Path, version: Option<String>, channel: String, data: b
     Status {
         version,
         channel,
+        backend: env.backend().to_string(),
         active: slot::staged_slot(&env),
         boot_next: slot::boot_slot(&env),
         good: env.get("wayang_good").and_then(Slot::parse),
@@ -46,6 +48,22 @@ pub fn gather(boot_dir: &Path, version: Option<String>, channel: String, data: b
         slots: [slot_info(Slot::A), slot_info(Slot::B)],
         data,
     }
+}
+
+/// Status that is still renderable when the ESP cannot be resolved.
+pub fn unavailable() -> Status {
+    gather(Path::new("/nonexistent-wayang"), None, "stable".into(), false)
+}
+
+/// Open the boot tree and collect the current status (used by CLI and HUD).
+pub fn snapshot(esp: Option<&str>) -> Result<Status> {
+    let boot = mount::open(esp)?;
+    Ok(gather(
+        &boot.path,
+        version::read().ok(),
+        version::channel_or("stable"),
+        paths::data_dir().exists(),
+    ))
 }
 
 impl Status {
@@ -61,6 +79,7 @@ impl Status {
         json!({
             "version": self.version,
             "channel": self.channel,
+            "backend": self.backend,
             "active_slot": self.active.as_str(),
             "boot_next_slot": self.boot_next.as_str(),
             "good_slot": self.good.map(|s| s.as_str()),
@@ -74,6 +93,7 @@ impl Status {
     pub fn print_human(&self) {
         println!("version:   {}", self.version.clone().unwrap_or_else(|| "unknown".into()));
         println!("channel:   {}", self.channel);
+        println!("backend:   {}", self.backend);
         println!("active:    {}", self.active.as_str());
         println!("boot next: {} (good: {}, attempts: {})", self.boot_next.as_str(), self.good.map(|s| s.as_str()).unwrap_or("-"), self.attempts);
         for si in &self.slots {
@@ -85,13 +105,7 @@ impl Status {
 }
 
 pub fn run(json: bool, esp: Option<&str>) -> Result<i32> {
-    let boot = mount::open(esp)?;
-    let st = gather(
-        &boot.path,
-        version::read().ok(),
-        version::channel_or("stable"),
-        paths::data_dir().exists(),
-    );
+    let st = snapshot(esp)?;
     if json {
         println!("{}", st.to_json());
     } else {
@@ -103,6 +117,7 @@ pub fn run(json: bool, esp: Option<&str>) -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grubenv::GrubEnv;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn tmp() -> std::path::PathBuf {

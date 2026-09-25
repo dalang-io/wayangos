@@ -3,7 +3,7 @@
 //! GRUB boots `wayang_slot` unless `wayang_attempts >= 3`, in which case it
 //! falls back to `wayang_good`.
 
-use crate::grubenv::GrubEnv;
+use crate::state::EnvView;
 
 pub const ATTEMPT_LIMIT: u32 = 3;
 
@@ -38,7 +38,7 @@ impl Slot {
 }
 
 /// Slot GRUB will boot next, honouring the attempt budget.
-pub fn boot_slot(env: &GrubEnv) -> Slot {
+pub fn boot_slot(env: &impl EnvView) -> Slot {
     let attempts = attempts(env);
     let wanted = env.get("wayang_slot").and_then(Slot::parse).unwrap_or(Slot::A);
     if attempts >= ATTEMPT_LIMIT {
@@ -49,11 +49,11 @@ pub fn boot_slot(env: &GrubEnv) -> Slot {
 }
 
 /// The slot currently staged to boot (`wayang_slot`), without the fallback.
-pub fn staged_slot(env: &GrubEnv) -> Slot {
+pub fn staged_slot(env: &impl EnvView) -> Slot {
     env.get("wayang_slot").and_then(Slot::parse).unwrap_or(Slot::A)
 }
 
-pub fn attempts(env: &GrubEnv) -> u32 {
+pub fn attempts(env: &impl EnvView) -> u32 {
     env.get("wayang_attempts")
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0)
@@ -62,6 +62,7 @@ pub fn attempts(env: &GrubEnv) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grubenv::GrubEnv;
 
     fn env(kv: &[(&str, &str)]) -> GrubEnv {
         let mut e = GrubEnv::default();

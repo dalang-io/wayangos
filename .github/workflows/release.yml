@@ -1,0 +1,87 @@
+name: Release (dry-run)
+
+# Tag-triggered release validation.
+#
+# CI runners have no Linux kernel sources or cross toolchains, so this workflow
+# deliberately DOES NOT build kernels or installers (that stays local). It only
+# proves the release pipeline is sound: lint the release scripts, build the
+# `wayang` crate, generate a throwaway key, make a dummy *signed* bundle, emit
+# the channel tree, and print the publish commands. Nothing is uploaded — real
+# assets are built locally and published manually or by a future self-hosted
+# kernel job. See docs/UPDATE.md.
+#
+# This complements (does not replace) .github/workflows/ci.yml.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: Validate release pipeline (no kernel build, no upload)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: ShellCheck release scripts
+        run: shellcheck scripts/release-wayang.sh scripts/build-bundle.sh
+
+      - name: Bash syntax check
+        run: bash -n scripts/release-wayang.sh scripts/build-bundle.sh
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build wayang crate
+        working-directory: wayang
+        run: cargo build --release
+
+      - name: Derive version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "tag $GITHUB_REF_NAME is not numeric semver (expected v1.4.1)"
+            exit 1
+          fi
+          echo "WAYANG_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Generate throwaway signing key
+        run: ./wayang/target/release/wayang keygen --out /tmp/wayang-keys --keyid release
+
+      - name: Create dummy kernel and initramfs
+        run: |
+          mkdir -p /tmp/wayang-build
+          head -c 1048576 /dev/urandom > /tmp/wayang-build/bzImage-qemu
+          head -c 1048576 /dev/urandom > /tmp/wayang-build/wayangos-initramfs.img
+
+      - name: Emit dummy bundles and channel tree
+        env:
+          BUILD_DIR: /tmp/wayang-build
+          OUT_DIR: ${{ github.workspace }}/dist
+          TARGETS: qemu
+          WAYANG_KEY: /tmp/wayang-keys/release.key
+          WAYANG_KEYID: release
+          WAYANG_BIN: ${{ github.workspace }}/wayang/target/release/wayang
+        run: ./scripts/release-wayang.sh --version "$WAYANG_VERSION" --channel stable
+
+      - name: Verify channel tree
+        run: |
+          test -f "dist/channel/stable/x86_64/manifest.json"
+          test -f "dist/channel/stable/x86_64/wayang-${WAYANG_VERSION}-x86_64.wup"
+          test -s dist/SHA256SUMS
+          echo "channel tree OK"
+
+      - name: Show publish commands (not run)
+        run: |
+          echo "::notice::Dry-run only — nothing was uploaded."
+          echo "Build kernels locally, then publish e.g.:"
+          echo "  gh release create \"v${WAYANG_VERSION}\" --title \"WayangOS v${WAYANG_VERSION}\" \\"
+          echo "      dist/channel/stable/x86_64/manifest.json \\"
+          echo "      dist/channel/stable/x86_64/wayang-${WAYANG_VERSION}-x86_64.wup \\"
+          echo "      dist/SHA256SUMS"

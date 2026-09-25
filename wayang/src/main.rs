@@ -10,6 +10,7 @@ mod esp;
 mod fetch;
 mod grubenv;
 mod hash;
+mod hud;
 mod keys;
 mod manifest;
 mod mount;
@@ -18,12 +19,16 @@ mod sema;
 mod sign;
 mod slot;
 mod staging;
+mod state;
 mod status;
 mod trusted;
+mod tui;
+mod ui;
 mod update;
 mod verify;
 mod version;
 
+use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use cli::Command;
@@ -33,7 +38,7 @@ const HELP: &str = "\
 wayang — WayangOS updater
 
 usage:
-  wayang version
+  wayang                         interactive HUD (on a TTY)
   wayang status [--json]
   wayang update  [--check] [--from FILE.wup] [--channel C] [--esp DEV] [--reboot]
   wayang upgrade [--check] [--from FILE.wup] [--esp DEV] [--reboot]
@@ -42,9 +47,11 @@ usage:
   wayang sign   --key FILE [--keyid NAME] MANIFEST.json
   wayang verify FILE.wup [--esp DEV]
   wayang mark-ok [--esp DEV]
+  wayang --demo [--screens DIR] [--size COLSxROWS]   render HUD screens to text
 
 env:
   WAYANG_ESP        ESP partition device override
+  WAYANG_ARCH       override the host arch token (x86_64 | arm64)
   WAYANG_REPO_URL   release base URL (default: GitHub releases)
   WAYANG_ROOT       relocate /etc/wayang and /boot (testing)
 
@@ -52,6 +59,26 @@ exit codes: 0 ok · 1 error · 2 no update · 3 verify failure · 4 incompatible
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    if let Some(code) = demo_mode(&args) {
+        return code;
+    }
+
+    // No subcommand on a TTY opens the HUD; otherwise print help (pipeable).
+    if args.is_empty() {
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            return match tui::run() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("wayang: {e}");
+                    ExitCode::from(1)
+                }
+            };
+        }
+        println!("{HELP}");
+        return ExitCode::SUCCESS;
+    }
+
     let command = match cli::parse(&args) {
         Ok(c) => c,
         Err(e) => {
@@ -89,6 +116,37 @@ fn main() -> ExitCode {
             ExitCode::from(e.code as u8)
         }
     }
+}
+
+/// `--demo` / `--screens DIR` render the HUD to text without a terminal.
+fn demo_mode(args: &[String]) -> Option<ExitCode> {
+    let flag = |f: &str| args.iter().any(|a| a == f);
+    let value = |f: &str| {
+        args.iter()
+            .position(|a| a == f)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let size = value("--size").unwrap_or_else(|| "100x32".into());
+
+    let result = if flag("--screens") {
+        match value("--screens") {
+            Some(dir) => tui::dump_screens(&dir, &size),
+            None => Err("--screens needs a directory".to_string()),
+        }
+    } else if flag("--demo") {
+        tui::dump_stdout(&size)
+    } else {
+        return None;
+    };
+
+    Some(match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("wayang: {e}");
+            ExitCode::from(1)
+        }
+    })
 }
 
 fn run_mark_ok(esp: Option<&str>) -> Result<i32> {
