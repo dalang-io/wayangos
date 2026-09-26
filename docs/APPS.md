@@ -39,7 +39,7 @@ Count: **10 promoted, ~1 with source here** (Viewer/deprecated), plus
   `dalang-io/wayang-router`; deployed to `/data/bin/wayang-router`. The OS
   provides the kernel options (802.1Q, bridge, …), the BusyBox tools and
   `/etc/init.d/router`, which `/etc/init.d/network` defers to once a config is
-  confirmed. Both apps open from the `wayang` console (05 FIREWALL, 06 ROUTER).
+  confirmed. Both apps open from the `wayang` console (06 FIREWALL, 07 ROUTER; 05 DCHECK opens the bundled dcheck).
 - **dcheck** — `scripts/fetch-dcheck.sh` downloads the signed release binary
   (x86_64-unknown-linux-musl) from `https://wayang.dalang.io/dcheck` into
   `$BUILD/dcheck/dcheck`; `build-rootfs.sh` installs it to `/usr/bin/dcheck`.

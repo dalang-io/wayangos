@@ -43,16 +43,18 @@ pub enum Module {
     Updates,
     Network,
     Wifi,
+    Dcheck,
     Firewall,
     Router,
 }
 
-/// Command-deck entries in order; `1`..`6` jump, `0` / EXIT quits.
-pub const MODULES: [(Module, &str); 6] = [
+/// Command-deck entries in order; `1`..`7` jump, `0` / EXIT quits.
+pub const MODULES: [(Module, &str); 7] = [
     (Module::System, "SYSTEM"),
     (Module::Updates, "UPDATES"),
     (Module::Network, "NETWORK"),
     (Module::Wifi, "WIFI"),
+    (Module::Dcheck, "DCHECK"),
     (Module::Firewall, "FIREWALL"),
     (Module::Router, "ROUTER"),
 ];
@@ -102,6 +104,7 @@ pub struct Deck {
     pub wifi_saved: bool,
     pub fw: Companion,
     pub rt: Companion,
+    pub dcheck: Companion,
     pub nft: bool,
 }
 
@@ -116,6 +119,7 @@ impl Deck {
             wifi_saved: paths::wpa_conf_file().is_file(),
             fw: Companion::probe("wayang-fw", "fw"),
             rt: Companion::probe("wayang-router", "router"),
+            dcheck: Companion::probe("dcheck", "dcheck"),
             nft: Path::new("/usr/sbin/nft").is_file(),
         }
     }
@@ -141,6 +145,7 @@ impl Deck {
             wifi_saved: false,
             fw: Companion { bin: Some("/data/bin/wayang-fw".into()), confirmed: false, pending: false },
             rt: Companion::default(),
+            dcheck: Companion { bin: Some("/usr/bin/dcheck".into()), confirmed: false, pending: false },
             nft: true,
         }
     }
@@ -244,7 +249,7 @@ impl App {
             }
             KeyCode::Enter => self.open(self.sel),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('0') => self.exit = true,
-            KeyCode::Char(c @ '1'..='6') => {
+            KeyCode::Char(c @ '1'..='7') => {
                 self.sel = c as usize - '1' as usize;
                 self.open(self.sel);
             }
@@ -316,6 +321,13 @@ impl App {
                     }
                 }
             }
+            Some(Module::Dcheck) => match (&self.deck.dcheck.bin, demo) {
+                (Some(_), true) => self.message = Some((Tone::Ok, "demo: would open dcheck".into())),
+                (Some(b), false) => self.launch = Some(b.clone()),
+                (None, _) => {
+                    self.message = Some((Tone::Warn, "dcheck is not installed (ships at /usr/bin/dcheck)".into()))
+                }
+            },
         }
     }
 
@@ -387,6 +399,7 @@ impl App {
             }
             Module::Firewall => self.deck.fw.tone(),
             Module::Router => self.deck.rt.tone(),
+            Module::Dcheck => self.deck.dcheck.tone(),
         }
     }
 }
@@ -466,7 +479,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
     let keys: Vec<(&str, &str)> = match app.module() {
         Some(Module::Updates) => vec![("↑↓", "move"), ("c", "check"), ("u", "update"), ("g", "upgrade"), ("x", "rollback"), ("?", "help"), ("q", "quit")],
-        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-6", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
+        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-7", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
     };
     let mut line = hud::keycaps(&keys, t);
     line.spans.insert(0, Span::raw(" "));
@@ -656,6 +669,26 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App) {
             ];
             ("WIFI", l)
         }
+        Module::Dcheck => {
+            let c = &d.dcheck;
+            let state = if c.bin.is_some() { "INSTALLED" } else { "NOT INSTALLED" };
+            let mut l = vec![
+                status_field(tone, state, t),
+                field("APP", "dcheck: storage health (SMART, RAID/NVMe, fake-drive checks)", t),
+            ];
+            match &c.bin {
+                Some(b) => {
+                    l.push(field("BINARY", b.display().to_string(), t));
+                    l.push(Line::from(""));
+                    l.push(hint(format!("enter {arrow} open dcheck (q there comes back here)"), t));
+                }
+                None => {
+                    l.push(Line::from(""));
+                    l.push(Line::from(Span::styled("dcheck ships at /usr/bin/dcheck.", t.fg(t.dim))));
+                }
+            }
+            ("DCHECK", l)
+        }
         Module::Firewall | Module::Router => {
             let fw = m == Module::Firewall;
             let (c, name, what) = if fw {
@@ -719,7 +752,7 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         caption("DECK", t),
         key("↑ ↓  j k", "move"),
         key("enter", "open the module"),
-        key("1 - 6", "jump to a module (01 system … 06 router)"),
+        key("1 - 7", "jump to a module (01 system … 07 router)"),
         key("r", "refresh everything"),
         key("q  0  esc", "quit"),
         caption("UPDATES", t),
@@ -884,7 +917,7 @@ mod tests {
     fn deck_renders_like_dcheck() {
         let app = App::new(true);
         let text = render(&app, 120, 36).unwrap();
-        for s in ["WAYANG OS", "SYSTEM CONSOLE", "MODULES", "01 SYSTEM", "02 UPDATES", "05 FIREWALL", "06 ROUTER", "00 EXIT", "A/B SLOTS", "1.4.1", "SLOT B"] {
+        for s in ["WAYANG OS", "SYSTEM CONSOLE", "MODULES", "01 SYSTEM", "02 UPDATES", "05 DCHECK", "06 FIREWALL", "07 ROUTER", "00 EXIT", "A/B SLOTS", "1.4.1", "SLOT B"] {
             assert!(text.contains(s), "missing {s}:\n{text}");
         }
     }
@@ -942,11 +975,13 @@ mod tests {
     #[test]
     fn companions_launch_or_explain() {
         let mut app = App::new(true);
-        key(&mut app, KeyCode::Char('6'));
+        key(&mut app, KeyCode::Char('7'));
         assert!(app.message.as_ref().unwrap().1.contains("not installed"));
         app.demo = false;
-        key(&mut app, KeyCode::Char('5'));
+        key(&mut app, KeyCode::Char('6'));
         assert_eq!(app.launch.as_deref(), Some(Path::new("/data/bin/wayang-fw")));
+        key(&mut app, KeyCode::Char('5'));
+        assert_eq!(app.launch.as_deref(), Some(Path::new("/usr/bin/dcheck")));
     }
 
     #[test]
