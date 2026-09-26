@@ -140,3 +140,32 @@ qemu-system-x86_64 -enable-kvm -m 1024 -smp 2 -kernel vmlinuz -initrd initramfs.
 - Before publishing any release with the router kernel options: boot it on
   this device (pick slot B by hand) and confirm keyboard + SSH work. Tagging
   and publishing need the owner's OK (AGENTS.md rule 3).
+
+## 1.0.14 — prepared, not published (master `ee1f8dc`)
+
+Prepared in place of 1.0.13. Contains:
+
+- the updater fix `6db57a3` (mark-ok/stage/status use the booted slot);
+- an **opt-in diagnostics mode**: `wayang.debug` on the kernel cmdline makes rcS
+  write `dmesg`, `/proc/interrupts` and `/proc/loadavg` to `/data/debug/` every
+  second, so a freeze can be read back after a power-cycle. Off by default.
+- the router kernel block is **unchanged from 1.0.13** (still the prime
+  suspect). A "safe" variant with that block reverted can be built on request.
+
+Verified: builds (`wayangos-1.0.14-…iso`, `wayang-1.0.14-x86_64.wup`) and boots
+in QEMU/KVM with xHCI + `usb-kbd` + `usb-net` + NVMe `/data`: version 1.0.14,
+USB keyboard present, SSH reachable. **Not tagged or published.**
+
+Device boot test **pending**: as of 2026-09-26 the device pings but SSH times
+out, so it could not be tested (and cannot be power-cycled remotely). To test:
+
+```sh
+# with the device reachable
+ssh root@163.128.55.3 'cat > /data/1.0.14.wup' < wayang-1.0.14-x86_64.wup
+ssh root@163.128.55.3 'wayang update --from /data/1.0.14.wup'   # stages idle slot
+# add wayang.debug via GRUB 'e' before booting that slot, then power-cycle and:
+ssh root@163.128.55.3 'cat /data/debug/dmesg.boot'   # if it froze, read via slot A
+```
+
+Publish only after keyboard + SSH are confirmed on the device (per the rule
+above).
