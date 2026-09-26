@@ -18,6 +18,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::disks::Disk;
+use crate::net;
 use crate::sha256;
 use crate::sys;
 
@@ -72,6 +73,7 @@ pub struct Plan {
     pub disk: Disk,
     pub hostname: String,
     pub keys: Vec<String>,
+    pub net: net::NetChoice,
 }
 
 #[derive(Debug)]
@@ -324,7 +326,26 @@ fn write_settings(mnt: &str, plan: &Plan, tx: &Sender<Msg>) -> Result<(), String
     }
     fs::write(&keys, text).map_err(|e| format!("authorized_keys: {e}"))?;
     sys::chmod(&keys, 0o600);
-    Ok(())
+
+    write_network(mnt, &plan.net, tx)
+}
+
+/// Persist the uplink choice to the target `/data` (the ext4 `WAYANGDATA`
+/// partition, mounted at `mnt`). Auto mode writes nothing, so the installed
+/// system keeps probing every wired NIC.
+fn write_network(mnt: &str, net: &net::NetChoice, tx: &Sender<Msg>) -> Result<(), String> {
+    let Some(iface) = net.pinned() else {
+        log(tx, "network: auto (no primary pinned)");
+        return Ok(());
+    };
+    let primary = Path::new(mnt).join(net::PRIMARY_REL);
+    let config = Path::new(mnt).join(net::CONFIG_REL);
+    log(
+        tx,
+        format!("network: primary {iface} ({})", net.mode.config()),
+    );
+    write_sync(&primary, net.primary_text().as_bytes())?;
+    write_sync(&config, net.config_text().as_bytes())
 }
 
 fn fake(tx: &Sender<Msg>) -> Result<(), String> {
@@ -375,5 +396,38 @@ mod tests {
         // the old flat layout must be gone
         assert!(!dests.contains(&"boot/vmlinuz"));
         assert!(!dests.contains(&"boot/initramfs.img"));
+    }
+
+    #[test]
+    fn write_network_persists_only_when_pinned() {
+        let dir = std::env::temp_dir().join(format!("wayang-net-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mnt = dir.to_str().unwrap();
+        let (tx, _rx) = mpsc::channel();
+
+        // auto: no primary, nothing written
+        write_network(mnt, &net::NetChoice::default(), &tx).unwrap();
+        assert!(!dir.join(net::PRIMARY_REL).exists());
+        assert!(!dir.join(net::CONFIG_REL).exists());
+
+        // pinned: primary + config land under /data/etc/network
+        let choice = net::NetChoice {
+            iface: Some("eth0".into()),
+            mode: net::Mode::Static,
+            family: net::Family::Ipv4,
+            ipv4_address: "10.0.0.2/24".into(),
+            ..Default::default()
+        };
+        write_network(mnt, &choice, &tx).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join(net::PRIMARY_REL)).unwrap(),
+            "eth0\n"
+        );
+        let cfg = fs::read_to_string(dir.join(net::CONFIG_REL)).unwrap();
+        assert!(cfg.contains("MODE=static\n"));
+        assert!(cfg.contains("IPV4_ADDRESS=10.0.0.2/24\n"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

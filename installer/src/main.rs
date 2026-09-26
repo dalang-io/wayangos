@@ -13,6 +13,7 @@ mod disks;
 mod hud;
 mod install;
 mod keys;
+mod net;
 mod sha256;
 mod sys;
 mod views;

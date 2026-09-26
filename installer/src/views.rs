@@ -9,6 +9,7 @@ use ratatui::Frame;
 use crate::app::{App, InputKind, Modal, Screen, Tone, ACCESS_ITEMS, WELCOME_ITEMS};
 use crate::hud::{self, Theme};
 use crate::install::STEPS;
+use crate::net;
 use crate::sys::human;
 
 const MAX_W: u16 = 120;
@@ -42,6 +43,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     match app.screen {
         Screen::Welcome => welcome(f, app, body, scale),
         Screen::Target => target(f, app, body),
+        Screen::Network => network(f, app, body),
         Screen::Access => access(f, app, body),
         Screen::Confirm => confirm(f, app, body),
         Screen::Installing => installing(f, app, body),
@@ -79,6 +81,7 @@ fn screen_height(app: &App, scale: u16) -> u16 {
             (app.disks.len() as u16 + 3).max(6) + parts + 7
         }
         Screen::Access => 20,
+        Screen::Network => 20,
         Screen::Confirm | Screen::Done => 20,
         Screen::Installing | Screen::Failed => steps + 8 + 12,
     }
@@ -109,6 +112,16 @@ fn footer_keys(app: &App) -> Vec<(&'static str, &'static str)> {
             ("r", "rescan"),
             ("esc", "back"),
         ],
+        Screen::Network => {
+            let mut keys = vec![("↑↓", "uplink"), ("m", "dhcp/static")];
+            if app.net.mode == net::Mode::Static {
+                keys.push(("f", "family"));
+                keys.push(("1-6", "edit"));
+            }
+            keys.push(("enter", "continue"));
+            keys.push(("esc", "back"));
+            keys
+        }
         Screen::Access => vec![
             ("↑↓", "nav"),
             ("enter", "select"),
@@ -155,18 +168,19 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-/// `01 TARGET ── 02 ACCESS ── 03 CONFIRM ── 04 INSTALL ── 05 DONE`
+/// `01 TARGET ── 02 NETWORK ── 03 ACCESS ── 04 CONFIRM ── 05 INSTALL ── 06 DONE`
 fn draw_steps(f: &mut Frame, app: &App, area: Rect) {
     let t = &app.t;
     let current = match app.screen {
         Screen::Target => 0,
-        Screen::Access => 1,
-        Screen::Confirm => 2,
-        Screen::Installing | Screen::Failed => 3,
-        _ => 4,
+        Screen::Network => 1,
+        Screen::Access => 2,
+        Screen::Confirm => 3,
+        Screen::Installing | Screen::Failed => 4,
+        _ => 5,
     };
     let mut spans = vec![Span::raw(" ")];
-    for (i, name) in ["TARGET", "ACCESS", "CONFIRM", "INSTALL", "DONE"]
+    for (i, name) in ["TARGET", "NETWORK", "ACCESS", "CONFIRM", "INSTALL", "DONE"]
         .iter()
         .enumerate()
     {
@@ -514,6 +528,199 @@ fn target(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::raw(""));
     lines.push(Line::from(verdict));
     f.render_widget(Paragraph::new(Text::from(lines)), pad(inner));
+}
+
+fn network(f: &mut Frame, app: &App, area: Rect) {
+    let t = &app.t;
+    let [left, right] =
+        Layout::horizontal([Constraint::Length(50), Constraint::Min(30)]).areas(area);
+
+    let inner = hud::panel(f, left, "UPLINK", None, t);
+    let mut lines = Vec::new();
+    let auto = app.net_sel == 0;
+    lines.push(menu_line(
+        t,
+        auto,
+        "00",
+        "AUTO  probe every wired NIC",
+        inner.width,
+    ));
+    lines.push(Line::from(Span::styled(
+        format!("  {:<10} {:<5} {:<9} {}", "IFACE", "LINK", "DRIVER", "MAC"),
+        t.fg(t.dim),
+    )));
+    for (i, iface) in app.ifaces.iter().enumerate() {
+        let sel = app.net_sel == i + 1;
+        let cursor = if sel { t.g.cursor } else { "  " };
+        if sel {
+            let text = format!(
+                "{cursor}{:<10} {:<5} {:<9} {}",
+                iface.name,
+                if iface.link { "up" } else { "down" },
+                iface.driver,
+                iface.mac
+            );
+            let text = format!("{text:<w$}", w = inner.width.saturating_sub(2) as usize);
+            lines.push(Line::from(Span::styled(text, t.highlight())));
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(format!("{:<10}", iface.name), t.bold(t.fg)),
+                Span::styled(
+                    format!("{:<5} ", if iface.link { "up" } else { "down" }),
+                    t.fg(if iface.link { t.ok } else { t.warn }),
+                ),
+                Span::styled(format!("{:<9} ", iface.driver), t.fg(t.accent)),
+                Span::styled(iface.mac.clone(), t.fg(t.dim)),
+            ]));
+        }
+    }
+    if app.ifaces.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            format!("{} no wired interface found", t.g.warn),
+            t.fg(t.warn),
+        )));
+    }
+    lines.push(Line::raw(""));
+    let auto_note = app
+        .ifaces
+        .iter()
+        .find(|i| i.link)
+        .map(|i| i.name.clone())
+        .unwrap_or_else(|| "none".into());
+    lines.push(Line::from(vec![
+        Span::styled("auto would pick ", t.fg(t.dim)),
+        Span::styled(auto_note, t.bold(t.ok)),
+    ]));
+    lines.push(Line::from(Span::styled(
+        "AUTO leaves the installed system to probe.",
+        t.fg(t.dim),
+    )));
+    f.render_widget(Paragraph::new(Text::from(lines)), pad(inner));
+
+    let [mode, addr] = Layout::vertical([Constraint::Length(9), Constraint::Min(6)]).areas(right);
+
+    let inner = hud::panel(f, mode, "MODE", None, t);
+    let mut lines = Vec::new();
+    for m in [net::Mode::Dhcp, net::Mode::Static] {
+        let sel = app.net.mode == m;
+        let cursor = if sel { t.g.cursor } else { "  " };
+        let note = match m {
+            net::Mode::Dhcp => "automatic lease from the network",
+            net::Mode::Static => "fixed address, gateway and DNS",
+        };
+        lines.push(Line::from(vec![
+            Span::styled(cursor.to_string(), t.fg(t.accent)),
+            Span::styled(
+                format!("{:<8}", m.label()),
+                if sel { t.bold(t.ok) } else { t.fg(t.fg) },
+            ),
+            Span::styled(note, t.fg(t.dim)),
+        ]));
+    }
+    if app.net.mode == net::Mode::Static {
+        lines.push(Line::raw(""));
+        let mut fam = vec![Span::styled("FAMILY  ", t.fg(t.dim))];
+        for f in [net::Family::Ipv4, net::Family::Ipv6, net::Family::Both] {
+            let sel = app.net.family == f;
+            fam.push(Span::styled(
+                format!("{} ", f.label()),
+                if sel { t.bold(t.accent2) } else { t.fg(t.dim) },
+            ));
+        }
+        lines.push(Line::from(fam));
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        "m toggles mode, f cycles family",
+        t.fg(t.dim),
+    )));
+    f.render_widget(Paragraph::new(Text::from(lines)), pad(inner));
+
+    let inner = hud::panel(f, addr, "ADDRESS", None, t);
+    let mut lines = Vec::new();
+    if app.net.mode == net::Mode::Dhcp {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            format!("{} DHCP needs no fields", t.g.ok),
+            t.bold(t.ok),
+        )));
+        lines.push(Line::from(Span::styled(
+            "the interface gets its address, route and DNS",
+            t.fg(t.dim),
+        )));
+        lines.push(Line::from(Span::styled(
+            "from the network automatically.",
+            t.fg(t.dim),
+        )));
+    } else {
+        if app.net.family.has_v4() {
+            lines.push(net_field(
+                t,
+                "1",
+                "ADDRESS",
+                &app.net.ipv4_address,
+                "192.168.1.50/24",
+            ));
+            lines.push(net_field(
+                t,
+                "2",
+                "GATEWAY",
+                &app.net.ipv4_gateway,
+                "192.168.1.1",
+            ));
+            lines.push(net_field(
+                t,
+                "3",
+                "DNS",
+                &app.net.ipv4_dns,
+                "1.1.1.1 8.8.8.8",
+            ));
+        }
+        if app.net.family.has_v6() {
+            if app.net.family.has_v4() {
+                lines.push(Line::raw(""));
+            }
+            lines.push(net_field(
+                t,
+                "4",
+                "ADDRESS",
+                &app.net.ipv6_address,
+                "2001:db8::50/64",
+            ));
+            lines.push(net_field(
+                t,
+                "5",
+                "GATEWAY",
+                &app.net.ipv6_gateway,
+                "2001:db8::1",
+            ));
+            lines.push(net_field(
+                t,
+                "6",
+                "DNS",
+                &app.net.ipv6_dns,
+                "2001:4860:4860::8888",
+            ));
+        }
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            "gateway and DNS are optional",
+            t.fg(t.dim),
+        )));
+    }
+    f.render_widget(Paragraph::new(Text::from(lines)), pad(inner));
+}
+
+/// `N LABEL     value` (or a dim placeholder) for the static fields.
+fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str) -> Line<'static> {
+    let shown = if value.is_empty() {
+        Span::styled(format!("{hint}  (press {n})"), t.fg(t.dim))
+    } else {
+        Span::styled(value.to_string(), t.bold(t.fg))
+    };
+    hud::field(&format!("{n} {label}"), 12, vec![shown], t)
 }
 
 fn access(f: &mut Frame, app: &App, area: Rect) {
@@ -983,6 +1190,36 @@ fn draw_modal(f: &mut Frame, app: &App, area: Rect) {
                     "PASTE A KEY",
                     "One public key line:",
                     "ssh-ed25519 AAAA... you@laptop (the .pub file, never the private key)",
+                ),
+                InputKind::NetIpv4Addr => (
+                    "IPv4 ADDRESS",
+                    "Address with prefix, e.g. 192.168.1.50/24:",
+                    "the /prefix is required",
+                ),
+                InputKind::NetIpv4Gw => (
+                    "IPv4 GATEWAY",
+                    "Default gateway (optional):",
+                    "e.g. 192.168.1.1",
+                ),
+                InputKind::NetIpv4Dns => (
+                    "IPv4 DNS",
+                    "Nameservers, space separated (optional):",
+                    "e.g. 1.1.1.1 8.8.8.8",
+                ),
+                InputKind::NetIpv6Addr => (
+                    "IPv6 ADDRESS",
+                    "Address with prefix, e.g. 2001:db8::50/64:",
+                    "the /prefix is required",
+                ),
+                InputKind::NetIpv6Gw => (
+                    "IPv6 GATEWAY",
+                    "Default gateway (optional):",
+                    "e.g. 2001:db8::1",
+                ),
+                InputKind::NetIpv6Dns => (
+                    "IPv6 DNS",
+                    "Nameservers, space separated (optional):",
+                    "e.g. 2001:4860:4860::8888",
                 ),
             };
             let r = hud::centered(area, 76, 9);

@@ -61,16 +61,32 @@ runs from RAM. 128 MiB recommended. See [`docs/MINIMUM-SPEC.md`](docs/MINIMUM-SP
 
 ## Networking
 
-A wired uplink is chosen automatically: init brings up every wired NIC and
-keeps the first that actually gets a DHCP lease (a dead onboard NIC or a late
-USB-Ethernet adapter won't block it). Only the **primary** interface owns the
-default route and DNS. Pick it explicitly when several NICs are present:
+By default the uplink is chosen automatically: init brings up every wired NIC
+and keeps the first that actually gets a DHCP lease (a dead onboard NIC or a
+late USB-Ethernet adapter won't block it). Only the **primary** interface owns
+the default route and DNS.
+
+Pin an interface and its addressing — persisted on `/data`, applied
+immediately, survives updates:
 
 ```sh
-wayang-net list            # interfaces, link, driver, address
-wayang-net use enp0s20u1   # make it primary (persisted in /data/etc/network/primary)
-wayang-net auto            # forget the choice, auto-detect again
+wayang-net list                          # interfaces, link, driver, address
+wayang-net use enp0s20u1                 # primary = enp0s20u1, DHCPv4
+wayang-net auto                          # forget the choice, auto-detect again
+
+# DHCP (default IPv4), IPv6 SLAAC, or both:
+wayang-net set enp0s20u1 dhcp ipv4
+wayang-net set enp0s20u1 dhcp both       # IPv4 DHCP + IPv6 SLAAC
+
+# Static addressing (address must include a /prefix):
+wayang-net set enp0s20u1 static \
+    --ipv4 192.168.1.50/24 --ipv4-gw 192.168.1.1 --ipv4-dns "1.1.1.1 8.8.8.8" \
+    --ipv6 2001:db8::50/64 --ipv6-gw 2001:db8::1 --ipv6-dns "2001:4860:4860::8888"
 ```
+
+Mode and family live in `/data/etc/network/config` (`MODE=dhcp|static`,
+`FAMILY=ipv4|ipv6|both`) and the NIC in `/data/etc/network/primary`. DHCPv6 is
+not implemented: a family including `ipv6` uses SLAAC (`accept_ra=2`).
 
 ## Quick Start
 

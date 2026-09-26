@@ -294,12 +294,16 @@ cat > "$ROOTFS/etc/init.d/network" << 'NETWORK'
 #!/bin/sh
 # Pick a wired uplink and make it the *primary* route.
 #
-# Honors /data/etc/network/primary (set with `wayang-net use <iface>`).
-# Otherwise it probes every wired NIC and keeps the first that actually gets a
-# DHCP lease — so a dead onboard NIC or a late USB-Ethernet adapter can't stop
-# networking. Only the primary interface owns the default route + DNS.
+# With no persisted choice (/data/etc/network/primary absent) it probes every
+# wired NIC and keeps the first that actually gets a DHCP lease — so a dead
+# onboard NIC or a late USB-Ethernet adapter can't stop networking.
+#
+# With a persisted choice (set with `wayang-net set`/`use`) only that interface
+# is used, and /data/etc/network/config selects DHCP vs static and IPv4 vs IPv6.
+# Only the primary interface owns the default route + DNS.
 
 PRIMARY_FILE=/data/etc/network/primary
+CONFIG_FILE=/data/etc/network/config
 PRIMARY_RUN=/var/run/wayang-primary
 
 # physical, non-wireless interfaces (skips lo, bridges, VLANs, tunnels)
@@ -316,7 +320,7 @@ probe() {
     udhcpc -n -q -t 5 -T 3 -i "$1" -s /etc/udhcpc.script >/dev/null 2>&1
 }
 
-# persistent: stays in the background and renews
+# persistent: daemonizes after the lease, then renews
 serve() {
     echo "  DHCP on $1 (primary)"
     echo "$1" > "$PRIMARY_RUN"
@@ -329,6 +333,123 @@ adopt() {
     serve "$1"
 }
 
+# --- persisted config helpers ---------------------------------------------
+
+# FAMILY gates which address families we touch (default: ipv4)
+want_v4() { case "${FAMILY:-ipv4}" in ipv6) return 1 ;; *) return 0 ;; esac; }
+want_v6() { case "${FAMILY:-ipv4}" in ipv6|both) return 0 ;; *) return 1 ;; esac; }
+
+have_ip() { command -v ip >/dev/null 2>&1; }
+
+# IPv6 SLAAC: DHCPv6 is NOT implemented, so we rely on router advertisements.
+# accept_ra=2 accepts RAs even when forwarding is enabled.
+enable_slaac() {
+    ra="/proc/sys/net/ipv6/conf/$1/accept_ra"
+    if [ -w "$ra" ]; then
+        echo 2 > "$ra" 2>/dev/null || true
+        ifconfig "$1" up 2>/dev/null || true
+        echo "  IPv6 SLAAC on $1 (accept_ra=2)"
+    else
+        echo "  WARNING: IPv6 unavailable on $1 (no $ra)" >&2
+    fi
+}
+
+write_resolv() {
+    : > /etc/resolv.conf
+    if want_v4; then
+        for ns in $IPV4_DNS; do echo "nameserver $ns" >> /etc/resolv.conf; done
+    fi
+    if want_v6; then
+        for ns in $IPV6_DNS; do echo "nameserver $ns" >> /etc/resolv.conf; done
+    fi
+}
+
+apply_static() {
+    i="$1"
+    echo "$i" > "$PRIMARY_RUN"
+    if want_v4; then
+        if [ -n "$IPV4_ADDRESS" ]; then
+            if have_ip; then
+                ip addr add "$IPV4_ADDRESS" dev "$i" 2>/dev/null || true
+            else
+                ifconfig "$i" "$IPV4_ADDRESS" up 2>/dev/null || true
+            fi
+            ifconfig "$i" up 2>/dev/null || true
+        fi
+        if [ -n "$IPV4_GATEWAY" ]; then
+            route del default 2>/dev/null
+            route add default gw "$IPV4_GATEWAY" dev "$i" 2>/dev/null \
+                || ip route add default via "$IPV4_GATEWAY" dev "$i" 2>/dev/null || true
+        fi
+    fi
+    if want_v6; then
+        if [ -n "$IPV6_ADDRESS" ]; then
+            if have_ip; then
+                ip -6 addr add "$IPV6_ADDRESS" dev "$i" 2>/dev/null || true
+            else
+                echo "  WARNING: no 'ip' — cannot set IPv6 on $i" >&2
+            fi
+        fi
+        if [ -n "$IPV6_GATEWAY" ] && have_ip; then
+            ip -6 route del default 2>/dev/null
+            ip -6 route add default via "$IPV6_GATEWAY" dev "$i" 2>/dev/null || true
+        fi
+    fi
+    write_resolv
+    echo "  $i: static ${IPV4_ADDRESS:-}${IPV6_ADDRESS:+ $IPV6_ADDRESS}"
+}
+
+apply_dhcp() {
+    i="$1"
+    echo "$i" > "$PRIMARY_RUN"
+    if want_v4; then
+        probe "$i" || true
+        serve "$i"
+    fi
+    if want_v6; then enable_slaac "$i"; fi
+}
+
+# load config (if any) and apply it to the chosen primary
+apply_primary() {
+    i="$1"
+    MODE=""; FAMILY=""
+    IPV4_ADDRESS=""; IPV4_GATEWAY=""; IPV4_DNS=""
+    IPV6_ADDRESS=""; IPV6_GATEWAY=""; IPV6_DNS=""
+    # shellcheck source=/dev/null
+    [ -r "$CONFIG_FILE" ] && . "$CONFIG_FILE"
+    case "$MODE" in
+        static) apply_static "$i" ;;
+        *)      apply_dhcp "$i" ;;
+    esac
+}
+
+# no persisted choice: probe every wired NIC, first DHCP lease wins
+auto_detect() {
+    # prefer interfaces that report a link
+    cand=""
+    for i in $(wired); do carrier "$i" && cand="$cand $i"; done
+    [ -z "$cand" ] && cand="$(wired)"
+    for i in $cand; do
+        if probe "$i"; then adopt "$i"; break; fi
+    done
+
+    # keep looking for late (USB) adapters for a while if nothing worked
+    if [ ! -e "$PRIMARY_RUN" ]; then
+        (
+            n=0
+            while [ $n -lt 60 ]; do
+                sleep 2; n=$((n + 2))
+                for i in $(wired); do
+                    carrier "$i" || continue
+                    [ -e "/var/run/probe.$i" ] && continue
+                    : > "/var/run/probe.$i"
+                    if probe "$i"; then adopt "$i"; exit 0; fi
+                done
+            done
+        ) &
+    fi
+}
+
 case "$1" in
     start)
         ifconfig lo 127.0.0.1 netmask 255.0.0.0 up
@@ -336,32 +457,15 @@ case "$1" in
         sleep 1
 
         [ -r "$PRIMARY_FILE" ] && PRIMARY="$(tr -d '[:space:]' < "$PRIMARY_FILE")"
-        if [ -n "$PRIMARY" ] && [ -d "/sys/class/net/$PRIMARY" ]; then
-            adopt "$PRIMARY"
+        if [ -n "$PRIMARY" ]; then
+            if [ -d "/sys/class/net/$PRIMARY" ]; then
+                apply_primary "$PRIMARY"
+            else
+                echo "  WARNING: primary $PRIMARY is gone — auto-detecting" >&2
+                auto_detect
+            fi
         else
-            # prefer interfaces that report a link
-            cand=""
-            for i in $(wired); do carrier "$i" && cand="$cand $i"; done
-            [ -z "$cand" ] && cand="$(wired)"
-            for i in $cand; do
-                if probe "$i"; then adopt "$i"; break; fi
-            done
-        fi
-
-        # keep looking for late (USB) adapters for a while if nothing worked
-        if [ ! -e "$PRIMARY_RUN" ]; then
-            (
-                n=0
-                while [ $n -lt 60 ]; do
-                    sleep 2; n=$((n + 2))
-                    for i in $(wired); do
-                        carrier "$i" || continue
-                        [ -e "/var/run/probe.$i" ] && continue
-                        : > "/var/run/probe.$i"
-                        if probe "$i"; then adopt "$i"; exit 0; fi
-                    done
-                done
-            ) &
+            auto_detect
         fi
 
         # give DHCP a moment so the boot banner can show the address
@@ -408,18 +512,47 @@ chmod +x "$ROOTFS/etc/udhcpc.script"
 # wayang-net — inspect and choose the primary uplink
 cat > "$ROOTFS/usr/bin/wayang-net" << 'WAYANGNET'
 #!/bin/sh
-# wayang-net — choose which wired NIC provides internet.
-#   wayang-net list            show interfaces, link, driver, address
-#   wayang-net use <iface>     make <iface> the primary and renew DHCP now
-#   wayang-net auto            forget the choice and auto-detect again
+# wayang-net — choose which wired NIC provides internet and how it is addressed.
+#   wayang-net list
+#   wayang-net use <iface>                     primary = iface, DHCPv4 (as before)
+#   wayang-net set <iface> dhcp [ipv4|ipv6|both]
+#   wayang-net set <iface> static --ipv4 A/P --ipv4-gw GW --ipv4-dns "D…" \
+#                                  [--ipv6 A/P --ipv6-gw GW --ipv6-dns "D…"]
+#   wayang-net auto                            forget the choice, auto-detect
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 PRIMARY_FILE=/data/etc/network/primary
+CONFIG_FILE=/data/etc/network/config
 PRIMARY_RUN=/var/run/wayang-primary
 
 wired() { for d in /sys/class/net/*; do [ -e "$d/device" ] && [ ! -d "$d/wireless" ] && echo "${d##*/}"; done; }
 link_of() { [ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" = 1 ] && echo link || echo no-link; }
 drv_of() { basename "$(readlink -f "/sys/class/net/$1/device/driver" 2>/dev/null)" 2>/dev/null; }
 ip_of() { ifconfig "$1" 2>/dev/null | awk '/inet /{print $2; exit}'; }
+
+usage() {
+    cat >&2 <<'EOF'
+usage: wayang-net list
+       wayang-net use <iface>
+       wayang-net set <iface> dhcp [ipv4|ipv6|both]
+       wayang-net set <iface> static --ipv4 A/P --ipv4-gw GW --ipv4-dns "D…"
+                                      [--ipv6 A/P --ipv6-gw GW --ipv6-dns "D…"]
+       wayang-net auto
+EOF
+}
+
+# $1 = address, $2 = max prefix length; require a numeric /prefix
+valid_addr() {
+    a="$1"; p="${a##*/}"
+    case "$a" in */*) ;; *) return 1 ;; esac
+    case "$p" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$p" -ge 0 ] && [ "$p" -le "$2" ]
+}
+
+write_choice() {
+    mkdir -p /data/etc/network 2>/dev/null || true
+    echo "$1" > "$PRIMARY_FILE" 2>/dev/null || true
+    printf '%s\n' "$2" > "$CONFIG_FILE" 2>/dev/null || true
+}
 
 case "$1" in
     list|status|"")
@@ -439,19 +572,78 @@ case "$1" in
         route del default 2>/dev/null
         mkdir -p /data/etc/network 2>/dev/null
         echo "$i" > "$PRIMARY_FILE" 2>/dev/null
+        rm -f "$CONFIG_FILE"
         echo "$i" > "$PRIMARY_RUN"
         ifconfig "$i" up
         udhcpc -n -q -t 5 -T 3 -i "$i" -s /etc/udhcpc.script || { echo "no lease on $i" >&2; exit 1; }
         udhcpc -b -i "$i" -s /etc/udhcpc.script >/dev/null 2>&1
         echo "primary -> $i ($(ip_of "$i"))"
         ;;
+    set)
+        i="$2"; mode="$3"
+        [ -n "$i" ] && [ -d "/sys/class/net/$i" ] || { usage; exit 1; }
+        case "$mode" in
+            dhcp)
+                fam="${4:-ipv4}"
+                case "$fam" in
+                    ipv4|ipv6|both) ;;
+                    *) echo "wayang-net: bad family '$fam' (want ipv4|ipv6|both)" >&2; exit 1 ;;
+                esac
+                write_choice "$i" "MODE=dhcp
+FAMILY=$fam"
+                ;;
+            static)
+                shift 3
+                IPV4_ADDRESS=""; IPV4_GATEWAY=""; IPV4_DNS=""
+                IPV6_ADDRESS=""; IPV6_GATEWAY=""; IPV6_DNS=""
+                while [ $# -gt 0 ]; do
+                    case "$1" in
+                        --ipv4)     [ -n "$2" ] || { echo "wayang-net: $1 needs a value" >&2; exit 1; }; IPV4_ADDRESS="$2"; shift 2 ;;
+                        --ipv4-gw)  [ -n "$2" ] || { echo "wayang-net: $1 needs a value" >&2; exit 1; }; IPV4_GATEWAY="$2"; shift 2 ;;
+                        --ipv4-dns) [ -n "$2" ] || { echo "wayang-net: $1 needs a value" >&2; exit 1; }; IPV4_DNS="$2"; shift 2 ;;
+                        --ipv6)     [ -n "$2" ] || { echo "wayang-net: $1 needs a value" >&2; exit 1; }; IPV6_ADDRESS="$2"; shift 2 ;;
+                        --ipv6-gw)  [ -n "$2" ] || { echo "wayang-net: $1 needs a value" >&2; exit 1; }; IPV6_GATEWAY="$2"; shift 2 ;;
+                        --ipv6-dns) [ -n "$2" ] || { echo "wayang-net: $1 needs a value" >&2; exit 1; }; IPV6_DNS="$2"; shift 2 ;;
+                        *) echo "wayang-net: unknown option '$1'" >&2; exit 1 ;;
+                    esac
+                done
+                [ -n "$IPV4_ADDRESS$IPV6_ADDRESS" ] || { echo "wayang-net: static needs --ipv4 and/or --ipv6 address" >&2; exit 1; }
+                [ -z "$IPV4_ADDRESS" ] || valid_addr "$IPV4_ADDRESS" 32 || { echo "wayang-net: bad IPv4 address '$IPV4_ADDRESS' (need A/P, e.g. 192.168.1.50/24)" >&2; exit 1; }
+                [ -z "$IPV6_ADDRESS" ] || valid_addr "$IPV6_ADDRESS" 128 || { echo "wayang-net: bad IPv6 address '$IPV6_ADDRESS' (need A/P, e.g. 2001:db8::50/64)" >&2; exit 1; }
+                if [ -n "$IPV4_ADDRESS" ] && [ -n "$IPV6_ADDRESS" ]; then FAMILY=both
+                elif [ -n "$IPV6_ADDRESS" ]; then FAMILY=ipv6
+                else FAMILY=ipv4; fi
+                cfg="MODE=static
+FAMILY=$FAMILY"
+                [ -n "$IPV4_ADDRESS" ] && cfg="$cfg
+IPV4_ADDRESS=$IPV4_ADDRESS"
+                [ -n "$IPV4_GATEWAY" ] && cfg="$cfg
+IPV4_GATEWAY=$IPV4_GATEWAY"
+                [ -n "$IPV4_DNS" ] && cfg="$cfg
+IPV4_DNS=\"$IPV4_DNS\""
+                [ -n "$IPV6_ADDRESS" ] && cfg="$cfg
+IPV6_ADDRESS=$IPV6_ADDRESS"
+                [ -n "$IPV6_GATEWAY" ] && cfg="$cfg
+IPV6_GATEWAY=$IPV6_GATEWAY"
+                [ -n "$IPV6_DNS" ] && cfg="$cfg
+IPV6_DNS=\"$IPV6_DNS\""
+                write_choice "$i" "$cfg"
+                ;;
+            *)
+                usage; exit 1
+                ;;
+        esac
+        # apply now so curl works without a reboot
+        /etc/init.d/network restart
+        echo "primary -> $i ($(ip_of "$i"))"
+        ;;
     auto)
         killall udhcpc 2>/dev/null
-        rm -f "$PRIMARY_FILE" "$PRIMARY_RUN" /var/run/probe.*
+        rm -f "$PRIMARY_FILE" "$CONFIG_FILE" "$PRIMARY_RUN" /var/run/probe.*
         /etc/init.d/network restart
         ;;
     *)
-        echo "usage: wayang-net list | use <iface> | auto" >&2
+        usage
         exit 1
         ;;
 esac

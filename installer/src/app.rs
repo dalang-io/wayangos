@@ -10,12 +10,14 @@ use crate::disks::{self, Disk};
 use crate::hud::Theme;
 use crate::install::{self, Msg, Plan};
 use crate::keys::{self, SshKey};
+use crate::net;
 use crate::sys::{self, SysInfo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Welcome,
     Target,
+    Network,
     Access,
     Confirm,
     Installing,
@@ -28,6 +30,12 @@ pub enum InputKind {
     Hostname,
     Remote,
     TypeKey,
+    NetIpv4Addr,
+    NetIpv4Gw,
+    NetIpv4Dns,
+    NetIpv6Addr,
+    NetIpv6Gw,
+    NetIpv6Dns,
 }
 
 pub enum Modal {
@@ -77,6 +85,9 @@ pub struct App {
     pub disks: Vec<Disk>,
     pub disk_sel: usize,
     pub target: Option<Disk>,
+    pub ifaces: Vec<net::Iface>,
+    pub net_sel: usize,
+    pub net: net::NetChoice,
     pub hostname: String,
     pub keys: Vec<SshKey>,
     pub access_sel: usize,
@@ -97,6 +108,7 @@ pub struct App {
 impl App {
     pub fn new(demo: bool, t: Theme) -> App {
         let disks = disks::scan(demo);
+        let ifaces = net::scan(demo);
         let mut app = App {
             demo,
             t,
@@ -107,6 +119,9 @@ impl App {
             disk_sel: 0,
             disks,
             target: None,
+            net_sel: default_net_sel(&ifaces),
+            ifaces,
+            net: net::NetChoice::default(),
             hostname: "wayangos".into(),
             keys: Vec::new(),
             access_sel: 0,
@@ -226,6 +241,7 @@ impl App {
         match self.screen {
             Screen::Welcome => self.on_welcome(key),
             Screen::Target => self.on_target(key),
+            Screen::Network => self.on_network(key),
             Screen::Access => self.on_access(key),
             Screen::Confirm => self.on_confirm(key),
             Screen::Installing => {}
@@ -305,7 +321,9 @@ impl App {
                     Some(why) => self.say(Tone::Warn, format!("{} can't be used: {why}", d.path())),
                     None => {
                         self.target = Some(d.clone());
-                        self.screen = Screen::Access;
+                        self.ifaces = net::scan(self.demo);
+                        self.net_sel = default_net_sel(&self.ifaces);
+                        self.screen = Screen::Network;
                     }
                 },
             },
@@ -318,7 +336,7 @@ impl App {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.access_sel = (self.access_sel + n - 1) % n,
             KeyCode::Down | KeyCode::Char('j') => self.access_sel = (self.access_sel + 1) % n,
-            KeyCode::Esc => self.screen = Screen::Target,
+            KeyCode::Esc => self.screen = Screen::Network,
             KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace
                 if self.access_sel >= ACCESS_ITEMS.len() =>
             {
@@ -361,6 +379,76 @@ impl App {
             buf,
             error: None,
         };
+    }
+
+    fn on_network(&mut self, key: KeyEvent) {
+        let rows = self.ifaces.len() + 1; // row 0 is AUTO
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => self.net_sel = (self.net_sel + rows - 1) % rows,
+            KeyCode::Down | KeyCode::Char('j') => self.net_sel = (self.net_sel + 1) % rows,
+            KeyCode::Esc => self.screen = Screen::Target,
+            KeyCode::Char('m') => {
+                self.net.mode = match self.net.mode {
+                    net::Mode::Dhcp => net::Mode::Static,
+                    net::Mode::Static => net::Mode::Dhcp,
+                };
+            }
+            KeyCode::Char('f') if self.net.mode == net::Mode::Static => {
+                self.net.family = self.net.family.next();
+            }
+            KeyCode::Char(c @ '1'..='6') if self.net.mode == net::Mode::Static => {
+                let kind = match c {
+                    '1' => InputKind::NetIpv4Addr,
+                    '2' => InputKind::NetIpv4Gw,
+                    '3' => InputKind::NetIpv4Dns,
+                    '4' => InputKind::NetIpv6Addr,
+                    '5' => InputKind::NetIpv6Gw,
+                    _ => InputKind::NetIpv6Dns,
+                };
+                let buf = match kind {
+                    InputKind::NetIpv4Addr => self.net.ipv4_address.clone(),
+                    InputKind::NetIpv4Gw => self.net.ipv4_gateway.clone(),
+                    InputKind::NetIpv4Dns => self.net.ipv4_dns.clone(),
+                    InputKind::NetIpv6Addr => self.net.ipv6_address.clone(),
+                    InputKind::NetIpv6Gw => self.net.ipv6_gateway.clone(),
+                    _ => self.net.ipv6_dns.clone(),
+                };
+                self.open_input(kind, buf);
+            }
+            KeyCode::Enter => self.network_continue(),
+            _ => {}
+        }
+    }
+
+    fn network_continue(&mut self) {
+        self.net.iface = if self.net_sel == 0 {
+            None
+        } else {
+            self.ifaces.get(self.net_sel - 1).map(|i| i.name.clone())
+        };
+        if let Err(e) = self.network_ready() {
+            self.say(Tone::Bad, e);
+            return;
+        }
+        let summary = self.net.summary();
+        match self.net.apply_live(self.demo) {
+            Ok(msg) => self.say(Tone::Ok, msg),
+            Err(e) => self.say(Tone::Warn, format!("{summary}: {e}")),
+        }
+        self.screen = Screen::Access;
+    }
+
+    fn network_ready(&self) -> Result<(), String> {
+        if self.net.mode != net::Mode::Static {
+            return Ok(());
+        }
+        if self.net.family.has_v4() && self.net.ipv4_address.is_empty() {
+            return Err("set an IPv4 address (press 1), or use DHCP".into());
+        }
+        if self.net.family.has_v6() && self.net.ipv6_address.is_empty() {
+            return Err("set an IPv6 address (press 4), or use DHCP".into());
+        }
+        Ok(())
     }
 
     fn start_job(
@@ -428,6 +516,62 @@ impl App {
                             };
                         }
                     },
+                    InputKind::NetIpv4Addr => match net::valid_cidr(&value, false) {
+                        Ok(()) => {
+                            self.net.ipv4_address = value;
+                            self.modal = Modal::None;
+                        }
+                        Err(e) => *error = Some(e),
+                    },
+                    InputKind::NetIpv4Gw => {
+                        let r = if value.is_empty() {
+                            Ok(())
+                        } else {
+                            net::valid_ip(&value, false)
+                        };
+                        match r {
+                            Ok(()) => {
+                                self.net.ipv4_gateway = value;
+                                self.modal = Modal::None;
+                            }
+                            Err(e) => *error = Some(e),
+                        }
+                    }
+                    InputKind::NetIpv4Dns => match net::valid_dns(&value, false) {
+                        Ok(()) => {
+                            self.net.ipv4_dns = value;
+                            self.modal = Modal::None;
+                        }
+                        Err(e) => *error = Some(e),
+                    },
+                    InputKind::NetIpv6Addr => match net::valid_cidr(&value, true) {
+                        Ok(()) => {
+                            self.net.ipv6_address = value;
+                            self.modal = Modal::None;
+                        }
+                        Err(e) => *error = Some(e),
+                    },
+                    InputKind::NetIpv6Gw => {
+                        let r = if value.is_empty() {
+                            Ok(())
+                        } else {
+                            net::valid_ip(&value, true)
+                        };
+                        match r {
+                            Ok(()) => {
+                                self.net.ipv6_gateway = value;
+                                self.modal = Modal::None;
+                            }
+                            Err(e) => *error = Some(e),
+                        }
+                    }
+                    InputKind::NetIpv6Dns => match net::valid_dns(&value, true) {
+                        Ok(()) => {
+                            self.net.ipv6_dns = value;
+                            self.modal = Modal::None;
+                        }
+                        Err(e) => *error = Some(e),
+                    },
                 }
             }
             _ => {}
@@ -449,6 +593,7 @@ impl App {
                     disk,
                     hostname: self.hostname.clone(),
                     keys: self.keys.iter().map(SshKey::line).collect(),
+                    net: self.net.clone(),
                 };
                 self.log.clear();
                 self.step = 0;
@@ -477,6 +622,16 @@ impl App {
             .first()
             .map(|(_, a)| a.split('/').next().unwrap_or(a).to_string())
     }
+}
+
+/// Network list row 0 is AUTO; wired interfaces follow. Pre-select the first
+/// interface with a link, falling back to AUTO when nothing is plugged in.
+fn default_net_sel(ifaces: &[net::Iface]) -> usize {
+    ifaces
+        .iter()
+        .position(|i| i.link)
+        .map(|i| i + 1)
+        .unwrap_or(0)
 }
 
 fn valid_hostname(h: &str) -> Result<String, String> {
@@ -516,6 +671,34 @@ pub fn demo_states() -> Vec<DemoState> {
                 a.screen = Screen::Target;
                 a.disk_sel = 3;
                 a.say(Tone::Warn, "/dev/sdc can't be used: installer media");
+            }),
+        ),
+        (
+            "03b-network",
+            Box::new(|a: &mut App| {
+                a.target = a.disks.first().cloned();
+                a.screen = Screen::Network;
+                a.net_sel = default_net_sel(&a.ifaces);
+                a.say(Tone::Ok, "network: eth0 dhcp");
+            }),
+        ),
+        (
+            "03c-network-static",
+            Box::new(|a: &mut App| {
+                a.target = a.disks.first().cloned();
+                a.screen = Screen::Network;
+                a.net_sel = default_net_sel(&a.ifaces);
+                a.net = net::NetChoice {
+                    iface: Some("eth0".into()),
+                    mode: net::Mode::Static,
+                    family: net::Family::Both,
+                    ipv4_address: "192.168.1.50/24".into(),
+                    ipv4_gateway: "192.168.1.1".into(),
+                    ipv4_dns: "1.1.1.1 8.8.8.8".into(),
+                    ipv6_address: "2001:db8::50/64".into(),
+                    ipv6_gateway: "2001:db8::1".into(),
+                    ipv6_dns: "2001:4860:4860::8888".into(),
+                };
             }),
         ),
         (
