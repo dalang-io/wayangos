@@ -21,7 +21,7 @@ SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
 #   wayang/version      what the installed system reports (see `wayang status`)
 #   wayang/channel      stable | edge
 #   wayang/trusted_keys release signing keys, if any
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.13}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.14}"
 WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
 WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 
@@ -289,6 +289,27 @@ fi
 
 # Per-connection byte/packet counters (wayang-fw / wayang-router dashboards).
 [ -w /proc/sys/net/netfilter/nf_conntrack_acct ] && echo 1 > /proc/sys/net/netfilter/nf_conntrack_acct
+
+# Opt-in crash diagnostics (incident 1.0.14): with `wayang.debug` on the kernel
+# cmdline, keep dmesg/interrupts on /data so a freeze can be read back after a
+# power-cycle. Off unless requested.
+DEBUG=0
+for arg in $(cat /proc/cmdline); do
+    case "$arg" in wayang.debug) DEBUG=1 ;; esac
+done
+if [ "$DEBUG" = 1 ] && [ -d /data ]; then
+    mkdir -p /data/debug
+    echo "  debug logging to /data/debug (wayang.debug)"
+    (
+        while :; do
+            dmesg > /data/debug/dmesg.boot 2>/dev/null
+            cat /proc/interrupts > /data/debug/interrupts.boot 2>/dev/null
+            cat /proc/loadavg > /data/debug/loadavg.boot 2>/dev/null
+            sync
+            sleep 1
+        done
+    ) &
+fi
 
 # Firewall before the network: interfaces get addresses only after the last
 # confirmed wayang-fw ruleset is loaded (no-op without wayang-fw/config).
