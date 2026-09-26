@@ -21,7 +21,7 @@ SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
 #   wayang/version      what the installed system reports (see `wayang status`)
 #   wayang/channel      stable | edge
 #   wayang/trusted_keys release signing keys, if any
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.7}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.9}"
 WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
 WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 
@@ -891,6 +891,15 @@ if [ -n "$WAYANG_BIN" ]; then
     echo "  wayang: $(du -h "$ROOTFS/usr/bin/wayang" | cut -f1)"
 else
     echo "  wayang CLI not in dist/ (optional; install it with an update)"
+fi
+
+# dcheck — default storage-health app (static musl binary; fetched by
+# scripts/fetch-dcheck.sh). Optional: skipped when not staged.
+if [ -f "$BUILD/dcheck/dcheck" ]; then
+    install -m 755 "$BUILD/dcheck/dcheck" "$ROOTFS/usr/bin/dcheck"
+    echo "  dcheck: $(du -h "$ROOTFS/usr/bin/dcheck" | cut -f1)"
+else
+    echo "  dcheck not staged (run scripts/fetch-dcheck.sh to bundle it)"
 fi
 
 # DNS fallback

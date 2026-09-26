@@ -113,67 +113,9 @@ grub-mkstandalone -O x86_64-efi -o "$WORK/BOOTX64.EFI" \
     "boot/grub/grub.cfg=$WORK/embedded.cfg"
 
 # Installed-system GRUB: A/B slot selection with anti-brick fallback. State is
-# kept in /boot/grub/grubenv (see docs/UPDATE-DESIGN.md). Written verbatim to
-# the ESP by the installer; keep in sync with installer/src/install.rs.
-cat > "$WORK/grub-disk.cfg" << 'EOF'
-# WayangOS A/B boot: pick the staged slot, count boot attempts, and fall back
-# to the last slot that booted successfully after repeated failures. State is
-# maintained by GRUB (here), rcS (`wayang mark-ok`) and `wayang` (staging).
-
-search --no-floppy --label --set=root WAYANGBOOT
-
-set timeout=3
-
-# Load the fallback state; the defaults cover a missing/blank block.
-if [ -s ($root)/boot/grub/grubenv ]; then
-    load_env -f ($root)/boot/grub/grubenv
-fi
-if [ -z "$wayang_slot" ]; then set wayang_slot=A; fi
-if [ -z "$wayang_good" ]; then set wayang_good=A; fi
-if [ -z "$wayang_attempts" ]; then set wayang_attempts=0; fi
-# Per-slot version/kernel, kept in grubenv by the installer and `wayang`
-# staging so the menu can show where each slot is.
-if [ -z "$wayang_ver_A" ]; then set wayang_ver_A="?"; fi
-if [ -z "$wayang_kver_A" ]; then set wayang_kver_A="?"; fi
-if [ -z "$wayang_ver_B" ]; then set wayang_ver_B="-"; fi
-if [ -z "$wayang_kver_B" ]; then set wayang_kver_B="-"; fi
-
-# After 3 boot attempts on a bad slot, go back to the last known good one.
-if [ "$wayang_attempts" -ge 3 ]; then
-    set wayang_slot="$wayang_good"
-    set wayang_attempts=0
-    save_env -f ($root)/boot/grub/grubenv wayang_slot wayang_attempts
-fi
-
-# A is menuentry 0, B is menuentry 1.
-if [ "$wayang_slot" = B ]; then
-    set default=1
-else
-    set default=0
-fi
-
-# Count this boot. GRUB has no arithmetic expansion, so map 0->1->2->3 by hand;
-# `wayang mark-ok` in rcS resets the counter to 0 after a successful boot.
-if [ "$wayang_attempts" = 0 ]; then
-    set wayang_attempts=1
-elif [ "$wayang_attempts" = 1 ]; then
-    set wayang_attempts=2
-elif [ "$wayang_attempts" = 2 ]; then
-    set wayang_attempts=3
-else
-    set wayang_attempts=3
-fi
-save_env -f ($root)/boot/grub/grubenv wayang_attempts
-
-menuentry "WayangOS $wayang_ver_A (slot A, linux $wayang_kver_A)" --id wayang-A {
-    linux /boot/A/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA wayang.slot=A
-    initrd /boot/A/initramfs.img
-}
-menuentry "WayangOS $wayang_ver_B (slot B, linux $wayang_kver_B)" --id wayang-B {
-    linux /boot/B/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA wayang.slot=B
-    initrd /boot/B/initramfs.img
-}
-EOF
+# kept in /boot/grub/grubenv (see docs/UPDATE-DESIGN.md). The template is shared
+# with the `wayang` updater (wayang/grub-disk.cfg), which rewrites it on update.
+cp "$REPO_DIR/wayang/grub-disk.cfg" "$WORK/grub-disk.cfg"
 
 # ============================================
 # 3. Installer initramfs = rootfs + installer + tools + payload
@@ -191,7 +133,7 @@ cp "$BASE_INITRAMFS" "$PAYLOAD/A/initramfs.img"
 
 # Initial GRUB fallback state. The installer regenerates this on the ESP, but
 # the payload must match (see installer/src/install.rs::grubenv).
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.7}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.9}"
 WAYANG_EDITION="${WAYANG_EDITION:-generic}"
 KERNEL_VERSION="${KERNEL_VERSION:-$(uname -r)}"
 {
@@ -207,7 +149,7 @@ printf '%*s' "$pad" '' | tr ' ' '#' >> "$PAYLOAD/grubenv"
 
 # Slot-A metadata. The installer recomputes hashes/version from the payload it
 # actually copies, so this copy is for layout/compat; keep it in sync with the
-# rootfs's /etc/wayang/version (both default to 1.0.7).
+# rootfs's /etc/wayang/version (both default to 1.0.9).
 sha256_file() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | cut -d' ' -f1

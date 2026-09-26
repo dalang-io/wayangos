@@ -17,6 +17,21 @@ fn state_store(boot: &BootRoot) -> Result<EnvStore> {
     EnvStore::open(&boot.path).map_err(AppError::err)
 }
 
+/// Rewrite `<ESP>/boot/grub/grub.cfg` from the shared template, but only when it
+/// differs, so updated systems pick up menu changes (per-slot versions,
+/// `wayang.slot`, …) without rewriting the ESP on every boot.
+fn refresh_grub_cfg(boot: &BootRoot) {
+    const TEMPLATE: &str = include_str!("../grub-disk.cfg");
+    let cfg = boot.path.join("grub/grub.cfg");
+    if std::fs::read_to_string(&cfg).is_ok_and(|cur| cur == TEMPLATE) {
+        return;
+    }
+    if let Some(dir) = cfg.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&cfg, TEMPLATE);
+}
+
 fn write_file_sync(path: &Path, data: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| AppError::err(format!("{}: {e}", dir.display())))?;
@@ -74,6 +89,7 @@ pub fn mark_ok(boot: &BootRoot) -> Result<Slot> {
         store.set(&format!("wayang_kver_{}", s.as_str()), &kver);
     }
     store.save().map_err(AppError::err)?;
+    refresh_grub_cfg(boot);
     Ok(active)
 }
 
