@@ -5,14 +5,14 @@
 # Env:   BUILD_DIR    build output directory (default: $HOME/wayangos-build)
 #        POS_SRC_DIR  use this local wayang-pos checkout instead of fetching
 #        POS_REPO     git URL (default: https://github.com/dalang-io/wayang-pos.git)
-#        POS_REF      tag/branch/commit to build (default: v3.1.0)
+#        POS_REF      tag/branch/commit to build (default: v3.2.0)
 #        POS_TOKEN    GitHub token for the private repo (CI); locally git's
 #                     credential helper (e.g. `gh auth setup-git`) is used
 set -e
 
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
 POS_REPO="${POS_REPO:-https://github.com/dalang-io/wayang-pos.git}"
-POS_REF="${POS_REF:-v3.1.0}"
+POS_REF="${POS_REF:-v3.2.0}"
 OUT="$BUILD/wayang-pos-static"
 SQLITE="$BUILD/sqlite3.c"
 
@@ -37,23 +37,27 @@ else
     git -C "$SRC_DIR" checkout -q FETCH_HEAD
 fi
 
-SRC="$SRC_DIR/fbpos-v3.c"
-if [ ! -f "$SRC" ]; then
-    echo "ERROR: POS source not found at $SRC" >&2
+if [ ! -f "$SRC_DIR/Makefile" ]; then
+    echo "ERROR: no Makefile in $SRC_DIR" >&2
     exit 1
 fi
 
+# v3.2+ always links SQLite; fetch the amalgamation if fetch-sources.sh
+# has not put it in $BUILD yet.
+if [ ! -f "$SQLITE" ]; then
+    echo "  SQLite amalgamation missing, downloading..."
+    SQLITE_URL="${SQLITE_AMALGAMATION_URL:-https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip}"
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/sqlite.zip" "$SQLITE_URL"
+    unzip -jo -q "$tmp/sqlite.zip" '*/sqlite3.c' '*/sqlite3.h' -d "$BUILD"
+    rm -rf "$tmp"
+fi
+
 echo "=== Building WayangPOS ==="
-echo "  Source: $SRC"
+echo "  Source: $SRC_DIR ($(git -C "$SRC_DIR" describe --tags --always 2>/dev/null || echo local))"
 echo "  Output: $OUT"
 
-if [ -f "$SQLITE" ]; then
-    echo "  SQLite: $SQLITE (persistence enabled)"
-    gcc -static -O2 -I"$BUILD" -o "$OUT" "$SRC" "$SQLITE" \
-        -DSQLITE_INTEGRATION -lpthread -lm
-else
-    echo "  SQLite: not found (building without persistence)"
-    gcc -static -O2 -o "$OUT" "$SRC" -lm
-fi
+make -C "$SRC_DIR" BUILD="$BUILD" SQLITE_DIR="$BUILD" wayang-pos
+cp "$SRC_DIR/wayang-pos" "$OUT"
 
 echo "  Built: $OUT ($(du -h "$OUT" | cut -f1))"
