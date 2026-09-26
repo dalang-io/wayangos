@@ -27,6 +27,7 @@ Fragments are intentional: they stay readable and are resolved by
 | `defconfig-amd` | x86_64 | `defconfig-qemu` | AMD GPU (amdgpu + radeon) |
 | `defconfig-nvidia` | x86_64 | `defconfig-qemu` | NVIDIA open driver (nouveau) |
 | `defconfig-rt` | x86_64 | `defconfig-qemu` | PREEMPT_RT real-time (needs RT-patched tree) |
+| `defconfig-wifi` | x86_64 | `defconfig-qemu` | Common USB WiFi drivers (needs firmware + wpa_supplicant in the rootfs) |
 | `defconfig-arm64-rpi3` | arm64 | `defconfig` | Raspberry Pi 3 (BCM2837, VC4/V3D) |
 | `defconfig-arm64-orangepi-zero2w` | arm64 | `defconfig` | Orange Pi Zero 2W (Allwinner H618, Panfrost) |
 

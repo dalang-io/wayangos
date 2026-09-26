@@ -78,3 +78,33 @@ needed. Keep the installer's HUD style.
   `shellcheck`. Document that static/IPv6 is not boot-tested here.
 - B: `cargo test` (parse/clamp of the config values, target persistence path),
   `cargo run -- --screens` still works, `shellcheck` untouched scripts.
+
+## Runtime TUI (`wayang`)
+
+Two screens in the `wayang` HUD (reusing `wayang/src/hud.rs`), so a running box
+can be reconfigured without editing files by hand:
+
+- `wayang net` — list interfaces (name, link, driver, MAC, address, `*primary`),
+  pick one, set **DHCP** or **Static** (IPv4/IPv6/Both + address/gateway/DNS),
+  then **Apply** (writes `/data/etc/network/{primary,config}` and applies now).
+- `wayang wifi` — list wireless interfaces; **Scan**; pick an SSID; enter the
+  passphrase (and optional country code); **Connect**; persists to
+  `/data/etc/wpa_supplicant.conf` and sets the wifi iface as primary.
+  If `wpa_supplicant`/`iw` or a wireless interface is missing, show a clear
+  message instead of failing.
+
+Both reuse the apply/persist logic of `wayang-net`. Non-interactive hosts still
+use the `wayang-net` CLI and `wayang net`/`wayang wifi` print help when stdout
+is not a TTY.
+
+### WiFi prerequisites (kernel + rootfs)
+
+WiFi needs, per board:
+- kernel drivers: `CFG80211`, `MAC80211`, `RFKILL`, a vendor driver
+  (`rtl8xxxu`/`rtw88`/`mt76x0u`/`ath9k_htc`/…), `FW_LOADER`;
+- firmware blobs (e.g. `rtlwifi/`, `mt76/`, `ath9k_htc/`) in the rootfs;
+- userspace: `wpa_supplicant` + `wpa_cli` (+ optional `iw`).
+
+`configs/defconfig-wifi` enables the common USB WiFi drivers. The rootfs bundles
+`wpa_supplicant`/`iw` **if present** under `$BUILD/wifi/` (fetched/built
+separately) and starts `wpa_supplicant` on the primary wifi iface at boot.

@@ -9,10 +9,14 @@
 #   CROSS_COMPILE   cross prefix (default: aarch64-linux-gnu- for arm64)
 #   KERNEL_FLAVOR   main (default) or rt (PREEMPT_RT patched tree)
 #   KERNEL_VERSION  kernel version (default: 7.2.7, or 6.19.3 for rt)
+#   WIFI_TOOLS_URL  optional tar with static wpa_supplicant/wpa_cli/iw
+#   FIRMWARE_URL    optional tar of WiFi firmware -> $BUILD/wifi/firmware/
 #
 # Versions can be overridden, e.g.:
 #   KERNEL_VERSION=7.2.7 BUSYBOX_VERSION=1.37.0 ./scripts/fetch-sources.sh
 #   KERNEL_FLAVOR=rt ARCH=arm64 ./scripts/fetch-sources.sh
+#   WIFI_TOOLS_URL=https://…/wifi-tools.tar.gz FIRMWARE_URL=https://…/fw.tar.xz \
+#       ./scripts/fetch-sources.sh
 set -e
 
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
@@ -69,9 +73,9 @@ echo ""
 # 1. Linux kernel
 # ============================================
 if [ -d "$KERNEL_DIR" ]; then
-    echo "[1/4] Kernel $KERNEL_DIR already present"
+    echo "[1/5] Kernel $KERNEL_DIR already present"
 elif [ "$KERNEL_FLAVOR" = "rt" ]; then
-    echo "[1/4] Downloading Linux $KERNEL_VERSION + PREEMPT_RT patch..."
+    echo "[1/5] Downloading Linux $KERNEL_VERSION + PREEMPT_RT patch..."
     KERNEL_TARBALL="linux-$KERNEL_VERSION.tar.xz"
     [ -f "$KERNEL_TARBALL" ] || fetch \
         "https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/$KERNEL_TARBALL" "$KERNEL_TARBALL"
@@ -89,7 +93,7 @@ elif [ "$KERNEL_FLAVOR" = "rt" ]; then
     )
     mv "linux-$KERNEL_VERSION" "$KERNEL_DIR"
 else
-    echo "[1/4] Downloading Linux $KERNEL_VERSION..."
+    echo "[1/5] Downloading Linux $KERNEL_VERSION..."
     KERNEL_TARBALL="linux-$KERNEL_VERSION.tar.xz"
     [ -f "$KERNEL_TARBALL" ] || fetch \
         "https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/$KERNEL_TARBALL" "$KERNEL_TARBALL"
@@ -101,9 +105,9 @@ fi
 # 2. BusyBox (built static)
 # ============================================
 if [ -x "busybox-$BUSYBOX_VERSION/busybox" ] && [ -f "busybox-$BUSYBOX_VERSION/busybox.links" ]; then
-    echo "[2/4] BusyBox $BUSYBOX_VERSION already built"
+    echo "[2/5] BusyBox $BUSYBOX_VERSION already built"
 else
-    echo "[2/4] Building BusyBox $BUSYBOX_VERSION (static, $ARCH)..."
+    echo "[2/5] Building BusyBox $BUSYBOX_VERSION (static, $ARCH)..."
     BB_TARBALL="busybox-$BUSYBOX_VERSION.tar.bz2"
     [ -f "$BB_TARBALL" ] || fetch \
         "https://busybox.net/downloads/$BB_TARBALL" "$BB_TARBALL"
@@ -127,9 +131,9 @@ fi
 # 3. Dropbear SSH (source; built by build-rootfs.sh)
 # ============================================
 if [ -d "dropbear-$DROPBEAR_VERSION" ]; then
-    echo "[3/4] Dropbear $DROPBEAR_VERSION already present"
+    echo "[3/5] Dropbear $DROPBEAR_VERSION already present"
 else
-    echo "[3/4] Downloading Dropbear $DROPBEAR_VERSION..."
+    echo "[3/5] Downloading Dropbear $DROPBEAR_VERSION..."
     DB_TARBALL="dropbear-$DROPBEAR_VERSION.tar.bz2"
     [ -f "$DB_TARBALL" ] || fetch \
         "https://matt.ucc.asn.au/dropbear/releases/$DB_TARBALL" "$DB_TARBALL"
@@ -140,9 +144,9 @@ fi
 # 4. SQLite amalgamation
 # ============================================
 if [ -f sqlite3.c ] && [ -f sqlite3.h ]; then
-    echo "[4/4] SQLite amalgamation already present"
+    echo "[4/5] SQLite amalgamation already present"
 else
-    echo "[4/4] Downloading SQLite amalgamation..."
+    echo "[4/5] Downloading SQLite amalgamation..."
     have unzip || { echo "ERROR: unzip required for SQLite" >&2; exit 1; }
     SQLITE_ZIP="$(basename "$SQLITE_AMALGAMATION_URL")"
     [ -f "$SQLITE_ZIP" ] || fetch "$SQLITE_AMALGAMATION_URL" "$SQLITE_ZIP"
@@ -151,9 +155,53 @@ else
     cp "$SQLITE_DIR/sqlite3.c" "$SQLITE_DIR/sqlite3.h" .
 fi
 
+# ============================================
+# 5. WiFi tools + firmware (optional, best-effort)
+# ============================================
+# wpa_supplicant/wpa_cli/iw need libnl/openssl and there is no package manager,
+# so they are static binaries built elsewhere. Provide a tar whose top level is
+# wpa_supplicant, wpa_cli and iw:
+#   WIFI_TOOLS_URL=https://…/wifi-tools.tar.gz ./scripts/fetch-sources.sh
+# and/or a tar of firmware blobs (rtlwifi/, mt76/, ath9k_htc/, brcm/, …):
+#   FIRMWARE_URL=https://…/firmware.tar.xz ./scripts/fetch-sources.sh
+WIFI_DIR="$BUILD/wifi"
+if [ -n "${WIFI_TOOLS_URL:-}" ]; then
+    echo "[5/5] Fetching WiFi tools..."
+    mkdir -p "$WIFI_DIR"
+    WIFI_TARBALL="$WIFI_DIR/$(basename "$WIFI_TOOLS_URL")"
+    if [ ! -f "$WIFI_TARBALL" ]; then
+        fetch "$WIFI_TOOLS_URL" "$WIFI_TARBALL" || \
+            echo "  WARNING: could not fetch $WIFI_TOOLS_URL (continuing)" >&2
+    fi
+    [ -f "$WIFI_TARBALL" ] && tar -xf "$WIFI_TARBALL" -C "$WIFI_DIR" || \
+        echo "  WARNING: could not extract WiFi tools (continuing)" >&2
+    echo "  WiFi tools in $WIFI_DIR"
+else
+    echo "[5/5] WiFi tools not fetched (optional)"
+    echo "  Set WIFI_TOOLS_URL to a tar containing static wpa_supplicant,"
+    echo "  wpa_cli and iw (top level); build-rootfs.sh installs them."
+fi
+
+if [ -n "${FIRMWARE_URL:-}" ]; then
+    echo "  Fetching WiFi firmware..."
+    mkdir -p "$WIFI_DIR/firmware"
+    FW_TARBALL="$WIFI_DIR/$(basename "$FIRMWARE_URL")"
+    if [ ! -f "$FW_TARBALL" ]; then
+        fetch "$FIRMWARE_URL" "$FW_TARBALL" || \
+            echo "  WARNING: could not fetch $FIRMWARE_URL (continuing)" >&2
+    fi
+    [ -f "$FW_TARBALL" ] && tar -xf "$FW_TARBALL" -C "$WIFI_DIR/firmware" || \
+        echo "  WARNING: could not extract firmware (continuing)" >&2
+    echo "  firmware in $WIFI_DIR/firmware"
+elif [ -z "${WIFI_TOOLS_URL:-}" ]; then
+    echo "  Set FIRMWARE_URL to a tar of firmware blobs (rtlwifi/, mt76/,"
+    echo "  ath9k_htc/, brcm/, …); build-rootfs.sh copies it to /lib/firmware."
+fi
+
 echo ""
 echo "=== Sources ready in $BUILD ==="
 echo "  Kernel:   $KERNEL_DIR"
 echo "  BusyBox:  busybox-$BUSYBOX_VERSION/busybox"
 echo "  Dropbear: dropbear-$DROPBEAR_VERSION"
 echo "  SQLite:   sqlite3.c / sqlite3.h"
+echo "  WiFi:     $WIFI_DIR (optional)"

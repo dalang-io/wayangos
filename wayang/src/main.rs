@@ -11,22 +11,29 @@ mod fetch;
 mod grubenv;
 mod hash;
 mod hud;
+mod input;
 mod keys;
 mod manifest;
 mod mount;
+mod net;
+mod netui;
 mod paths;
+mod screen;
 mod sema;
 mod sign;
 mod slot;
 mod staging;
 mod state;
 mod status;
+mod sys;
 mod trusted;
 mod tui;
 mod ui;
 mod update;
 mod verify;
 mod version;
+mod wifi;
+mod wifiui;
 
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -43,6 +50,8 @@ usage:
   wayang update  [--check] [--from FILE.wup] [--channel C] [--esp DEV] [--reboot]
   wayang upgrade [--check] [--from FILE.wup] [--esp DEV] [--reboot]
   wayang update --rollback [--esp DEV] [--reboot]
+  wayang net                            runtime uplink HUD (TTY only)
+  wayang wifi                           runtime wifi HUD (TTY only)
   wayang keygen --out DIR [--keyid NAME]
   wayang sign   --key FILE [--keyid NAME] MANIFEST.json
   wayang verify FILE.wup [--esp DEV]
@@ -56,6 +65,30 @@ env:
   WAYANG_ROOT       relocate /etc/wayang and /boot (testing)
 
 exit codes: 0 ok · 1 error · 2 no update · 3 verify failure · 4 incompatible";
+
+const NET_HELP: &str = "\
+wayang net — runtime uplink configuration (interactive)
+
+usage:
+  wayang net        open the network HUD (requires a TTY)
+
+Lists interfaces from /sys/class/net, lets you pick DHCP or a static
+IPv4/IPv6/both configuration, then writes /data/etc/network/primary and
+/data/etc/network/config and applies it immediately.
+
+When stdout is not a TTY this help is printed instead.";
+
+const WIFI_HELP: &str = "\
+wayang wifi — runtime wireless configuration (interactive)
+
+usage:
+  wayang wifi       open the wifi HUD (requires a TTY)
+
+Lists wireless interfaces, scans with `iw`, and connects to a chosen SSID,
+persisting /data/etc/wpa_supplicant.conf and pinning the interface as primary.
+
+Requires `iw` and `wpa_supplicant` (see docs/NETWORK.md wifi prerequisites).
+When stdout is not a TTY this help is printed instead.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -103,6 +136,8 @@ fn main() -> ExitCode {
         Command::Status { json } => status::run(json, None),
         Command::Update(a) => update::run(false, &a),
         Command::Upgrade(a) => update::run(true, &a),
+        Command::Net => run_screen(NET_HELP, netui::run),
+        Command::Wifi => run_screen(WIFI_HELP, wifiui::run),
         Command::Keygen { out, keyid } => keys::keygen(&out, &keyid),
         Command::Sign { key, keyid, manifest } => keys::sign_file(&key, keyid.as_deref(), &manifest),
         Command::Verify { bundle, esp } => verify::run(&bundle, esp.as_deref()),
@@ -153,5 +188,16 @@ fn run_mark_ok(esp: Option<&str>) -> Result<i32> {
     let boot = mount::open(esp)?;
     let active = staging::mark_ok(&boot)?;
     println!("Good slot: {} (attempts reset)", active.as_str());
+    Ok(0)
+}
+
+/// Run an interactive screen on a TTY, or print its usage when piped so
+/// scripts are unaffected.
+fn run_screen(help: &str, run: fn() -> std::io::Result<()>) -> Result<i32> {
+    if !std::io::stdout().is_terminal() {
+        println!("{help}");
+        return Ok(0);
+    }
+    run().map_err(|e| error::AppError::err(e.to_string()))?;
     Ok(0)
 }

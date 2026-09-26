@@ -1,0 +1,51 @@
+# WAYANG_BASE: defconfig-qemu
+#
+# WayangOS USB WiFi kernel fragment (x86_64).
+# Enables the generic wireless stack plus the common USB WiFi drivers on top of
+# the QEMU base config. Resolved with `make olddefconfig`; options that do not
+# exist in the tree (or whose dependencies are unmet) are simply dropped.
+#
+# Firmware blobs are NOT built into the kernel: they must be present in the
+# rootfs at /lib/firmware/ (e.g. rtlwifi/, rtw88/, rtw89/, mt76/, ath9k_htc/,
+# brcm/). build-rootfs.sh copies $BUILD/wifi/firmware/ there; see
+# scripts/fetch-sources.sh (FIRMWARE_URL) and docs/NETWORK.md.
+#
+# Wireless stack
+CONFIG_WLAN=y
+CONFIG_CFG80211=y
+CONFIG_MAC80211=y
+CONFIG_RFKILL=y
+CONFIG_FW_LOADER=y
+#
+# Realtek USB (rtl8xxxu, rtw88/rtw89 PCIe+USB)
+CONFIG_WLAN_VENDOR_REALTEK=y
+CONFIG_RTL8XXXU=y
+CONFIG_RTW88=y
+CONFIG_RTW88_USB=y
+CONFIG_RTW89=y
+#
+# MediaTek USB (mt7601u, mt76x0u, mt76x2u)
+CONFIG_WLAN_VENDOR_MEDIATEK=y
+CONFIG_MT7601U=y
+CONFIG_MT76x0U=y
+CONFIG_MT76x2U=y
+#
+# Atheros USB (ath9k_htc)
+CONFIG_WLAN_VENDOR_ATH=y
+CONFIG_ATH9K_HTC=y
+#
+# Ralink USB (rt2800usb)
+CONFIG_WLAN_VENDOR_RALINK=y
+CONFIG_RT2800USB=y
+#
+# Broadcom USB (brcmfmac)
+CONFIG_WLAN_VENDOR_BROADCOM=y
+CONFIG_BRCMFMAC=y
+CONFIG_BRCMFMAC_USB=y
+#
+# Intel (iwlwifi)
+CONFIG_WLAN_VENDOR_INTEL=y
+CONFIG_IWLWIFI=y
+#
+# Firmware lives in the rootfs, not in the kernel image.
+CONFIG_EXTRA_FIRMWARE=""

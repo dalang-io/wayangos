@@ -18,6 +18,8 @@ pub enum Command {
     Status { json: bool },
     Update(UpdateArgs),
     Upgrade(UpdateArgs),
+    Net,
+    Wifi,
     Keygen { out: PathBuf, keyid: String },
     Sign { key: PathBuf, keyid: Option<String>, manifest: PathBuf },
     Verify { bundle: PathBuf, esp: Option<String> },
@@ -79,6 +81,18 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         }
         "update" => Ok(Command::Update(update_args(rest, "update")?)),
         "upgrade" => Ok(Command::Upgrade(update_args(rest, "upgrade")?)),
+        "net" | "wifi" => {
+            for a in rest {
+                if a != "--help" && a != "-h" {
+                    return Err(format!("unknown option for `{sub}`: {a}"));
+                }
+            }
+            if sub == "net" {
+                Ok(Command::Net)
+            } else {
+                Ok(Command::Wifi)
+            }
+        }
         "keygen" => {
             let mut out: Option<PathBuf> = None;
             let mut keyid = "release".to_string();
@@ -213,5 +227,13 @@ mod tests {
         assert!(matches!(parse(&v(&["--help"])).unwrap(), Command::Help));
         assert!(matches!(parse(&v(&[])).unwrap(), Command::Help));
         assert!(matches!(parse(&v(&["version"])).unwrap(), Command::Version));
+    }
+
+    #[test]
+    fn parses_net_and_wifi() {
+        assert!(matches!(parse(&v(&["net"])).unwrap(), Command::Net));
+        assert!(matches!(parse(&v(&["wifi"])).unwrap(), Command::Wifi));
+        assert!(matches!(parse(&v(&["net", "--help"])).unwrap(), Command::Net));
+        assert!(parse(&v(&["net", "--bogus"])).is_err());
     }
 }

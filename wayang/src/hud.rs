@@ -309,6 +309,17 @@ pub fn field(label: &str, w: usize, value: Vec<Span<'static>>, t: &Theme) -> Lin
     Line::from(spans)
 }
 
+/// Center a `w`×`h` rectangle inside `area` (clamped to fit).
+pub fn centered(area: Rect, w: u16, h: u16) -> Rect {
+    let (w, h) = (w.min(area.width), h.min(area.height));
+    Rect {
+        x: area.x + (area.width - w) / 2,
+        y: area.y + (area.height - h) / 2,
+        width: w,
+        height: h,
+    }
+}
+
 // ---- pixel logo --------------------------------------------------------
 
 /// 4-pixel-high letters; drawn two pixel rows per text row with half blocks.

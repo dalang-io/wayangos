@@ -88,6 +88,31 @@ Mode and family live in `/data/etc/network/config` (`MODE=dhcp|static`,
 `FAMILY=ipv4|ipv6|both`) and the NIC in `/data/etc/network/primary`. DHCPv6 is
 not implemented: a family including `ipv6` uses SLAAC (`accept_ra=2`).
 
+### WiFi
+
+USB WiFi needs three pieces: a kernel with the wireless stack, firmware blobs,
+and `wpa_supplicant`/`iw`. The base image is unchanged — WiFi is opt-in.
+
+- **Kernel:** build from `configs/defconfig-wifi` (a fragment on top of
+  `defconfig-qemu`) — `./scripts/build-kernel.sh defconfig-wifi`.
+- **Userspace + firmware:** drop static `wpa_supplicant`, `wpa_cli` and `iw`
+  into `$BUILD/wifi/`, and firmware blobs (`rtlwifi/`, `mt76/`, `ath9k_htc/`,
+  `brcm/`, …) into `$BUILD/wifi/firmware/`. `scripts/fetch-sources.sh` can
+  fetch them best-effort: `WIFI_TOOLS_URL=<tar> FIRMWARE_URL=<tar>
+  ./scripts/fetch-sources.sh`. `build-rootfs.sh` installs the tools to
+  `/usr/sbin` and copies firmware to `/lib/firmware/` when present; it skips
+  both silently if the directories are absent.
+
+```sh
+wayang wifi          # scan, pick an SSID, enter the passphrase, connect
+```
+
+`wayang wifi` writes `/data/etc/wpa_supplicant.conf` and sets the wifi interface
+as primary. On boot (and on `wayang-net restart`) `/etc/init.d/network` starts
+`wpa_supplicant -B -i <iface> -c /data/etc/wpa_supplicant.conf` before DHCP.
+With no wireless NIC, driver, firmware, or `wpa_supplicant`, it prints a clear
+message instead of failing.
+
 ## Quick Start
 
 ```bash

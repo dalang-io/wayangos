@@ -139,6 +139,37 @@ mkdir -p "$ROOTFS/etc/ssl/certs"
 cp "$BUILD/cacert.pem" "$ROOTFS/etc/ssl/certs/ca-certificates.crt"
 
 # ============================================
+# 3b. WiFi tools & firmware (optional)
+# ============================================
+# wpa_supplicant/wpa_cli/iw are static binaries built elsewhere (they need
+# libnl/openssl and there is no package manager). Drop them at the top level of
+# $BUILD/wifi/ (scripts/fetch-sources.sh WIFI_TOOLS_URL does this) and they are
+# installed here. Firmware blobs go under $BUILD/wifi/firmware/.
+echo "[3b/4] Installing WiFi tools (optional)..."
+WIFI_DIR="$BUILD/wifi"
+mkdir -p "$ROOTFS/usr/sbin" "$ROOTFS/etc/wpa_supplicant"
+wifi_tools=""
+for tool in wpa_supplicant wpa_cli iw; do
+    if [ -f "$WIFI_DIR/$tool" ]; then
+        install -m 755 "$WIFI_DIR/$tool" "$ROOTFS/usr/sbin/$tool"
+        wifi_tools="$wifi_tools $tool"
+    fi
+done
+if [ -n "$wifi_tools" ]; then
+    echo "  installed:$wifi_tools (in /usr/sbin)"
+else
+    echo "  no static wpa_supplicant/wpa_cli/iw in $WIFI_DIR — WiFi tools skipped"
+    echo "  (provide them via WIFI_TOOLS_URL; see scripts/fetch-sources.sh)"
+fi
+if [ -d "$WIFI_DIR/firmware" ]; then
+    mkdir -p "$ROOTFS/lib/firmware"
+    cp -a "$WIFI_DIR/firmware/." "$ROOTFS/lib/firmware/"
+    echo "  firmware: $(du -sh "$ROOTFS/lib/firmware" | cut -f1) in /lib/firmware"
+else
+    echo "  no $WIFI_DIR/firmware — no WiFi firmware bundled"
+fi
+
+# ============================================
 # 4. Init scripts & config
 # ============================================
 echo "[4/4] Writing init scripts..."
@@ -241,7 +272,11 @@ if [ -n "$DATA" ]; then
         mkdir -p /data/etc/dropbear
         # persisted network uplink choice (wayang-net use <iface>)
         mkdir -p /data/etc/network
+        # persisted wpa_supplicant config dir (wayang wifi writes
+        # /data/etc/wpa_supplicant.conf; the dir is symlinked for other tools)
+        mkdir -p /data/etc/wpa_supplicant
         rm -rf /etc/dropbear && ln -s /data/etc/dropbear /etc/dropbear
+        rm -rf /etc/wpa_supplicant && ln -s /data/etc/wpa_supplicant /etc/wpa_supplicant
         # this box's name and root's SSH keys (set by the installer / wayang-addkey)
         [ -s /data/etc/hostname ] && hostname -F /data/etc/hostname
         if [ -s /data/etc/ssh/authorized_keys ]; then
@@ -317,6 +352,23 @@ wired() {
 }
 
 carrier() { [ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" = "1" ]; }
+
+# If $1 is a wireless interface with a saved wpa_supplicant config, associate
+# first: DHCP cannot run until the link is up. `wayang wifi` writes
+# /data/etc/wpa_supplicant.conf and makes the iface primary.
+wifi_associate() {
+    i="$1"
+    [ -d "/sys/class/net/$i/wireless" ] || return 0
+    command -v wpa_supplicant >/dev/null 2>&1 || return 0
+    [ -s /data/etc/wpa_supplicant.conf ] || return 0
+    ifconfig "$i" up 2>/dev/null || true
+    killall wpa_supplicant 2>/dev/null
+    if wpa_supplicant -B -i "$i" -c /data/etc/wpa_supplicant.conf >/dev/null 2>&1; then
+        echo "  wpa_supplicant on $i"
+    else
+        echo "  WARNING: wpa_supplicant failed on $i" >&2
+    fi
+}
 
 # synchronous: 0 if a lease was obtained
 probe() {
@@ -415,6 +467,8 @@ apply_dhcp() {
 # load config (if any) and apply it to the chosen primary
 apply_primary() {
     i="$1"
+    # wireless: associate before DHCP (no-op for wired interfaces)
+    wifi_associate "$i"
     MODE=""; FAMILY=""
     IPV4_ADDRESS=""; IPV4_GATEWAY=""; IPV4_DNS=""
     IPV6_ADDRESS=""; IPV6_GATEWAY=""; IPV6_DNS=""
@@ -479,6 +533,7 @@ case "$1" in
         ;;
     stop)
         killall udhcpc 2>/dev/null
+        killall wpa_supplicant 2>/dev/null
         [ -r "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
         for i in $(wired); do ifconfig "$i" down 2>/dev/null; done
         rm -f "$PRIMARY_RUN" "$PIDFILE" /var/run/probe.*

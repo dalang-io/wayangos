@@ -8,36 +8,38 @@
 //! `wayang --demo` and `wayang --screens DIR [--size WxH]` render the screens
 //! to text for snapshotting, without touching the system.
 
-use std::io::{self, Write};
-use std::time::Duration;
-
-use ratatui::backend::{CrosstermBackend, TestBackend};
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use ratatui::crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
-use ratatui::crossterm::{cursor, execute};
+use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
-use ratatui::{Frame, Terminal};
+use ratatui::Frame;
 
 use crate::cli::UpdateArgs;
 use crate::hud::{self, Theme};
 use crate::manifest::SlotMeta;
+use crate::netui;
 use crate::slot::{self, Slot};
 use crate::status::{self, Status};
 use crate::update;
 use crate::ui;
+use crate::wifiui;
 
-pub const ITEMS: [&str; 6] = [
+pub const ITEMS: [&str; 8] = [
     "STATUS",
     "CHECK FOR UPDATES",
     "UPDATE",
     "UPGRADE",
     "ROLLBACK",
+    "NETWORK",
+    "WIFI",
     "QUIT",
 ];
+
+/// A modal sub-screen opened from the menu.
+pub enum Sub {
+    Net(netui::App),
+    Wifi(wifiui::App),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
@@ -53,6 +55,8 @@ pub struct App {
     pub error: Option<String>,
     pub message: Option<(Tone, String)>,
     pub exit: bool,
+    /// Open sub-screen (network/wifi), if any.
+    pub sub: Option<Sub>,
 }
 
 impl App {
@@ -65,10 +69,21 @@ impl App {
                 Err(e) => (status::unavailable(), Some(e.to_string())),
             }
         };
-        App { t: Theme::detect(), sel: 0, status, error, message: None, exit: false }
+        App { t: Theme::detect(), sel: 0, status, error, message: None, exit: false, sub: None }
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        if self.sub.is_some() {
+            match self.sub.as_mut() {
+                Some(Sub::Net(a)) => a.on_key(key),
+                Some(Sub::Wifi(a)) => a.on_key(key),
+                None => {}
+            }
+            if self.sub_exited() {
+                self.sub = None;
+            }
+            return;
+        }
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.sel = (self.sel + ITEMS.len() - 1) % ITEMS.len();
@@ -79,7 +94,7 @@ impl App {
             KeyCode::Char('r') => self.refresh(),
             KeyCode::Enter => self.act(self.sel),
             KeyCode::Esc | KeyCode::Char('q') => self.exit = true,
-            KeyCode::Char(c @ '1'..='6') => {
+            KeyCode::Char(c @ '1'..='8') => {
                 let idx = c as usize - '1' as usize;
                 if idx < ITEMS.len() {
                     self.sel = idx;
@@ -87,6 +102,14 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    pub fn sub_exited(&self) -> bool {
+        match &self.sub {
+            Some(Sub::Net(a)) => a.exit,
+            Some(Sub::Wifi(a)) => a.exit,
+            None => false,
         }
     }
 
@@ -110,7 +133,9 @@ impl App {
             2 => self.run_update(false, false),
             3 => self.run_update(false, true),
             4 => self.run_rollback(),
-            5 => self.exit = true,
+            5 => self.sub = Some(Sub::Net(netui::App::new(false))),
+            6 => self.sub = Some(Sub::Wifi(wifiui::App::new(false))),
+            7 => self.exit = true,
             _ => {}
         }
     }
@@ -175,7 +200,14 @@ fn demo_status() -> Status {
 
 // ---- drawing -----------------------------------------------------------
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &App, tick: usize) {
+    if let Some(sub) = &app.sub {
+        match sub {
+            Sub::Net(a) => netui::draw(f, a, tick),
+            Sub::Wifi(a) => wifiui::draw(f, a, tick),
+        }
+        return;
+    }
     let t = &app.t;
     let area = f.area();
     f.render_widget(ratatui::widgets::Block::default().style(t.base()), area);
@@ -314,54 +346,14 @@ fn draw_result(f: &mut Frame, area: Rect, app: &App) {
 
 // ---- interactive runner ------------------------------------------------
 
-fn restore(console: bool) {
-    let mut out = io::stdout();
-    let _ = disable_raw_mode();
-    let _ = execute!(out, LeaveAlternateScreen, cursor::Show);
-    if console {
-        let _ = write!(out, "\x1b]R\x1b[0m\x1b[2J\x1b[H");
-    }
-    let _ = out.flush();
-}
-
 /// Run the HUD on the real terminal.
-pub fn run() -> io::Result<()> {
-    let theme = Theme::detect();
-    let palette = theme.console_palette();
-    let console = palette.is_some();
-
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        restore(console);
-        hook(info);
-    }));
-
-    let mut out = io::stdout();
-    enable_raw_mode()?;
-    execute!(out, EnterAlternateScreen, cursor::Hide)?;
-    if let Some(p) = &palette {
-        write!(out, "{p}\x1b[2J")?;
-        out.flush()?;
-    }
-    let mut terminal = Terminal::new(CrosstermBackend::new(out))?;
-    terminal.clear()?;
-
-    let mut app = App::new(false);
-    let result = loop {
-        terminal.draw(|f| draw(f, &app))?;
-        if app.exit {
-            break Ok(());
-        }
-        if event::poll(Duration::from_millis(200))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.on_key(key);
-                }
-            }
-        }
-    };
-    restore(console);
-    result
+pub fn run() -> std::io::Result<()> {
+    crate::screen::run(
+        App::new(false),
+        draw,
+        |app, key| app.on_key(key),
+        |app| app.exit,
+    )
 }
 
 // ---- demo / snapshot mode ----------------------------------------------
@@ -386,20 +378,25 @@ pub fn demo_states() -> Vec<DemoState> {
                 app.message = Some((Tone::Bad, "trusted keys: not found".into()));
             }),
         ),
+        (
+            "net",
+            Box::new(|app: &mut App| {
+                app.sub = Some(Sub::Net(netui::App::new(true)));
+            }),
+        ),
+        (
+            "net-static",
+            Box::new(|app: &mut App| {
+                app.sub = Some(Sub::Net(netui::demo_static()));
+            }),
+        ),
+        (
+            "wifi",
+            Box::new(|app: &mut App| {
+                app.sub = Some(Sub::Wifi(wifiui::App::new(true)));
+            }),
+        ),
     ]
-}
-
-fn render_text(app: &App, w: u16, h: u16) -> Result<String, String> {
-    let mut terminal = Terminal::new(TestBackend::new(w, h)).map_err(|e| e.to_string())?;
-    terminal.draw(|f| draw(f, app)).map_err(|e| e.to_string())?;
-    let buf = terminal.backend().buffer();
-    let mut text = String::new();
-    for y in 0..h {
-        let row: String = (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect();
-        text.push_str(row.trim_end());
-        text.push('\n');
-    }
-    Ok(text)
 }
 
 fn parse_size(size: &str) -> Result<(u16, u16), String> {
@@ -415,7 +412,7 @@ pub fn dump_stdout(size: &str) -> Result<(), String> {
         let mut app = App::new(true);
         setup(&mut app);
         println!("===== {name} =====");
-        print!("{}", render_text(&app, w, h)?);
+        print!("{}", crate::screen::render_text(&app, w, h, draw)?);
     }
     Ok(())
 }
@@ -428,7 +425,8 @@ pub fn dump_screens(dir: &str, size: &str) -> Result<(), String> {
         let mut app = App::new(true);
         setup(&mut app);
         let path = format!("{dir}/{name}.txt");
-        std::fs::write(&path, render_text(&app, w, h)?).map_err(|e| format!("{path}: {e}"))?;
+        let text = crate::screen::render_text(&app, w, h, draw)?;
+        std::fs::write(&path, text).map_err(|e| format!("{path}: {e}"))?;
     }
     Ok(())
 }
@@ -437,18 +435,38 @@ pub fn dump_screens(dir: &str, size: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    fn render(app: &App, w: u16, h: u16) -> Result<String, String> {
+        crate::screen::render_text(app, w, h, draw)
+    }
+
     #[test]
     fn demo_dashboard_renders() {
         if std::env::var_os("WAYANG_ROOT").is_none() {
             std::env::set_var("WAYANG_ROOT", "/tmp/wayang-tui-test");
         }
         let app = App::new(true);
-        let text = render_text(&app, 90, 24).unwrap();
+        let text = render(&app, 90, 24).unwrap();
         assert!(text.contains("wayang"));
         assert!(text.contains("ACTIONS"));
         assert!(text.contains("UPDATER"));
         assert!(text.contains("1.4.1"));
         std::env::remove_var("WAYANG_ROOT");
+    }
+
+    #[test]
+    fn menu_opens_network_and_wifi() {
+        let mut app = App::new(true);
+        assert_eq!(ITEMS[5], "NETWORK");
+        assert_eq!(ITEMS[6], "WIFI");
+        app.sel = 5;
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(matches!(app.sub, Some(Sub::Net(_))));
+        // a sub-screen key is delegated; q closes it back to the menu
+        app.on_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(app.sub.is_none());
+        app.sel = 6;
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(matches!(app.sub, Some(Sub::Wifi(_))));
     }
 
     #[test]
