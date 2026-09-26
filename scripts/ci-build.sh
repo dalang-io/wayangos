@@ -4,7 +4,7 @@
 #
 # Env:
 #   BUILD_DIR       build dir (default: $HOME/wayangos-build)
-#   WAYANG_VERSION  WayangOS version (default: 1.0.2)
+#   WAYANG_VERSION  WayangOS version (default: 1.0.3)
 #   KERNEL_VERSION  kernel version for the ISO name/manifest (default: 7.2.7)
 #   KERNEL_CONFIG   kernel config name (default: defconfig-intel)
 #   CHANNEL         release channel (default: stable)
@@ -15,12 +15,15 @@ set -e
 
 export PATH="$HOME/.cargo/bin:$PATH"
 BUILD_DIR="${BUILD_DIR:-$HOME/wayangos-build}"
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.2}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.3}"
 KERNEL_VERSION="${KERNEL_VERSION:-7.2.7}"
 KERNEL_CONFIG="${KERNEL_CONFIG:-defconfig-intel}"
 CHANNEL="${CHANNEL:-stable}"
 WAYANG_EDITION="${WAYANG_EDITION:-installer}"
-export BUILD_DIR WAYANG_VERSION KERNEL_VERSION KERNEL_CONFIG CHANNEL WAYANG_EDITION
+# Bake the release signing key(s) so the installed system can verify updates.
+WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-$PWD/wayang/trusted_keys}"
+[ -f "$WAYANG_TRUSTED_KEYS" ] || WAYANG_TRUSTED_KEYS=""
+export BUILD_DIR WAYANG_VERSION KERNEL_VERSION KERNEL_CONFIG CHANNEL WAYANG_EDITION WAYANG_TRUSTED_KEYS
 
 ISO="$BUILD_DIR/wayangos-$WAYANG_VERSION-linux-$KERNEL_VERSION-installer-x86_64.iso"
 
