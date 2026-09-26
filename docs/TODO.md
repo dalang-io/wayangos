@@ -2,7 +2,8 @@
 
 Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
-`[x]` done. Read `AGENTS.md` in each repo before starting.
+`[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
+release: **1.0.17** (see `docs/HANDOVER.md`).
 
 ## wayangos (this repo)
 
@@ -113,3 +114,5 @@ static v4/v6, DHCP client, forwarding, static routes):
       recover/verify backends.
 - [x] Router kernel bisect harness: `scripts/bisect-router-opts.sh` +
       `docs/ROUTER-KERNEL-BISECT.md` (hardware-gated).
+- [x] Released **1.0.16** and **1.0.17** (tag + channel + device); see
+      `docs/HANDOVER.md`.

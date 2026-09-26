@@ -1,7 +1,11 @@
 # Incident: WayangOS 1.0.13 locks up the test device (2026-09-26)
 
-Status: **open**. 1.0.13 is pulled from the update channel; the device is back
-on 1.0.12. Read this before touching the release or the device again.
+Status: **mitigated, not fully diagnosed.** 1.0.13 was pulled from the channel.
+1.0.14 dropped the router option block (kept only a VLAN/bridge MVP in 1.0.15)
+and booted cleanly on the device, so the leading theory is those options. The
+rest of the block stays off until a supervised bisect
+([docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)). Read this before
+touching the release or the device again.
 
 ## Symptom
 
@@ -175,9 +179,15 @@ hook (`/etc/init.d/router`) is still installed and is a no-op without a config.
 
 ## Current state (2026-09-27)
 
-- Device: **1.0.14 in slot B (active, next, good)**; slot A holds 1.0.12.
-- Channel serves **1.0.14**; tag/GitHub release `v1.0.13` remain (do not reuse).
-- 1.0.14 is the first release with the updater slot fix (`6db57a3`).
+- Device: **1.0.17** (newest slot active/good); `/data/bin` has `wayang-fw` +
+  `wayang-router` (nothing committed).
+- Channel serves **1.0.17**; tag/GitHub releases `v1.0.13`/`v1.0.14` remain (do
+  not reuse the numbers).
+- Router kernel: only the VLAN/bridge MVP is on (validated); the rest of the
+  1.0.13 block is **still off** — bisect harness ready
+  (`scripts/bisect-router-opts.sh`, `docs/ROUTER-KERNEL-BISECT.md`), needs a
+  supervised hardware session.
+- Ongoing state for the next agent: `docs/HANDOVER.md`, `docs/TODO.md`.
 
 ## 1.0.15 — Router MVP re-enabled (subset), published
 
@@ -200,3 +210,6 @@ Also in 1.0.15:
   dedicated box in another project).
 
 Published: tag `v1.0.15`, channel serves **1.0.15**.
+
+Later releases (**1.0.16**, **1.0.17**) keep this kernel (router MVP only) and add
+console/UX work; see [docs/HANDOVER.md](HANDOVER.md) and [docs/TODO.md](TODO.md).
