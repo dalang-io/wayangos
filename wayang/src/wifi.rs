@@ -299,16 +299,38 @@ pub fn connect(iface: &str, ssid: &str, psk: &str, country: Option<&str>, demo: 
         .map_err(|e| format!("cannot bring {iface} up: {e}"))?;
     sys::run("wpa_supplicant", &["-B", "-i", iface, "-c", &conf.to_string_lossy()])
         .map_err(|e| format!("wpa_supplicant failed on {iface}: {e}"))?;
+
+    // DHCP cannot run until the link has associated (carrier up); wait for it.
+    let assoc = wait_assoc(iface, 20);
     sys::run(
         "udhcpc",
         &["-n", "-q", "-t", "5", "-T", "3", "-i", iface, "-s", "/etc/udhcpc.script"],
     )
-    .map_err(|e| format!("no DHCP lease on {iface}: {e}"))?;
+    .map_err(|e| {
+        if assoc {
+            format!("no DHCP lease on {iface}: {e}")
+        } else {
+            format!("{iface} did not associate (check SSID/passphrase/signal); no DHCP lease")
+        }
+    })?;
+    // keep renewing while the box runs
+    let _ = sys::spawn("udhcpc", &["-b", "-i", iface, "-s", "/etc/udhcpc.script"]);
 
     // pin the wifi interface; boot uses MODE=dhcp on it
     NetChoice { iface: Some(iface.to_string()), mode: net::Mode::Dhcp, ..Default::default() }
         .write_persisted()?;
     Ok(format!("wifi: {ssid} on {iface} (dhcp)"))
+}
+
+/// Poll until the interface is associated, up to `tries * 500 ms`.
+fn wait_assoc(iface: &str, tries: u32) -> bool {
+    for _ in 0..tries {
+        if link_status(iface).connected {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    false
 }
 
 #[cfg(test)]
