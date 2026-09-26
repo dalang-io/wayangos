@@ -60,6 +60,19 @@ pub fn mark_ok(boot: &BootRoot) -> Result<Slot> {
     store.set("wayang_good", active.as_str());
     store.set("wayang_slot", active.as_str());
     store.set("wayang_attempts", "0");
+    // Refresh the per-slot version/kernel from the on-ESP metadata so the GRUB
+    // menu reflects whatever each slot actually holds.
+    for s in [Slot::A, Slot::B] {
+        let meta = boot.path.join("var").join(format!("meta-{}.json", s.as_str()));
+        let Ok(text) = std::fs::read_to_string(&meta) else { continue };
+        let Ok(m) = serde_json::from_str::<SlotMeta>(&text) else { continue };
+        if m.version.is_empty() {
+            continue;
+        }
+        store.set(&format!("wayang_ver_{}", s.as_str()), &m.version);
+        let kver = m.kernel_version.unwrap_or_else(|| "?".into());
+        store.set(&format!("wayang_kver_{}", s.as_str()), &kver);
+    }
     store.save().map_err(AppError::err)?;
     Ok(active)
 }
