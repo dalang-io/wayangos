@@ -309,6 +309,10 @@ echo ""
 if [ -x /usr/bin/wayang ]; then
     wayang mark-ok >/dev/null 2>&1 || true
 fi
+
+# Point-of-sale kiosk: starts only when a POS binary is installed and
+# autostart is on (see `wayang pos`, /etc/init.d/pos).
+/etc/init.d/pos start
 INIT
 chmod +x "$ROOTFS/etc/init.d/rcS"
 
@@ -316,6 +320,7 @@ chmod +x "$ROOTFS/etc/init.d/rcS"
 cat > "$ROOTFS/etc/init.d/rcK" << 'SHUTDOWN'
 #!/bin/sh
 echo "WayangOS shutting down..."
+/etc/init.d/pos stop >/dev/null 2>&1
 killall dropbear 2>/dev/null
 killall syslogd 2>/dev/null
 killall ntpd 2>/dev/null
@@ -324,6 +329,154 @@ sync
 umount -a -r 2>/dev/null
 SHUTDOWN
 chmod +x "$ROOTFS/etc/init.d/rcK"
+
+# Point-of-sale kiosk service (supervisor + autostart setting)
+cat > "$ROOTFS/etc/init.d/pos" << 'POS'
+#!/bin/sh
+# /etc/init.d/pos — WayangPOS kiosk service. Usually driven via `wayang pos`.
+#
+#   start     boot entry: start the POS if one is installed and autostart is on
+#   stop      stop it; the console goes back to the terminal
+#   restart   stop, then start regardless of autostart
+#   status    binary, settings, state
+#   enable    autostart at boot (and start now)
+#   disable   no autostart (and stop now)
+#   log       last lines of the POS log
+#
+# A supervisor restarts the POS when it crashes. When the POS exits on
+# purpose (admin: Settings -> F10 "Exit to terminal") it stays stopped until
+# `wayang pos start` or the next boot.
+#
+# The binary is /data/bin/wayang-pos (deployed, survives OS updates) or else
+# /usr/bin/wayang-pos (baked into a POS image).
+#
+# /data/etc/pos.conf:
+#   AUTOSTART=1   start at boot when a POS binary is installed (0 = never)
+#   ALLOW_EXIT=1  admins may exit to the terminal from Settings (0 = never)
+
+CONF=/data/etc/pos.conf
+PIDFILE=/var/run/wayang-pos.supervisor.pid
+STOPFLAG=/var/run/wayang-pos.stop
+if grep -q ' /data ' /proc/mounts 2>/dev/null; then LOGDIR=/data/log; else LOGDIR=/var/log; fi
+LOG="$LOGDIR/wayang-pos.log"
+
+AUTOSTART=1
+ALLOW_EXIT=1
+# shellcheck disable=SC1090
+[ -f "$CONF" ] && . "$CONF"
+
+find_bin() {
+    for b in /data/bin/wayang-pos /usr/bin/wayang-pos; do
+        [ -x "$b" ] && { echo "$b"; return 0; }
+    done
+    return 1
+}
+
+set_conf() {
+    mkdir -p "${CONF%/*}"
+    { grep -v "^$1=" "$CONF" 2>/dev/null; echo "$1=$2"; } > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+}
+
+supervisor_pid() {
+    [ -f "$PIDFILE" ] || return 1
+    pid="$(cat "$PIDFILE")"
+    kill -0 "$pid" 2>/dev/null && { echo "$pid"; return 0; }
+    rm -f "$PIDFILE"
+    return 1
+}
+
+rotate_log() {
+    mkdir -p "$LOGDIR"
+    if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 524288 ]; then
+        mv -f "$LOG" "$LOG.1"
+    fi
+}
+
+# Runs in the background; restarts the POS until it exits cleanly or is stopped.
+supervise() {
+    bin="$1"
+    fails=0
+    window="$(date +%s)"
+    while [ ! -f "$STOPFLAG" ]; do
+        rotate_log
+        echo "=== $(date '+%Y-%m-%d %H:%M:%S') starting $bin" >> "$LOG"
+        WAYANG_POS_ALLOW_EXIT="$ALLOW_EXIT" "$bin" >> "$LOG" 2>&1 < /dev/null
+        rc=$?
+        [ -f "$STOPFLAG" ] && break
+        if [ "$rc" -eq 0 ]; then
+            echo "=== exited to the terminal" >> "$LOG"
+            logger -t wayang-pos "exited to the terminal (wayang pos start to resume)"
+            printf '\n  WayangPOS stopped. To return to the POS, type:  wayang pos start\n\n' > /dev/console 2>/dev/null
+            break
+        fi
+        now="$(date +%s)"
+        if [ $((now - window)) -gt 60 ]; then fails=0; window="$now"; fi
+        fails=$((fails + 1))
+        echo "=== exited with status $rc, restarting" >> "$LOG"
+        logger -t wayang-pos "exited with status $rc, restarting"
+        # back off when it keeps failing (e.g. no framebuffer)
+        if [ "$fails" -ge 5 ]; then sleep 30; else sleep 2; fi
+    done
+    rm -f "$PIDFILE"
+}
+
+do_start() {
+    if supervisor_pid >/dev/null; then echo "POS already running"; return 0; fi
+    if pidof wayang-pos >/dev/null; then
+        echo "POS already running (not supervised; use: wayang pos restart)"
+        return 0
+    fi
+    bin="$(find_bin)" || { echo "no POS installed (/data/bin/wayang-pos or /usr/bin/wayang-pos)"; return 1; }
+    rm -f "$STOPFLAG"
+    setsid "$0" supervise "$bin" < /dev/null > /dev/null 2>&1 &
+    echo $! > "$PIDFILE"
+    echo "POS started ($bin)"
+}
+
+do_stop() {
+    touch "$STOPFLAG"
+    pid="$(supervisor_pid)" && kill "$pid" 2>/dev/null
+    rm -f "$PIDFILE"
+    # SIGTERM: the POS restores the text console before exiting
+    killall wayang-pos 2>/dev/null || { rm -f "$STOPFLAG"; return 0; }
+    n=0
+    while pidof wayang-pos >/dev/null && [ $n -lt 3 ]; do sleep 1; n=$((n + 1)); done
+    pidof wayang-pos >/dev/null && killall -9 wayang-pos 2>/dev/null
+    rm -f "$STOPFLAG"
+    echo "POS stopped"
+}
+
+case "$1" in
+    start)
+        # at boot only when installed and enabled; quiet otherwise
+        find_bin >/dev/null || exit 0
+        if [ "$AUTOSTART" != 1 ]; then echo "  POS autostart is off (wayang pos enable)"; exit 0; fi
+        do_start
+        ;;
+    stop) do_stop ;;
+    restart) do_stop >/dev/null; do_start ;;
+    enable) set_conf AUTOSTART 1 && echo "POS autostart: on"; do_start ;;
+    disable) set_conf AUTOSTART 0 && echo "POS autostart: off"; do_stop ;;
+    supervise) supervise "$2" ;;
+    log) tail -n 40 "$LOG" 2>/dev/null || echo "no log yet ($LOG)" ;;
+    status|"")
+        bin="$(find_bin)" || bin="not installed"
+        echo "binary:     $bin"
+        echo "autostart:  $([ "$AUTOSTART" = 1 ] && echo on || echo off)   ($CONF)"
+        echo "exit:       $([ "$ALLOW_EXIT" = 1 ] && echo "allowed (admin: Settings -> F10)" || echo disabled)"
+        if pid="$(supervisor_pid)"; then
+            echo "state:      running (supervisor $pid, pos $(pidof wayang-pos))"
+        elif pidof wayang-pos >/dev/null; then
+            echo "state:      running, not supervised (pid $(pidof wayang-pos))"
+        else
+            echo "state:      stopped"
+        fi
+        echo "log:        $LOG"
+        ;;
+    *) echo "usage: $0 {start|stop|restart|status|enable|disable|log}" >&2; exit 1 ;;
+esac
+POS
+chmod +x "$ROOTFS/etc/init.d/pos"
 
 # Network init script
 cat > "$ROOTFS/etc/init.d/network" << 'NETWORK'

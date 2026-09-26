@@ -52,6 +52,8 @@ usage:
   wayang update --rollback [--esp DEV] [--reboot]
   wayang net                            runtime uplink HUD (TTY only)
   wayang wifi                           runtime wifi HUD (TTY only)
+  wayang pos [status|start|stop|restart|enable|disable|log]
+                                        point-of-sale kiosk service
   wayang keygen --out DIR [--keyid NAME]
   wayang sign   --key FILE [--keyid NAME] MANIFEST.json
   wayang verify FILE.wup [--esp DEV]
@@ -144,6 +146,7 @@ fn main() -> ExitCode {
         Command::Net => run_screen(NET_HELP, netui::run),
         Command::Wifi => run_screen(WIFI_HELP, wifiui::run),
         Command::WifiDetect { json } => wifi::detect_cmd(json),
+        Command::Pos { action } => run_pos(&action),
         Command::Keygen { out, keyid } => keys::keygen(&out, &keyid),
         Command::Sign { key, keyid, manifest } => keys::sign_file(&key, keyid.as_deref(), &manifest),
         Command::Verify { bundle, esp } => verify::run(&bundle, esp.as_deref()),
@@ -188,6 +191,17 @@ fn demo_mode(args: &[String]) -> Option<ExitCode> {
             ExitCode::from(1)
         }
     })
+}
+
+/// `wayang pos <action>` runs the rootfs service script, which owns the
+/// supervisor, the autostart setting (/data/etc/pos.conf) and the log.
+fn run_pos(action: &str) -> Result<i32> {
+    let script = std::env::var("WAYANG_POS_SERVICE").unwrap_or_else(|_| "/etc/init.d/pos".into());
+    let status = std::process::Command::new(&script)
+        .arg(action)
+        .status()
+        .map_err(|e| error::AppError::err(format!("{script}: {e}")))?;
+    Ok(status.code().unwrap_or(1))
 }
 
 fn run_mark_ok(esp: Option<&str>) -> Result<i32> {

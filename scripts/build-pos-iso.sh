@@ -58,42 +58,8 @@ cp "$POS_BINARY" usr/bin/wayang-pos
 chmod +x usr/bin/wayang-pos
 echo "  POS binary: $(du -h usr/bin/wayang-pos | cut -f1)"
 
-# Create POS init script
-cat > etc/init.d/pos-app << 'POS_INIT'
-#!/bin/sh
-case "$1" in
-    start)
-        echo "  Starting WayangOS POS..."
-        sleep 1
-        mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
-        mkdir -p /dev/input
-        mdev -s 2>/dev/null || true
-
-        # Setup framebuffer
-        if [ -e /dev/fb0 ]; then
-            chmod 666 /dev/fb0
-            chmod 666 /dev/input/event* /dev/input/mice 2>/dev/null
-            # Disable kernel console on fb
-            echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null
-            echo 0 > /proc/sys/kernel/printk 2>/dev/null
-            # Clear screen
-            dd if=/dev/zero of=/dev/fb0 bs=4096 count=1000 2>/dev/null
-        fi
-
-        mkdir -p /data
-        /usr/bin/wayang-pos &
-        ;;
-    stop)
-        killall wayang-pos 2>/dev/null
-        ;;
-esac
-POS_INIT
-chmod +x etc/init.d/pos-app
-
-# Add POS startup to init
-if ! grep -q "pos-app" etc/init.d/rcS 2>/dev/null; then
-    sed -i '/WayangOS ready/a\\n# Start POS application\n/etc/init.d/pos-app start' etc/init.d/rcS
-fi
+# /etc/init.d/pos (from build-rootfs.sh) starts /usr/bin/wayang-pos at boot,
+# restarts it if it crashes and is controlled with `wayang pos`.
 
 # Rebuild initramfs with POS
 find . -print0 | cpio -0 -o -H newc -R 0:0 2>/dev/null | gzip -9 > "$INITRAMFS"

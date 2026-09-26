@@ -32,7 +32,7 @@ Count: **11 promoted, ~2 with source here** (POS + Viewer/deprecated), plus
 
 - **WayangPOS** — `scripts/build-pos.sh` (binary) and `scripts/build-pos-iso.sh`
   (bootable ISO). Source: private repo `dalang-io/wayang-pos`, fetched at
-  `POS_REF` (default `v3.2.0`) into `$BUILD/wayang-pos/` (direct framebuffer,
+  `POS_REF` (default `v3.2.2`) into `$BUILD/wayang-pos/` (direct framebuffer,
   evdev, SQLite).
 - **dcheck** — `scripts/fetch-dcheck.sh` downloads the signed release binary
   (x86_64-unknown-linux-musl) from `https://wayang.dalang.io/dcheck` into

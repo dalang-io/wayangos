@@ -16,7 +16,7 @@ only cover per-component details.
 | BusyBox | 1.37.0 | `$BUILD_DIR/busybox-1.37.0/busybox` | `scripts/fetch-sources.sh` (prebuilt static) |
 | Dropbear SSH | 2024.86 | `$BUILD_DIR/dropbear-2024.86` | `scripts/fetch-sources.sh` |
 | SQLite | amalgamation | `$BUILD_DIR/sqlite3.c` / `.h` | `scripts/fetch-sources.sh` |
-| POS application | v3.2.0 | `$BUILD_DIR/wayang-pos/` | `scripts/build-pos.sh` (from `dalang-io/wayang-pos`, private) |
+| POS application | v3.2.2 | `$BUILD_DIR/wayang-pos/` | `scripts/build-pos.sh` (from `dalang-io/wayang-pos`, private) |
 
 `$BUILD_DIR` defaults to `~/wayangos-build` and can be overridden:
 

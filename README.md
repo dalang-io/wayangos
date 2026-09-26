@@ -112,6 +112,28 @@ as primary. On boot (and on `wayang-net restart`) `/etc/init.d/network` starts
 With no wireless NIC, driver, firmware, or `wpa_supplicant`, it prints a clear
 message instead of failing.
 
+## POS kiosk
+
+Any WayangOS image starts the point-of-sale app at boot when one is installed,
+either `/data/bin/wayang-pos` (deployed with `scp`, survives OS updates) or
+`/usr/bin/wayang-pos` (baked into a POS image). A supervisor restarts it if it
+crashes.
+
+```sh
+wayang pos status      # binary, autostart, exit policy, running or not
+wayang pos stop        # stop it; the screen goes back to the terminal
+wayang pos start       # start it again
+wayang pos restart     # e.g. after copying a new /data/bin/wayang-pos
+wayang pos disable     # no autostart at boot (and stop now)
+wayang pos enable      # autostart at boot (and start now)
+wayang pos log         # last lines of /data/log/wayang-pos.log
+```
+
+**Exiting to the terminal on the device:** log in as an admin, open Settings
+(`S`) and press `F10`. The POS stays stopped until `wayang pos start` or the
+next boot. Settings in `/data/etc/pos.conf`: `AUTOSTART=1|0` (default 1),
+`ALLOW_EXIT=1|0` (default 1; `0` removes the exit option).
+
 ## Quick Start
 
 ```bash
