@@ -52,7 +52,7 @@ pub fn gather(boot_dir: &Path, version: Option<String>, channel: String, data: b
         kernel: running_kernel(),
         channel,
         backend: env.backend().to_string(),
-        active: slot::staged_slot(&env),
+        active: slot::running_slot().unwrap_or_else(|| slot::staged_slot(&env)),
         boot_next: slot::boot_slot(&env),
         good: env.get("wayang_good").and_then(Slot::parse),
         attempts: slot::attempts(&env),

@@ -48,6 +48,17 @@ pub fn boot_slot(env: &impl EnvView) -> Slot {
     }
 }
 
+/// The slot this system actually booted from: `wayang.slot=` on the kernel
+/// command line (GRUB sets it per menu entry). It differs from `wayang_slot`
+/// when someone picks the other entry in the GRUB menu by hand.
+pub fn running_slot() -> Option<Slot> {
+    parse_cmdline(&std::fs::read_to_string("/proc/cmdline").ok()?)
+}
+
+pub fn parse_cmdline(cmdline: &str) -> Option<Slot> {
+    cmdline.split_whitespace().find_map(|a| a.strip_prefix("wayang.slot=")).and_then(Slot::parse)
+}
+
 /// The slot currently staged to boot (`wayang_slot`), without the fallback.
 pub fn staged_slot(env: &impl EnvView) -> Slot {
     env.get("wayang_slot").and_then(Slot::parse).unwrap_or(Slot::A)

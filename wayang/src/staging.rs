@@ -46,8 +46,14 @@ fn write_file_sync(path: &Path, data: &[u8]) -> Result<()> {
 /// bootloader at it (`wayang_slot`, `wayang_attempts=0`) and remember the
 /// previous slot.
 pub fn stage(boot: &BootRoot, kernel: &[u8], initramfs: &[u8], meta: &SlotMeta) -> Result<Slot> {
+    stage_from(boot, slot::running_slot(), kernel, initramfs, meta)
+}
+
+/// [`stage`] with the running slot given; never writes into it. `None`
+/// (no `wayang.slot=` on the command line) trusts `wayang_slot`.
+pub fn stage_from(boot: &BootRoot, running: Option<Slot>, kernel: &[u8], initramfs: &[u8], meta: &SlotMeta) -> Result<Slot> {
     let mut store = state_store(boot)?;
-    let active = slot::staged_slot(&store);
+    let active = running.unwrap_or_else(|| slot::staged_slot(&store));
     let target = active.idle();
 
     write_file_sync(&boot.path.join(target.as_str()).join("vmlinuz"), kernel)?;
@@ -70,8 +76,15 @@ pub fn stage(boot: &BootRoot, kernel: &[u8], initramfs: &[u8], meta: &SlotMeta) 
 
 /// `wayang mark-ok`: confirm the running slot and clear the attempt counter.
 pub fn mark_ok(boot: &BootRoot) -> Result<Slot> {
+    mark_ok_from(boot, slot::running_slot())
+}
+
+/// [`mark_ok`] with the running slot given. Marking what GRUB *planned* to
+/// boot instead of what booted would, after a manual pick of the other menu
+/// entry, record a broken slot as good (and then fall back to it forever).
+pub fn mark_ok_from(boot: &BootRoot, running: Option<Slot>) -> Result<Slot> {
     let mut store = state_store(boot)?;
-    let active = slot::boot_slot(&store);
+    let active = running.unwrap_or_else(|| slot::boot_slot(&store));
     store.set("wayang_good", active.as_str());
     store.set("wayang_slot", active.as_str());
     store.set("wayang_attempts", "0");
@@ -101,7 +114,7 @@ pub fn rollback(boot: &BootRoot) -> Result<Slot> {
         .and_then(Slot::parse)
         .or_else(|| store.get("wayang_good").and_then(Slot::parse))
         .ok_or_else(|| AppError::err("no previous slot recorded in update state"))?;
-    let current = slot::staged_slot(&store);
+    let current = slot::running_slot().unwrap_or_else(|| slot::staged_slot(&store));
     store.set("wayang_prev", current.as_str());
     store.set("wayang_slot", target.as_str());
     store.set("wayang_attempts", "0");
@@ -159,6 +172,43 @@ mod tests {
         assert_eq!(env.get("wayang_prev"), Some("A"));
         assert_eq!(env.get("wayang_attempts"), Some("0"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mark_ok_marks_the_slot_that_booted_not_the_planned_one() {
+        // B was staged (and freezes); the admin picked A in the GRUB menu
+        let (dir, boot) = boot_dir();
+        let mut env = GrubEnv::default();
+        env.set("wayang_slot", "B");
+        env.set("wayang_good", "A");
+        env.set("wayang_attempts", "1");
+        env.write(&dir.join("grub/grubenv")).unwrap();
+
+        assert_eq!(mark_ok_from(&boot, Some(Slot::A)).unwrap(), Slot::A);
+        let env = GrubEnv::read(&dir.join("grub/grubenv")).unwrap();
+        assert_eq!(env.get("wayang_good"), Some("A"));
+        assert_eq!(env.get("wayang_slot"), Some("A"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_never_overwrites_the_running_slot() {
+        let (dir, boot) = boot_dir();
+        let mut env = GrubEnv::default();
+        env.set("wayang_slot", "B");
+        env.write(&dir.join("grub/grubenv")).unwrap();
+        // running A although B is staged: the update must go to B, not A
+        assert_eq!(stage_from(&boot, Some(Slot::A), b"k", b"i", &meta()).unwrap(), Slot::B);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn running_slot_from_cmdline() {
+        assert_eq!(
+            slot::parse_cmdline("BOOT_IMAGE=/boot/A/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA wayang.slot=A"),
+            Some(Slot::A)
+        );
+        assert_eq!(slot::parse_cmdline("console=ttyS0"), None);
     }
 
     #[test]
