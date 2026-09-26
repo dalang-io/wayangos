@@ -411,7 +411,15 @@ fn read_iface(
     if !path.join("device").exists() && !wireless {
         return None;
     }
-    let link = read_trim(&path.join("carrier")).as_deref() == Some("1");
+    // Wired: link is the carrier. Wireless: carrier only appears once the
+    // interface is associated, so report the administrative state (IFF_UP)
+    // instead — an unassociated but enabled wlan0 is "up", not "down".
+    let carrier = read_trim(&path.join("carrier")).as_deref() == Some("1");
+    let up = read_trim(&path.join("flags"))
+        .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+        .map(|f| f & 0x1 != 0)
+        .unwrap_or(false);
+    let link = if wireless { up } else { carrier };
     let mac = read_trim(&path.join("address")).unwrap_or_default();
     let driver = fs::read_link(path.join("device/driver"))
         .ok()
@@ -576,6 +584,8 @@ mod tests {
             let d = root.join(name);
             fs::create_dir_all(&d).unwrap();
             fs::write(d.join("carrier"), if carrier { "1\n" } else { "0\n" }).unwrap();
+            // IFF_UP set (0x1) so wireless reports up regardless of carrier
+            fs::write(d.join("flags"), "0x1003\n").unwrap();
             fs::write(d.join("address"), format!("52:54:00:00:00:{:02x}\n", name.len())).unwrap();
             if wireless {
                 fs::create_dir_all(d.join("wireless")).unwrap();
@@ -606,6 +616,7 @@ mod tests {
         let wlan = &ifaces[0];
         assert!(wlan.wireless);
         assert!(wlan.primary);
+        assert!(wlan.link, "enabled wireless reports up even without carrier");
         assert_eq!(wlan.driver, "rtl8xxxu");
         let eth = &ifaces[1];
         assert!(!eth.wireless);
