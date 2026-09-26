@@ -78,9 +78,11 @@ bundled; UI reference for all TUIs).
 
 ## Current state
 
-**Open incident: 1.0.13 locks up the test device** (keyboard + USB uplink dead
-after the shell prompt). 1.0.13 is pulled from the channel; the device is back
-on 1.0.12. Diagnosis plan, facts and recovery: [docs/INCIDENT-1.0.13.md](docs/INCIDENT-1.0.13.md).
-Next release is 1.0.14 and must be booted on the device before publishing.
-Firewall/router handovers: `dalang-io/wayang-fw/HANDOVER.md`,
+**Released: 1.0.17** (tag + channel). Router MVP (VLAN/bridge) is on; the rest
+of the router kernel block is still off pending a supervised bisect
+([docs/ROUTER-KERNEL-BISECT.md](docs/ROUTER-KERNEL-BISECT.md), incident:
+[docs/INCIDENT-1.0.13.md](docs/INCIDENT-1.0.13.md)). Cross-repo state for the
+next agent: [docs/HANDOVER.md](docs/HANDOVER.md); pending work:
+[docs/TODO.md](docs/TODO.md). WayangPOS is a separate project and is no longer
+part of `wayang`. Firewall/router handovers: `dalang-io/wayang-fw/HANDOVER.md`,
 `dalang-io/wayang-router/HANDOVER.md`.
