@@ -38,6 +38,9 @@ fi
 ./scripts/build-wifi-tools.sh || true
 ./scripts/fetch-dcheck.sh || true
 ./scripts/build-nft.sh
+./scripts/build-wg.sh
+./scripts/build-iproute2.sh
+./scripts/build-bird.sh
 ./scripts/build-rootfs.sh
 ./scripts/build-installer-iso.sh "$BUILD_DIR/bzImage-installer" "$BUILD_DIR/wayangos-initramfs.img" "$ISO"
 cp "$ISO" "$BUILD_DIR/wayangos-installer.iso"

@@ -414,6 +414,21 @@ cat > "$ROOTFS/etc/init.d/router" << 'ROUTER'
 # /usr/bin; config lives in /data/etc/router (see `wayang-router --help`).
 
 CONFIG=/data/etc/router/config.toml
+# BIRD (BGP/OSPF/BFD): wayang-router renders this file; bird runs only when it
+# exists. Control socket /var/run/bird.ctl (wayang-router talks to it).
+BIRD_CONF=/data/etc/router/bird.conf
+BIRD_CTL=/var/run/bird.ctl
+
+start_bird() {
+    [ -f "$BIRD_CONF" ] || return 0
+    command -v bird >/dev/null 2>&1 || { logger -t wayang-router "bird.conf present but bird is not installed"; return 0; }
+    [ -S "$BIRD_CTL" ] && return 0
+    if ! bird -p -c "$BIRD_CONF"; then
+        logger -t wayang-router "bird: $BIRD_CONF does not parse; not starting"
+        return 1
+    fi
+    bird -c "$BIRD_CONF" -s "$BIRD_CTL" || logger -t wayang-router "bird: failed to start"
+}
 
 find_router() {
     for b in /data/bin/wayang-router /usr/bin/wayang-router; do
@@ -441,6 +456,8 @@ case "$1" in
             if ! "$rt" boot; then
                 logger -t wayang-router "boot: could not apply the router config"
             fi
+            # routing daemon last, once interfaces/addresses exist
+            start_bird
         ) >/var/log/network.log 2>&1 &
         ;;
     stop)
@@ -449,6 +466,7 @@ case "$1" in
     status)
         rt="$(find_router)" || { echo "wayang-router not installed"; exit 1; }
         "$rt" status
+        if [ -S "$BIRD_CTL" ]; then echo "bird: running ($BIRD_CTL)"; fi
         ;;
     *) echo "usage: $0 {owns|start|stop|status}" >&2; exit 1 ;;
 esac
@@ -1110,6 +1128,23 @@ if [ -f "$BUILD/nft/nft" ]; then
 else
     echo "  nft not staged (run scripts/build-nft.sh to bundle it)"
 fi
+
+# Router data-plane tools (static; optional, like nft). wayang-router uses
+# them for WireGuard (wg: operator/debug CLI), QoS (tc) and BGP/OSPF (bird).
+# The matching kernel options are still under hardware bisect
+# (docs/ROUTER-KERNEL-BISECT.md); the binaries are harmless without them.
+install_tool() { # <staged file> <rootfs path> <build script>
+    if [ -f "$BUILD/$1" ]; then
+        install -m 755 "$BUILD/$1" "$ROOTFS$2"
+        echo "  ${2##*/}: $(du -h "$ROOTFS$2" | cut -f1)"
+    else
+        echo "  ${2##*/} not staged (run scripts/$3 to bundle it)"
+    fi
+}
+install_tool wg/wg /usr/bin/wg build-wg.sh
+install_tool iproute2/tc /usr/sbin/tc build-iproute2.sh
+install_tool bird/bird /usr/sbin/bird build-bird.sh
+[ -f "$BUILD/bird/birdc" ] && install_tool bird/birdc /usr/sbin/birdc build-bird.sh
 
 # DNS fallback
 cat > "$ROOTFS/etc/resolv.conf" << 'EOF'

@@ -125,6 +125,12 @@ jobs:
       - name: Build nft (static, for wayang-fw)
         run: ./scripts/build-nft.sh
 
+      - name: Build router tools (static wg, tc, bird for wayang-router)
+        run: |
+          ./scripts/build-wg.sh
+          ./scripts/build-iproute2.sh
+          ./scripts/build-bird.sh
+
       - name: Build rootfs (updater + trusted keys)
         run: ./scripts/build-rootfs.sh
 

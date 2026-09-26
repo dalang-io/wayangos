@@ -244,6 +244,9 @@ link_src busybox-1.37.0
 link_src dropbear-2024.86
 link_src wifi
 link_src nft
+link_src wg
+link_src iproute2
+link_src bird
 link_src dcheck
 # build-rootfs.sh writes its own localoptions.h -> drop the shared symlink so it
 # lands in $BUILD, not /root/wayangos-build.
