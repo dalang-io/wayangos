@@ -178,3 +178,25 @@ hook (`/etc/init.d/router`) is still installed and is a no-op without a config.
 - Device: **1.0.14 in slot B (active, next, good)**; slot A holds 1.0.12.
 - Channel serves **1.0.14**; tag/GitHub release `v1.0.13` remain (do not reuse).
 - 1.0.14 is the first release with the updater slot fix (`6db57a3`).
+
+## 1.0.15 — Router MVP re-enabled (subset), published
+
+Instead of the whole 1.0.13 router block, only the MVP pieces the router v0.1
+needs are back on: `CONFIG_VLAN_8021Q`, `CONFIG_BRIDGE`,
+`CONFIG_BRIDGE_VLAN_FILTERING` (the rest stays off until bisected).
+
+Validated on the real device (booted slot A, `wayang.debug`): **SSH + USB alive,
+no lockup**; `vconfig add/rem eth0 999` and `brctl addbr/delbr` both work;
+`net=eth0 eth1 lo sit0 wlan0` (no stray devices). Router and firewall are now
+usable at the CLI: a deployed `/data/bin/wayang-router` / `wayang-fw` is linked
+into `/usr/bin` at boot (rcS) → `wayang-router` and `wayang-fw` are in PATH
+(`wayang-router 0.1.0`, `wayang-fw 0.2.2`).
+
+Also in 1.0.15:
+
+- `wayang` console gained **05 DCHECK** (opens the bundled storage-health app);
+  FIREWALL/ROUTER moved to **06**/**07**.
+- WayangPOS was removed from `wayang` entirely (it is a separate app for a
+  dedicated box in another project).
+
+Published: tag `v1.0.15`, channel serves **1.0.15**.
