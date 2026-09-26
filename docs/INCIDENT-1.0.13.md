@@ -141,31 +141,40 @@ qemu-system-x86_64 -enable-kvm -m 1024 -smp 2 -kernel vmlinuz -initrd initramfs.
   this device (pick slot B by hand) and confirm keyboard + SSH work. Tagging
   and publishing need the owner's OK (AGENTS.md rule 3).
 
-## 1.0.14 — prepared, not published (master `ee1f8dc`)
+## 1.0.14 — safe variant, device-validated and published (tag `v1.0.14`)
 
-Prepared in place of 1.0.13. Contains:
+Ships in place of 1.0.13:
 
 - the updater fix `6db57a3` (mark-ok/stage/status use the booted slot);
+- **the router kernel block disabled again** (`configs/defconfig-intel`) — the
+  prime suspect for the lockup; re-enable only after a bisect + hardware test;
 - an **opt-in diagnostics mode**: `wayang.debug` on the kernel cmdline makes rcS
   write `dmesg`, `/proc/interrupts` and `/proc/loadavg` to `/data/debug/` every
-  second, so a freeze can be read back after a power-cycle. Off by default.
-- the router kernel block is **unchanged from 1.0.13** (still the prime
-  suspect). A "safe" variant with that block reverted can be built on request.
+  second. Off by default.
 
-Verified: builds (`wayangos-1.0.14-…iso`, `wayang-1.0.14-x86_64.wup`) and boots
-in QEMU/KVM with xHCI + `usb-kbd` + `usb-net` + NVMe `/data`: version 1.0.14,
-USB keyboard present, SSH reachable. **Not tagged or published.**
+Validated:
 
-Device boot test **pending**: as of 2026-09-26 the device pings but SSH times
-out, so it could not be tested (and cannot be power-cycled remotely). To test:
+- QEMU/KVM (xHCI + `usb-kbd` + `usb-net` + NVMe `/data`): boots, USB keyboard,
+  SSH; `net=eth0 lo sit0` (no router netdevs).
+- **Real device `163.128.55.3`**: staged `1.0.14` into slot B (over the broken
+  1.0.13), booted it with `wayang.debug` — **keyboard + SSH alive**, `active B`,
+  `good B` (mark-ok fix), `net=eth0 eth1 lo sit0 wlan0`, `/data/debug/*` written.
+  The 1.0.13 lockup did **not** reproduce → consistent with the router kernel
+  options being the trigger.
 
-```sh
-# with the device reachable
-ssh root@163.128.55.3 'cat > /data/1.0.14.wup' < wayang-1.0.14-x86_64.wup
-ssh root@163.128.55.3 'wayang update --from /data/1.0.14.wup'   # stages idle slot
-# add wayang.debug via GRUB 'e' before booting that slot, then power-cycle and:
-ssh root@163.128.55.3 'cat /data/debug/dmesg.boot'   # if it froze, read via slot A
-```
+Published: tag `v1.0.14` (GitHub release + ISO), channel
+`https://wayang.dalang.io/channel/stable/x86_64/manifest.json` serves **1.0.14**.
 
-Publish only after keyboard + SSH are confirmed on the device (per the rule
-above).
+Router kernel options `CONFIG_VLAN_8021Q`, `BRIDGE*`, `BONDING`, `DUMMY`, `VETH`,
+`MACVLAN`, `TUN`, `WIREGUARD`, `NET_IPGRE*`, `NET_IPIP`, `NET_VRF`,
+`IP_ROUTE_MULTIPATH`, `IPV6_MULTIPLE_TABLES`, `INET_ESP`, `XFRM_INTERFACE`,
+`NET_SCH_{HTB,FQ_CODEL,CAKE,INGRESS}`, `NET_CLS_{U32,FW}`,
+`NET_ACT_{POLICE,MIRRED}`, `IFB` stay off until bisected one group at a time
+(they create `bond0/dummy0/ifb0/gre0/gretap0/tunl0` at boot). The router rootfs
+hook (`/etc/init.d/router`) is still installed and is a no-op without a config.
+
+## Current state (2026-09-27)
+
+- Device: **1.0.14 in slot B (active, next, good)**; slot A holds 1.0.12.
+- Channel serves **1.0.14**; tag/GitHub release `v1.0.13` remain (do not reuse).
+- 1.0.14 is the first release with the updater slot fix (`6db57a3`).
