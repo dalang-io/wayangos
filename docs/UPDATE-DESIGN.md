@@ -71,6 +71,7 @@ manifest.json.sig     # raw 64-byte ed25519 signature over manifest.json bytes
   "major": 1,
   "arch": "x86_64",
   "edition": "intel",
+  "kernel_version": "7.2.7",
   "kernel_sha256": "<hex>",
   "initramfs_sha256": "<hex>",
   "min_from": "1.0.0",

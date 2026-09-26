@@ -17,6 +17,9 @@ pub struct Manifest {
     pub arch: String,
     #[serde(default)]
     pub edition: Option<String>,
+    /// Kernel release the bundle was built from (e.g. "7.2.7"), informational.
+    #[serde(default)]
+    pub kernel_version: Option<String>,
     pub kernel_sha256: String,
     pub initramfs_sha256: String,
     #[serde(default)]
@@ -52,6 +55,8 @@ pub struct SlotMeta {
     pub channel: String,
     #[serde(default)]
     pub arch: String,
+    #[serde(default)]
+    pub kernel_version: Option<String>,
     #[serde(default)]
     pub time: u64,
     #[serde(default)]

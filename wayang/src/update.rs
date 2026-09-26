@@ -78,6 +78,7 @@ pub fn run(upgrade: bool, a: &UpdateArgs) -> Result<i32> {
         version: bundle.manifest.version.clone(),
         channel: bundle.manifest.channel.clone(),
         arch: bundle.manifest.arch.clone(),
+        kernel_version: bundle.manifest.kernel_version.clone(),
         time: bundle.manifest.time.unwrap_or(0),
         kernel_sha256: bundle.manifest.kernel_sha256.clone(),
         keyid: bundle.manifest.keyid.clone(),

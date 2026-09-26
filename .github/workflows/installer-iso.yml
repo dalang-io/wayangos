@@ -27,6 +27,9 @@ on:
       version:
         description: WayangOS version written to /etc/wayang/version
         default: "1.0.0"
+      kernel_version:
+        description: Kernel version (used in the ISO name and manifest)
+        default: "7.2.7"
   push:
     tags: ["v*"]
 
@@ -39,6 +42,7 @@ jobs:
     env:
       BUILD_DIR: ${{ github.workspace }}/wayangos-build
       KERNEL_CONFIG: ${{ github.event.inputs.kernel_config || 'defconfig-intel' }}
+      KERNEL_VERSION: ${{ github.event.inputs.kernel_version || '7.2.7' }}
       CHANNEL: stable
       WAYANG_KEYID: ${{ secrets.WAYANG_KEYID || 'release' }}
       # tag ref_name looks like v1.4.1; strip the leading v below.
@@ -103,10 +107,13 @@ jobs:
 
       - name: Build installer ISO
         run: |
+          ISO="$BUILD_DIR/wayangos-${WAYANG_VERSION}-linux-${KERNEL_VERSION}-installer-x86_64.iso"
           ./scripts/build-installer-iso.sh \
             "$BUILD_DIR/bzImage-installer" \
             "$BUILD_DIR/wayangos-initramfs.img" \
-            "$BUILD_DIR/wayangos-installer.iso"
+            "$ISO"
+          # stable alias for the landing "latest" link
+          cp "$ISO" "$BUILD_DIR/wayangos-installer.iso"
 
       - name: Build update bundle + channel tree
         env:
@@ -130,6 +137,7 @@ jobs:
           tar -xzf "$WUP" -C "$DEST" manifest.json
           ( cd "$BUILD_DIR" && sha256sum \
               wayangos-installer.iso \
+              "wayangos-${WAYANG_VERSION}-linux-${KERNEL_VERSION}-installer-x86_64.iso" \
               "$(basename "$WUP")" \
               "channel/$CHANNEL/x86_64/manifest.json" > SHA256SUMS )
           echo "=== release assets ==="; ls -l "$BUILD_DIR"/*.iso "$BUILD_DIR"/*.wup "$DEST"/*
@@ -140,6 +148,7 @@ jobs:
           name: wayangos-release
           path: |
             wayangos-build/wayangos-installer.iso
+            wayangos-build/wayangos-*-linux-*-installer-*.iso
             wayangos-build/wayang-*.wup
             wayangos-build/channel/**
             wayangos-build/SHA256SUMS
@@ -150,6 +159,7 @@ jobs:
         with:
           files: |
             wayangos-build/wayangos-installer.iso
+            wayangos-build/wayangos-${{ env.WAYANG_VERSION }}-linux-${{ env.KERNEL_VERSION }}-installer-x86_64.iso
             wayangos-build/wayang-${{ env.WAYANG_VERSION }}-x86_64.wup
             wayangos-build/channel/${{ env.CHANNEL }}/x86_64/manifest.json
             wayangos-build/SHA256SUMS

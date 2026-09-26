@@ -21,6 +21,8 @@ pub struct SlotInfo {
 #[derive(Debug, Clone)]
 pub struct Status {
     pub version: Option<String>,
+    /// Running kernel release (`uname -r`), e.g. "7.2.7-...".
+    pub kernel: Option<String>,
     pub channel: String,
     pub backend: String,
     pub active: Slot,
@@ -31,6 +33,14 @@ pub struct Status {
     pub data: bool,
 }
 
+/// Running kernel release from `/proc` (Linux). `None` elsewhere.
+fn running_kernel() -> Option<String> {
+    std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub fn gather(boot_dir: &Path, version: Option<String>, channel: String, data: bool) -> Status {
     let env = EnvStore::open_or_empty(boot_dir);
     let slot_info = |s: Slot| SlotInfo {
@@ -39,6 +49,7 @@ pub fn gather(boot_dir: &Path, version: Option<String>, channel: String, data: b
     };
     Status {
         version,
+        kernel: running_kernel(),
         channel,
         backend: env.backend().to_string(),
         active: slot::staged_slot(&env),
@@ -78,6 +89,7 @@ impl Status {
         };
         json!({
             "version": self.version,
+            "kernel": self.kernel,
             "channel": self.channel,
             "backend": self.backend,
             "active_slot": self.active.as_str(),
@@ -92,13 +104,22 @@ impl Status {
 
     pub fn print_human(&self) {
         println!("version:   {}", self.version.clone().unwrap_or_else(|| "unknown".into()));
+        println!("kernel:    {}", self.kernel.clone().unwrap_or_else(|| "unknown".into()));
         println!("channel:   {}", self.channel);
         println!("backend:   {}", self.backend);
         println!("active:    {}", self.active.as_str());
         println!("boot next: {} (good: {}, attempts: {})", self.boot_next.as_str(), self.good.map(|s| s.as_str()).unwrap_or("-"), self.attempts);
         for si in &self.slots {
             let v = si.meta.as_ref().map(|m| m.version.as_str()).unwrap_or("-");
-            println!("slot {}:    {}", si.slot.as_str(), v);
+            let k = si
+                .meta
+                .as_ref()
+                .and_then(|m| m.kernel_version.clone())
+                .filter(|k| !k.is_empty());
+            match k {
+                Some(k) => println!("slot {}:    {} (linux {})", si.slot.as_str(), v, k),
+                None => println!("slot {}:    {}", si.slot.as_str(), v),
+            }
         }
         println!("data:      {}", if self.data { "present" } else { "missing" });
     }

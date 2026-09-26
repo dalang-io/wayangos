@@ -264,6 +264,7 @@ ntpd -p pool.ntp.org -S /bin/true &
 
 echo ""
 echo "  $(wayang-logo)WayangOS ready"
+echo "  Kernel: $(uname -r)"
 ip -4 addr show scope global 2>/dev/null | grep inet | awk '{print "  IP: " $2}'
 echo ""
 
@@ -545,6 +546,9 @@ chmod +x "$ROOTFS/usr/bin/wayang-addkey"
 mkdir -p "$ROOTFS/etc/wayang"
 printf '%s\n' "$WAYANG_VERSION" > "$ROOTFS/etc/wayang/version"
 printf '%s\n' "$WAYANG_CHANNEL" > "$ROOTFS/etc/wayang/channel"
+if [ -n "${KERNEL_VERSION:-}" ]; then
+    printf '%s\n' "$KERNEL_VERSION" > "$ROOTFS/etc/wayang/kernel"
+fi
 if [ -n "$WAYANG_TRUSTED_KEYS" ]; then
     [ -f "$WAYANG_TRUSTED_KEYS" ] || { echo "ERROR: WAYANG_TRUSTED_KEYS=$WAYANG_TRUSTED_KEYS not found" >&2; exit 1; }
     cp "$WAYANG_TRUSTED_KEYS" "$ROOTFS/etc/wayang/trusted_keys"

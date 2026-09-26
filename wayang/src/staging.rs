@@ -101,6 +101,7 @@ mod tests {
             version: "1.4.1".into(),
             channel: "stable".into(),
             arch: "x86_64".into(),
+            kernel_version: Some("7.2.7".into()),
             time: 1760000000,
             kernel_sha256: "aa".into(),
             keyid: "release".into(),

@@ -229,6 +229,23 @@ qemu-system-x86_64 -machine q35 -m 2G \
 
 ---
 
+## Fast builds (remote builder)
+
+Kernels can't be built on macOS; CI builds (~3 min cached) or a Linux box with
+more cores is much faster. Build on a remote Linux host and pull the artifacts
+back:
+
+```bash
+# default host root@10.0.0.251, warm build ~1 min (first run downloads sources)
+WAYANG_KEY=~/wayangos-keys/release.key ./scripts/build-remote.sh
+# -> dist/remote/wayangos-<ver>-linux-<kver>-installer-x86_64.iso (+ .wup, channel/)
+```
+
+It syncs the repo, installs build deps (apt + rustup), runs the whole pipeline
+(`scripts/ci-build.sh`), and fetches the ISO/bundle back. Env: `HOST`,
+`REMOTE_SRC`, `BUILD_DIR`, `WAYANG_VERSION`, `KERNEL_VERSION`, `KERNEL_CONFIG`,
+`WAYANG_KEY`, `SKIP_DEPS=1`.
+
 ## QEMU Testing
 
 ### Basic boot test (serial console)

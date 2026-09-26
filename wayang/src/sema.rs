@@ -89,6 +89,7 @@ mod tests {
             major: version.split('.').next().unwrap().parse().unwrap(),
             arch: arch.into(),
             edition: None,
+            kernel_version: None,
             kernel_sha256: "aa".into(),
             initramfs_sha256: "bb".into(),
             min_from: min_from.map(str::to_string),
