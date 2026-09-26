@@ -133,7 +133,7 @@ cp "$BASE_INITRAMFS" "$PAYLOAD/A/initramfs.img"
 
 # Initial GRUB fallback state. The installer regenerates this on the ESP, but
 # the payload must match (see installer/src/install.rs::grubenv).
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.11}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.12}"
 WAYANG_EDITION="${WAYANG_EDITION:-generic}"
 KERNEL_VERSION="${KERNEL_VERSION:-$(uname -r)}"
 {
@@ -149,7 +149,7 @@ printf '%*s' "$pad" '' | tr ' ' '#' >> "$PAYLOAD/grubenv"
 
 # Slot-A metadata. The installer recomputes hashes/version from the payload it
 # actually copies, so this copy is for layout/compat; keep it in sync with the
-# rootfs's /etc/wayang/version (both default to 1.0.11).
+# rootfs's /etc/wayang/version (both default to 1.0.12).
 sha256_file() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | cut -d' ' -f1
