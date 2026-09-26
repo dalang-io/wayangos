@@ -24,12 +24,15 @@ pub struct App {
     pub t: Theme,
     pub demo: bool,
     pub ifaces: Vec<wifi::WifiIface>,
+    /// Association state parallel to `ifaces` (refreshed periodically).
+    pub links: Vec<wifi::LinkStatus>,
     pub iface_sel: usize,
     pub bss: Vec<wifi::Bss>,
     pub bss_sel: usize,
     pub country: String,
     input: Option<(Field, Input)>,
     pub message: Option<(Tone, String)>,
+    tick: usize,
     pub exit: bool,
 }
 
@@ -40,14 +43,17 @@ impl App {
             t: Theme::detect(),
             demo,
             ifaces,
+            links: Vec::new(),
             iface_sel: 0,
             bss: Vec::new(),
             bss_sel: 0,
             country: String::new(),
             input: None,
             message: None,
+            tick: 0,
             exit: false,
         };
+        app.refresh_links();
         if demo {
             app.bss = wifi::parse_scan(DEMO_SCAN);
             app.message = Some((Tone::Ok, "Scan: 3 networks.".into()));
@@ -66,6 +72,27 @@ impl App {
 
     fn selected_iface(&self) -> Option<&wifi::WifiIface> {
         self.ifaces.get(self.iface_sel)
+    }
+
+    fn refresh_links(&mut self) {
+        if self.demo {
+            self.links = self.ifaces.iter().map(|_| wifi::LinkStatus::default()).collect();
+            return;
+        }
+        self.links = self.ifaces.iter().map(|i| wifi::link_status(&i.name)).collect();
+    }
+
+    /// Called once per UI tick: refresh association state periodically (the
+    /// link comes up a moment after `connect` returns).
+    pub fn poll_tick(&mut self) {
+        self.tick = self.tick.wrapping_add(1);
+        if self.tick % 10 == 0 {
+            self.refresh_links();
+        }
+    }
+
+    fn selected_link(&self) -> wifi::LinkStatus {
+        self.links.get(self.iface_sel).cloned().unwrap_or_default()
     }
 
     fn scan(&mut self) {
@@ -125,7 +152,10 @@ impl App {
         let ssid = bss.ssid.clone();
         let country = if self.country.is_empty() { None } else { Some(self.country.as_str()) };
         match wifi::connect(&iface, &ssid, psk, country, self.demo) {
-            Ok(msg) => self.message = Some((Tone::Ok, msg)),
+            Ok(msg) => {
+                self.message = Some((Tone::Ok, msg));
+                self.refresh_links();
+            }
             Err(e) => self.message = Some((Tone::Bad, e)),
         }
     }
@@ -278,10 +308,20 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let inner = hud::panel(f, area, "WIFI", t);
+    let st = app.selected_link();
+    let name = app.selected_iface().map(|i| i.name.clone()).unwrap_or_default();
+    let (color, text) = if st.connected {
+        (t.ok, st.summary())
+    } else if !st.ssid.is_empty() {
+        (t.warn, st.summary())
+    } else {
+        (t.dim, st.summary())
+    };
     let line = Line::from(vec![
         Span::styled(t.g.brand, t.bold(t.accent2)),
-        Span::styled(" wireless", t.bold(t.accent)),
-        Span::styled("  persists /data/etc/wpa_supplicant.conf", t.fg(t.dim)),
+        Span::styled(format!(" {name} "), t.bold(t.accent)),
+        Span::styled(text, t.fg(color)),
+        Span::styled("   persists /data/etc/wpa_supplicant.conf", t.fg(t.dim)),
     ]);
     f.render_widget(Paragraph::new(line).wrap(Wrap { trim: true }), inner);
 }
@@ -345,7 +385,16 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     }
     for (i, iface) in app.ifaces.iter().enumerate() {
         let sel = i == app.iface_sel;
-        let line = format!("{:<8} {:<9} {}", iface.name, iface.driver, iface.mac);
+        let st = app.links.get(i).cloned().unwrap_or_default();
+        let status = if st.connected {
+            let ssid = if st.ssid.is_empty() { "<hidden>" } else { st.ssid.as_str() };
+            format!("connected: {ssid}")
+        } else if !st.ssid.is_empty() {
+            format!("saved: {}", st.ssid)
+        } else {
+            String::new()
+        };
+        let line = format!("{:<8} {:<9} {:<17} {}", iface.name, iface.driver, iface.mac, status);
         if sel {
             lines.push(Line::from(vec![
                 Span::styled(t.g.cursor, t.bold(t.accent2)),
@@ -428,7 +477,7 @@ pub fn run() -> std::io::Result<()> {
     crate::screen::run(
         App::new(false),
         draw,
-        |_app| {},
+        |app| app.poll_tick(),
         |app, key| app.on_key(key),
         |app| app.exit,
     )

@@ -73,11 +73,100 @@ fn read_trim(path: &Path) -> Option<String> {
     (!s.is_empty()).then(|| s.to_string())
 }
 
+/// Live association state of a wireless interface.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkStatus {
+    pub connected: bool,
+    pub ssid: String,
+    pub bssid: String,
+    pub signal: Option<i32>,
+}
+
+impl LinkStatus {
+    /// Short human summary: the SSID (with signal) or "not connected".
+    pub fn summary(&self) -> String {
+        if self.connected {
+            let ssid = if self.ssid.is_empty() { "<hidden>" } else { &self.ssid };
+            match self.signal {
+                Some(s) => format!("connected: {ssid} ({s} dBm)"),
+                None => format!("connected: {ssid}"),
+            }
+        } else if !self.ssid.is_empty() {
+            format!("not connected (saved: {})", self.ssid)
+        } else {
+            "not connected".into()
+        }
+    }
+}
+
+/// Parse `iw dev <if> link` output.
+pub fn parse_link(text: &str) -> LinkStatus {
+    let mut st = LinkStatus::default();
+    for line in text.lines() {
+        let l = line.trim();
+        if let Some(rest) = l.strip_prefix("Connected to ") {
+            st.connected = true;
+            st.bssid = rest.split_whitespace().next().unwrap_or("").to_string();
+        } else if let Some(rest) = l.strip_prefix("SSID:") {
+            st.ssid = rest.trim().to_string();
+        } else if let Some(rest) = l.strip_prefix("signal:") {
+            st.signal = rest.split_whitespace().next().and_then(|s| s.parse().ok());
+        }
+    }
+    st
+}
+
+/// Current association of `iface` (`iw dev <if> link`), falling back to the
+/// persisted SSID so a configured-but-not-yet-associated box still shows it.
+pub fn link_status(iface: &str) -> LinkStatus {
+    let mut st = LinkStatus::default();
+    if sys::which("iw") {
+        if let Ok(out) = sys::run("iw", &["dev", iface, "link"]) {
+            st = parse_link(&out);
+        }
+    }
+    if !st.connected {
+        if let Some(s) = configured_ssid() {
+            st.ssid = s;
+        }
+    }
+    st
+}
+
+/// SSID from the persisted `/data/etc/wpa_supplicant.conf`, if any.
+pub fn configured_ssid() -> Option<String> {
+    let text = fs::read_to_string(paths::wpa_conf_file()).ok()?;
+    for line in text.lines() {
+        if let Some(rest) = line.trim().strip_prefix("ssid=") {
+            let s = rest.trim().trim_matches('"').to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    None
+}
+
+/// Bring a wireless interface up (and unblock rfkill) before using it. `iw
+/// scan` fails with "Network is down" on a down interface, and the boot network
+/// init only raises wired NICs.
+fn bring_up(iface: &str) {
+    if sys::which("rfkill") {
+        let _ = sys::run("rfkill", &["unblock", "wifi"]);
+    }
+    if sys::which("ip") {
+        let _ = sys::run("ip", &["link", "set", iface, "up"]);
+    } else if sys::which("ifconfig") {
+        let _ = sys::run("ifconfig", &[iface, "up"]);
+    }
+}
+
 /// Run `iw dev <iface> scan` and parse it.
 pub fn scan(iface: &str) -> Result<Vec<Bss>, String> {
     if !sys::which("iw") {
         return Err("`iw` is not installed (see docs/NETWORK.md wifi prerequisites)".into());
     }
+    bring_up(iface);
     let out = sys::run("iw", &["dev", iface, "scan"])
         .map_err(|e| format!("scan on {iface} failed (needs root): {e}"))?;
     Ok(parse_scan(&out))
@@ -203,6 +292,9 @@ pub fn connect(iface: &str, ssid: &str, psk: &str, country: Option<&str>, demo: 
         }
     }
 
+    if sys::which("rfkill") {
+        let _ = sys::run("rfkill", &["unblock", "wifi"]);
+    }
     sys::run("ip", &["link", "set", iface, "up"])
         .map_err(|e| format!("cannot bring {iface} up: {e}"))?;
     sys::run("wpa_supplicant", &["-B", "-i", iface, "-c", &conf.to_string_lossy()])
@@ -621,5 +713,24 @@ mod detect_tests {
         assert!(devs.iter().all(|d| d.id != "8087:0aa7"), "btusb must not be a WiFi candidate");
 
         let _ = fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::*;
+
+    #[test]
+    fn parses_iw_link() {
+        let s = "Connected to 10:f0:05:63:4b:7e (on wlan0)\n\tSSID: MyNet\n\tsignal: -45 dBm\n";
+        let st = parse_link(s);
+        assert!(st.connected);
+        assert_eq!(st.ssid, "MyNet");
+        assert_eq!(st.signal, Some(-45));
+        assert!(st.summary().contains("MyNet"));
+
+        let down = parse_link("Not connected.\n");
+        assert!(!down.connected);
+        assert_eq!(down.summary(), "not connected");
     }
 }
