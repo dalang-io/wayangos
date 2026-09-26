@@ -9,7 +9,8 @@ pulled at build time), **web-only** (page exists, no code here), **deprecated**.
 ## Promoted on the website
 
 [`landing-page/apps.html`](../landing-page/apps.html) lists 10 apps (each with a
-page under `landing-page/apps/`, all marked *Preview*) plus one *Coming Soon*:
+page under `landing-page/apps/`; only WayangExplorer carries a *Preview* badge,
+WayangKiosk is *Coming Soon*):
 
 | App | Web page | Source in this repo | Status |
 |---|---|---|---|

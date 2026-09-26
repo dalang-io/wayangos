@@ -44,6 +44,11 @@ pub fn network_config_file() -> PathBuf {
     data_network_dir().join("config")
 }
 
+/// `/data/etc/network/also` — interfaces to lease address-only at boot.
+pub fn also_file() -> PathBuf {
+    data_network_dir().join("also")
+}
+
 /// `/data/etc/wpa_supplicant.conf` — wifi credentials.
 pub fn wpa_conf_file() -> PathBuf {
     data_dir().join("etc/wpa_supplicant.conf")

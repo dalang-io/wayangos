@@ -14,19 +14,27 @@ of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
       `NET_IPGRE*/NET_IPIP`, `NET_VRF` + `IP_ROUTE_MULTIPATH` +
       `IPV6_MULTIPLE_TABLES`, `INET_ESP`/`XFRM_INTERFACE`, `NET_SCH_*`/
       `NET_CLS_*`/`NET_ACT_*`/`IFB`.
-- [ ] **Publish the update channel from CI.** Tagging builds the ISO + bundle
+- [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle
       and creates the GitHub release, but `wayang.dalang.io/channel` is
-      published by hand (`scripts/publish-channel.sh`). Wire it into the tag
-      workflow (needs the signing key + deploy access).
-- [ ] **Landing page: drop the removed POS build commands.**
-      `landing-page/download.html` still references `scripts/build-pos.sh` /
-      `build-pos-iso.sh` (deleted). POS is a separate project now.
+      published by hand (`scripts/publish-channel.sh`). Wired into the tag path
+      of `.github/workflows/installer-iso.yml` (best-effort, tag-only); it stays
+      dormant until the deploy secrets exist. Required repo secrets:
+      `WAYANG_DEPLOY_HOST` (ssh target, e.g. the `root@10.0.0.251` default in
+      `publish-channel.sh`) and `WAYANG_DEPLOY_KEY` (private key authorised on
+      that host). Optional overrides: `WAYANG_DEPLOY_REMOTE_DIR`,
+      `WAYANG_DEPLOY_CHANNEL_SUBDIR`. Still to do: provision the secrets and
+      verify a real tag publishes.
+- [x] **Landing page: drop the removed POS build commands.**
+      `landing-page/download.html` no longer references `scripts/build-pos.sh` /
+      `build-pos-iso.sh` / `wayangos-pos` (deleted). POS is a separate project now.
 - [ ] **`wayang` console polish.** Remaining ideas: a real (determinate)
       update progress bar once the updater reports byte counts; a SYSTEM-slot
       "boot other slot" action; consolidate the SSH screen with `wayang-addkey`.
-- [ ] **Secondary-NIC DHCP ergonomics.** `wayang-net dhcp <iface>` leases
-      address-only; consider a TUI multi-select and a persisted "also lease
-      these" list.
+- [x] **Secondary-NIC DHCP ergonomics.** `wayang-net dhcp <iface>` leases
+      address-only; added a persisted "also lease these" list at
+      `/data/etc/network/also` (`wayang-net also [<iface> on|off]`), leased
+      address-only at boot on top of the one-shot secondary pass, plus a TUI
+      toggle (`l`) in `wayang net`.
 - [ ] **`wayang.slot` on first install.** Older installers wrote grub.cfg
       without `wayang.slot=`; `mark-ok` now refreshes it, verify on a fresh
       install.
@@ -56,10 +64,20 @@ static v4/v6, DHCP client, forwarding, static routes):
 
 ## dcheck (dalang-io/dcheck)
 
-- [ ] Ship the HUD/console optimizations like the others (batch `/proc`
-      reads, avoid spawns on idle ticks);
-- [ ] Fake-drive / real-capacity / deleted-file recovery checks are preview —
-      finish and document them.
+- [x] Startup/scan optimizations for the console/HUD path: `smartctl` is only
+      spawned when installed, the on-disk SMART cache is loaded once per
+      process (not per device/rescan), and `check`/`watch`/`prometheus`/`--json`
+      bypass it without rewriting it. Measured on the 60-disk fixture:
+      `dcheck check` cache-file opens 180 → 0, ~0.4 s → ~0.02 s; snapshot
+      opens 240 → 121. No idle-tick spawns.
+- [x] Fake-drive / real-capacity / deleted-file recovery are **shipped, not
+      preview** (implemented and tested on Linux): `dcheck verify` (write-and-
+      read capacity test, free-space and `--destructive`), `dcheck recover`
+      (read-only recovery chance, steps, disk map) and `dcheck undelete`
+      (NTFS/FAT32/exFAT names + block map; `--carve` for other filesystems).
+      Documented gaps, not preview labels: verify/recover are Linux-only;
+      undelete assumes FAT32/exFAT files are contiguous, does not follow NTFS
+      `$ATTRIBUTE_LIST`, and recovers ntfs3-deleted files without a name.
 
 ## Done (recent)
 

@@ -7,6 +7,7 @@
 //! ```text
 //! /data/etc/network/primary     # interface name
 //! /data/etc/network/config      # MODE=... FAMILY=... IPV4_... (sh snippet)
+//! /data/etc/network/also        # interfaces to lease address-only at boot
 //! ```
 
 use std::fs;
@@ -299,6 +300,98 @@ pub fn dhcp_now(iface: &str, demo: bool) -> Result<String, String> {
         .map_err(|e| format!("no DHCP lease on {iface}: {e}"))?;
     let _ = sys::spawn("udhcpc", &["-b", "-i", iface, "-s", "/etc/udhcpc.script"]);
     Ok(format!("{iface}: DHCP lease (address only; primary unchanged)"))
+}
+
+// ---- "also lease at boot" list ----------------------------------------
+
+/// Parse `/data/etc/network/also`: one interface name per line, `#` comments
+/// and blank lines ignored, first occurrence wins (dedupe).
+pub fn parse_also(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let name = line.split_whitespace().next().unwrap_or("");
+        if name.is_empty() || out.iter().any(|n| n == name) {
+            continue;
+        }
+        out.push(name.to_string());
+    }
+    out
+}
+
+/// Serialize the also-list: one name per line, newline-terminated. Empty list →
+/// empty text (the caller removes the file).
+pub fn also_text(list: &[String]) -> String {
+    let mut s = String::new();
+    for name in list {
+        s.push_str(name);
+        s.push('\n');
+    }
+    s
+}
+
+/// Add `iface` to `list` if absent, else return `list` unchanged.
+pub fn add_also(list: &[String], iface: &str) -> Vec<String> {
+    let iface = iface.trim();
+    if iface.is_empty() || list.iter().any(|n| n == iface) {
+        return list.to_vec();
+    }
+    let mut out = list.to_vec();
+    out.push(iface.to_string());
+    out
+}
+
+/// Remove `iface` from `list` (no-op when absent).
+pub fn remove_also(list: &[String], iface: &str) -> Vec<String> {
+    let iface = iface.trim();
+    list.iter().filter(|n| n.as_str() != iface).cloned().collect()
+}
+
+/// Whether `iface` is in the also-list.
+pub fn is_also(list: &[String], iface: &str) -> bool {
+    list.iter().any(|n| n == iface.trim())
+}
+
+/// Read the persisted also-list (`/data/etc/network/also`).
+pub fn read_also() -> Vec<String> {
+    let text = fs::read_to_string(paths::also_file()).unwrap_or_default();
+    parse_also(&text)
+}
+
+/// Write the also-list. An empty list removes the file.
+pub fn write_also(list: &[String]) -> Result<(), String> {
+    let path = paths::also_file();
+    if list.is_empty() {
+        let _ = fs::remove_file(&path);
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    fs::write(&path, also_text(list)).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Toggle "lease this interface at boot" in the persisted also-list. The lease
+/// stays address-only: the default route and DNS belong to the primary alone.
+pub fn toggle_also(iface: &str, demo: bool) -> Result<String, String> {
+    let iface = iface.trim();
+    if iface.is_empty() {
+        return Err("pick an interface".into());
+    }
+    if demo {
+        return Ok(format!("{iface}: also lease (demo, not applied)"));
+    }
+    let current = read_also();
+    if is_also(&current, iface) {
+        write_also(&remove_also(&current, iface))?;
+        Ok(format!("{iface}: not leased at boot"))
+    } else {
+        write_also(&add_also(&current, iface))?;
+        Ok(format!("{iface}: will lease at boot (address only)"))
+    }
 }
 
 fn push_kv(out: &mut String, key: &str, value: &str) {
@@ -694,5 +787,45 @@ mod tests {
     fn parse_ignores_lines_without_inet() {
         assert!(parse_ipv4_addrs("1: lo    inet6 ::1/128 scope host\n").is_empty());
         assert!(parse_ipv4_addrs("").is_empty());
+    }
+
+    #[test]
+    fn parse_also_skips_comments_and_blanks_and_dedupes() {
+        let text = "\
+# interfaces to lease at boot
+eth1
+
+  eth2  trailing junk
+eth1
+#eth3
+";
+        assert_eq!(parse_also(text), vec!["eth1".to_string(), "eth2".to_string()]);
+        assert!(parse_also("").is_empty());
+        assert!(parse_also("  \n# only a comment\n").is_empty());
+    }
+
+    #[test]
+    fn add_also_dedupes_and_ignores_blank() {
+        let list = vec!["eth1".to_string()];
+        assert_eq!(add_also(&list, "eth2"), vec!["eth1".to_string(), "eth2".to_string()]);
+        assert_eq!(add_also(&list, "eth1"), list);
+        assert_eq!(add_also(&list, "  "), list);
+    }
+
+    #[test]
+    fn remove_also_drops_the_entry() {
+        let list = vec!["eth1".to_string(), "eth2".to_string()];
+        assert_eq!(remove_also(&list, "eth1"), vec!["eth2".to_string()]);
+        assert_eq!(remove_also(&list, "eth9"), list);
+        assert!(is_also(&list, "eth1"));
+        assert!(!is_also(&list, "eth9"));
+    }
+
+    #[test]
+    fn also_text_roundtrips_and_empty_is_empty() {
+        let list = vec!["eth1".to_string(), "wlan0".to_string()];
+        assert_eq!(also_text(&list), "eth1\nwlan0\n");
+        assert_eq!(parse_also(&also_text(&list)), list);
+        assert_eq!(also_text(&[]), "");
     }
 }

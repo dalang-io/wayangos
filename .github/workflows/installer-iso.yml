@@ -16,6 +16,26 @@ name: Installer ISO + update bundle
 #                                into the rootfs so installed systems trust it
 #   secrets.WAYANG_KEYID         key id (default "release")
 #
+# Channel publishing (optional; tag builds only):
+#   On a v* tag the update channel tree is rsynced to wayang.dalang.io with
+#   scripts/publish-channel.sh. It is skipped with a ::notice:: when the deploy
+#   secrets are absent (publish by hand instead). Required to enable it:
+#     secrets.WAYANG_DEPLOY_HOST   ssh target, e.g. "root@10.0.0.251" — this is
+#                                  the HOST publish-channel.sh defaults to; do
+#                                  not change it here without also updating the
+#                                  script.
+#     secrets.WAYANG_DEPLOY_KEY    ssh PRIVATE key (OpenSSH PEM) authorised on
+#                                  the deploy host for the update channel tree.
+#   Optional overrides (otherwise the publish-channel.sh defaults apply):
+#     secrets.WAYANG_DEPLOY_REMOTE_DIR       served dir
+#                                            (default /root/wayang.dalang.io/public)
+#     secrets.WAYANG_DEPLOY_CHANNEL_SUBDIR   subdir under it (default "channel")
+#   Setup: generate a dedicated key on the deploy host
+#     ssh-keygen -t ed25519 -f ~/.ssh/wayangos-ci -N ''
+#   append ~/.ssh/wayangos-ci.pub to authorized_keys on the host, and store the
+#   private key contents as WAYANG_DEPLOY_KEY (a repository secret). Only the
+#   tag path publishes; workflow_dispatch never touches the live channel.
+#
 # Trigger: manual (workflow_dispatch) or a version tag (v*).
 
 on:
@@ -166,3 +186,41 @@ jobs:
             wayangos-build/wayang-${{ env.WAYANG_VERSION }}-x86_64.wup
             wayangos-build/channel/${{ env.CHANNEL }}/x86_64/manifest.json
             wayangos-build/SHA256SUMS
+
+      # Best-effort publish of the update channel tree that devices poll at
+      # https://wayang.dalang.io/channel/... Skipped with a ::notice:: when the
+      # deploy secrets are absent, and continue-on-error so a transient deploy
+      # failure never invalidates the release build. Host/destination come from
+      # the secrets (see the header); the HOST default in publish-channel.sh is
+      # the same box. Publish by hand with scripts/publish-channel.sh otherwise.
+      - name: Publish update channel to wayang.dalang.io
+        if: startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true
+        env:
+          DEPLOY_HOST: ${{ secrets.WAYANG_DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.WAYANG_DEPLOY_KEY }}
+          DEPLOY_REMOTE_DIR: ${{ secrets.WAYANG_DEPLOY_REMOTE_DIR }}
+          DEPLOY_CHANNEL_SUBDIR: ${{ secrets.WAYANG_DEPLOY_CHANNEL_SUBDIR }}
+        run: |
+          set -eu
+          if [ -z "${DEPLOY_HOST:-}" ] || [ -z "${DEPLOY_KEY:-}" ]; then
+            echo "::notice::WAYANG_DEPLOY_HOST / WAYANG_DEPLOY_KEY not set — skipping channel publish to wayang.dalang.io; run scripts/publish-channel.sh by hand"
+            exit 0
+          fi
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/wayang_deploy"
+          chmod 600 "$HOME/.ssh/wayang_deploy"
+          # Config is scoped to this job's HOME; accept-new trusts the host key
+          # on first connect (pin it in known_hosts for a hardened setup).
+          {
+            echo "Host *"
+            echo "  IdentityFile $HOME/.ssh/wayang_deploy"
+            echo "  IdentitiesOnly yes"
+            echo "  StrictHostKeyChecking accept-new"
+          } > "$HOME/.ssh/config"
+          chmod 600 "$HOME/.ssh/config"
+          export HOST="$DEPLOY_HOST"
+          if [ -n "${DEPLOY_REMOTE_DIR:-}" ]; then export REMOTE_DIR="$DEPLOY_REMOTE_DIR"; fi
+          if [ -n "${DEPLOY_CHANNEL_SUBDIR:-}" ]; then export CHANNEL_SUBDIR="$DEPLOY_CHANNEL_SUBDIR"; fi
+          ./scripts/publish-channel.sh "$BUILD_DIR/channel"

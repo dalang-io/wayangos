@@ -9,6 +9,7 @@ Implemented by parallel work: **A** = rootfs/init (`scripts/build-rootfs.sh`),
 ```
 /data/etc/network/primary     # interface name, e.g. eth0 / enp0s20u1
 /data/etc/network/config      # key=value, shell-sourceable (see below)
+/data/etc/network/also        # extra interfaces to lease address-only at boot
 ```
 
 `config` is a POSIX `sh` snippet (no spaces around `=`, values may be quoted):
@@ -39,8 +40,15 @@ wired NIC, keep the first that gets DHCP; see the current init).
      enable SLAAC on the interface (`accept_ra=2`) — DHCPv6 is **not**
      implemented (documented limitation).
 3. Else auto-probe as today.
+4. After the primary is up, lease every interface in `also` address-only
+   (wired or wireless, one name per line, `#` comments and blank lines
+   ignored, duplicates collapsed). This is in addition to the one-shot pass
+   over the remaining wired NICs and exists so a specific secondary — e.g. a
+   wireless adapter — is always leased at boot.
 
-Only the primary interface owns the default route and DNS.
+Only the primary interface owns the default route and DNS. `also` interfaces
+get an address (and nothing else); DHCP route/DNS are still installed solely
+when `udhcpc.script` sees the primary interface.
 
 ## `wayang-net` CLI (in the rootfs)
 
@@ -52,6 +60,8 @@ wayang-net set <iface> static --ipv4 A/P --ipv4-gw GW --ipv4-dns "D…" \
                                [--ipv6 A/P --ipv6-gw GW --ipv6-dns "D…"]
 wayang-net up <iface> | down <iface>  # bring a link up/down (no address change)
 wayang-net dhcp <iface>             # lease a NIC without making it primary
+wayang-net also                     # list interfaces and their "also" state
+wayang-net also <iface> on|off      # always lease iface address-only at boot
 wayang-net auto                     # forget choice, auto-detect again
 ```
 `set` writes `primary` + `config` and applies immediately (so `curl` works
@@ -59,8 +69,12 @@ before a reboot). `auto` removes both and restarts the network service.
 `up`/`down` toggle the link only. `dhcp` gets a lease on any interface while
 leaving the default route/DNS on the current primary (`udhcpc.script` only
 installs those on the primary), which is what you want when testing multi-NIC
-boxes. The `wayang net` HUD exposes the same actions on the selected row:
-`u` = up, `d` = down, `h` = DHCP here.
+boxes. `also` edits the persisted `/data/etc/network/also` list (it does not
+lease now); those interfaces are leased address-only on every boot, so a
+secondary is reachable after a reboot without a manual `dhcp`. The `wayang net`
+HUD exposes the same actions on the selected row:
+`u` = up, `d` = down, `h` = DHCP here, `l` = toggle "also lease at boot"
+(the row shows `+` when set).
 
 ## Installer network screen (B)
 
@@ -82,18 +96,23 @@ needed. Keep the installer's HUD style.
 ## Tests
 
 - A: shell-only; verify `config` parsing with a temp tree (`DCHECK`-style) and
-  `shellcheck`. Document that static/IPv6 is not boot-tested here.
-- B: `cargo test` (parse/clamp of the config values, target persistence path),
-  `cargo run -- --screens` still works, `shellcheck` untouched scripts.
+  `shellcheck`. Document that static/IPv6 is not boot-tested here. The `also`
+  list is a plain newline file (`#` comments, deduped), exercised through the
+  `wayang-net also` CLI.
+- B: `cargo test` (parse/clamp of the config values, target persistence path,
+  the `also` reader/writer: parse/dedupe/add/remove), `cargo run -- --screens`
+  still works, `shellcheck` untouched scripts.
 
 ## Runtime TUI (`wayang`)
 
 Two screens in the `wayang` HUD (reusing `wayang/src/hud.rs`), so a running box
 can be reconfigured without editing files by hand:
 
-- `wayang net` — list interfaces (name, link, driver, MAC, address, `*primary`),
-  pick one, set **DHCP** or **Static** (IPv4/IPv6/Both + address/gateway/DNS),
-  then **Apply** (writes `/data/etc/network/{primary,config}` and applies now).
+- `wayang net` — list interfaces (name, link, driver, MAC, address, `*primary`,
+  `+also`), pick one, set **DHCP** or **Static** (IPv4/IPv6/Both +
+  address/gateway/DNS), then **Apply** (writes
+  `/data/etc/network/{primary,config}` and applies now). `l` toggles the
+  selected interface's boot lease (writes `/data/etc/network/also`).
 - `wayang wifi` — list wireless interfaces; **Scan**; pick an SSID; enter the
   passphrase (and optional country code); **Connect**; persists to
   `/data/etc/wpa_supplicant.conf` and sets the wifi iface as primary.

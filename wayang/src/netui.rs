@@ -31,6 +31,8 @@ pub struct App {
     pub demo: bool,
     pub ifaces: Vec<net::Iface>,
     pub sel: usize,
+    /// Interfaces in the persisted `also` list (leased address-only at boot).
+    pub also: Vec<String>,
     pub choice: NetChoice,
     input: Option<(Field, Input)>,
     pub message: Option<(Tone, String)>,
@@ -48,6 +50,11 @@ impl App {
             let primary = net::primary_iface();
             (net::list(primary.as_deref()), primary)
         };
+        let also = if demo {
+            vec!["enp0s20u1".to_string()]
+        } else {
+            net::read_also()
+        };
         let mut choice = NetChoice::default();
         if let Some(p) = &primary {
             choice.iface = Some(p.clone());
@@ -61,6 +68,7 @@ impl App {
             demo,
             ifaces,
             sel,
+            also,
             choice,
             input: None,
             message: None,
@@ -73,6 +81,9 @@ impl App {
         let primary = net::primary_iface();
         let keep = self.ifaces.get(self.sel).map(|i| i.name.clone());
         self.ifaces = net::list(primary.as_deref());
+        if !self.demo {
+            self.also = net::read_also();
+        }
         self.sel = keep
             .and_then(|n| self.ifaces.iter().position(|i| i.name == n))
             .unwrap_or(0);
@@ -174,6 +185,7 @@ impl App {
             KeyCode::Char('u') => self.link(true),
             KeyCode::Char('d') => self.link(false),
             KeyCode::Char('h') => self.dhcp(),
+            KeyCode::Char('l') => self.toggle_also(),
             KeyCode::Enter | KeyCode::Char('a') => self.apply(),
             KeyCode::Esc | KeyCode::Char('q') => self.exit = true,
             _ => {}
@@ -274,6 +286,16 @@ impl App {
         };
         let demo = self.demo;
         self.start_job(&format!("{name}: dhcp"), move || net::dhcp_now(&name, demo));
+    }
+
+    /// Toggle "also lease at boot" for the selected interface (persisted).
+    fn toggle_also(&mut self) {
+        let Some(name) = self.selected() else {
+            self.message = Some((Tone::Bad, "No interface selected.".into()));
+            return;
+        };
+        let demo = self.demo;
+        self.start_job(&format!("{name}: also lease"), move || net::toggle_also(&name, demo));
     }
 
     fn apply(&mut self) {
@@ -382,6 +404,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
             ("1-6", "edit"),
             ("u/d", "link"),
             ("h", "dhcp now"),
+            ("l", "also boot"),
             ("enter", "apply"),
             ("r", "refresh"),
             ("q", "back"),
@@ -405,14 +428,15 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     hud::header_bar(f, area, "NETWORK", "", right, t);
 }
 
-fn iface_line(iface: &net::Iface, selected: bool, t: &Theme) -> Line<'static> {
+fn iface_line(iface: &net::Iface, selected: bool, also: bool, t: &Theme) -> Line<'static> {
     let link = if iface.link { "up" } else { "down" };
     let ip = iface.ipv4.first().map(String::as_str).unwrap_or("-");
     let tag = if iface.wireless { "~" } else { " " };
     let primary = if iface.primary { "*" } else { " " };
+    let boot = if also { "+" } else { " " };
     if selected {
         let text = format!(
-            "{} {:<2}{:<10} {:<4} {:<8} {:<17} {:<15} {}",
+            "{} {:<2}{:<10} {:<4} {:<8} {:<17} {:<15} {} {}",
             t.g.cursor.trim_end(),
             tag,
             iface.name,
@@ -420,7 +444,8 @@ fn iface_line(iface: &net::Iface, selected: bool, t: &Theme) -> Line<'static> {
             iface.driver,
             iface.mac,
             ip,
-            primary
+            primary,
+            boot
         );
         Line::from(Span::styled(text, t.highlight()))
     } else {
@@ -433,6 +458,7 @@ fn iface_line(iface: &net::Iface, selected: bool, t: &Theme) -> Line<'static> {
             Span::styled(format!("{:<17} ", iface.mac), t.fg(t.dim)),
             Span::styled(format!("{ip:<15} "), t.fg(t.fg)),
             Span::styled(primary.to_string(), t.bold(t.accent2)),
+            Span::styled(format!(" {boot}"), t.bold(t.accent)),
         ])
     }
 }
@@ -441,7 +467,7 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let inner = hud::panel(f, area, "INTERFACES", t);
     let mut lines = vec![Line::from(Span::styled(
-        format!("  W {:<10} {:<4} {:<8} {:<17} {:<15} P", "IFACE", "LINK", "DRIVER", "MAC", "IPV4"),
+        format!("  W {:<10} {:<4} {:<8} {:<17} {:<15} P A", "IFACE", "LINK", "DRIVER", "MAC", "IPV4"),
         t.fg(t.dim),
     ))];
     if app.ifaces.is_empty() {
@@ -452,11 +478,11 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
         )));
     }
     for (i, iface) in app.ifaces.iter().enumerate() {
-        lines.push(iface_line(iface, i == app.sel, t));
+        lines.push(iface_line(iface, i == app.sel, net::is_also(&app.also, &iface.name), t));
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
-        format!("{} wireless   * current primary", t.g.warn),
+        format!("{} wireless   * current primary   + also lease at boot", t.g.warn),
         t.fg(t.dim),
     )));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
@@ -576,6 +602,23 @@ mod tests {
         let mut app = App::new(true);
         app.on_key(KeyEvent::from(KeyCode::Char('h')));
         assert!(app.busy(), "dhcp starts a background job");
+        for _ in 0..200 {
+            app.poll_job();
+            if !app.busy() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!app.busy());
+        assert!(matches!(app.message, Some((Tone::Ok, _))));
+    }
+
+    #[test]
+    fn also_toggle_is_demo_safe() {
+        let mut app = App::new(true);
+        assert!(net::is_also(&app.also, "enp0s20u1"), "demo shows an also entry");
+        app.on_key(KeyEvent::from(KeyCode::Char('l')));
+        assert!(app.busy(), "also toggle starts a background job");
         for _ in 0..200 {
             app.poll_job();
             if !app.busy() {

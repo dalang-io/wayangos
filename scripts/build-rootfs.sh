@@ -467,9 +467,13 @@ cat > "$ROOTFS/etc/init.d/network" << 'NETWORK'
 # With a persisted choice (set with `wayang-net set`/`use`) only that interface
 # is used, and /data/etc/network/config selects DHCP vs static and IPv4 vs IPv6.
 # Only the primary interface owns the default route + DNS.
+#
+# `/data/etc/network/also` lists extra interfaces to lease address-only at boot
+# (`wayang-net also <iface> on`), on top of the one-shot secondary wired pass.
 
 PRIMARY_FILE=/data/etc/network/primary
 CONFIG_FILE=/data/etc/network/config
+ALSO_FILE=/data/etc/network/also
 PRIMARY_RUN=/var/run/wayang-primary
 PIDFILE=/var/run/network.pid
 
@@ -676,6 +680,21 @@ case "$1" in
                 echo "  DHCP (secondary) on $i"
                 udhcpc -b -i "$i" -s /etc/udhcpc.script >/dev/null 2>&1
             done
+            # Interfaces marked "also" (`wayang-net also <iface> on`) are leased
+            # address-only at every boot, wired or wireless, in addition to the
+            # one-shot secondary pass above. udhcpc.script still gives the
+            # default route + DNS to the primary interface alone.
+            if [ -r "$ALSO_FILE" ]; then
+                while IFS= read -r line; do
+                    line="${line%%[[:space:]]*}"
+                    case "$line" in ''|'#'*) continue ;; esac
+                    [ -d "/sys/class/net/$line" ] || continue
+                    [ "$line" = "$prim" ] && continue
+                    carrier "$line" || continue
+                    echo "  DHCP (also) on $line"
+                    udhcpc -b -i "$line" -s /etc/udhcpc.script >/dev/null 2>&1
+                done < "$ALSO_FILE"
+            fi
         ) >/var/log/network.log 2>&1 &
         echo $! > "$PIDFILE"
         ;;
@@ -749,10 +768,12 @@ cat > "$ROOTFS/usr/bin/wayang-net" << 'WAYANGNET'
 #   wayang-net set <iface> dhcp [ipv4|ipv6|both]
 #   wayang-net set <iface> static --ipv4 A/P --ipv4-gw GW --ipv4-dns "D…" \
 #                                  [--ipv6 A/P --ipv6-gw GW --ipv6-dns "D…"]
+#   wayang-net also [<iface> on|off]           list / persist boot-only leases
 #   wayang-net auto                            forget the choice, auto-detect
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 PRIMARY_FILE=/data/etc/network/primary
 CONFIG_FILE=/data/etc/network/config
+ALSO_FILE=/data/etc/network/also
 PRIMARY_RUN=/var/run/wayang-primary
 
 wired() { for d in /sys/class/net/*; do [ -e "$d/device" ] && [ ! -d "$d/wireless" ] && echo "${d##*/}"; done; }
@@ -769,6 +790,7 @@ usage: wayang-net list
                                       [--ipv6 A/P --ipv6-gw GW --ipv6-dns "D…"]
        wayang-net up <iface> | down <iface>
        wayang-net dhcp <iface>
+       wayang-net also [<iface> on|off]
        wayang-net auto
 EOF
 }
@@ -887,6 +909,51 @@ IPV6_DNS=\"$IPV6_DNS\""
         # apply now so curl works without a reboot
         /etc/init.d/network restart
         echo "primary -> $i ($(ip_of "$i"))"
+        ;;
+    also)
+        i="$2"
+        if [ -z "$i" ]; then
+            # list interfaces and mark those leased at boot
+            prim="$(tr -d '[:space:]' < "$PRIMARY_FILE" 2>/dev/null)"
+            printf '%-12s %-8s %s\n' IFACE LINK NOTE
+            shown=""
+            for j in $(wired); do
+                note=""
+                grep -qxF "$j" "$ALSO_FILE" 2>/dev/null && note="also"
+                [ "$j" = "$prim" ] && note="${note:+$note }primary"
+                printf '%-12s %-8s %s\n' "$j" "$(link_of "$j")" "$note"
+                shown="$shown $j"
+            done
+            # wireless (and any other) interfaces named in the also file
+            if [ -r "$ALSO_FILE" ]; then
+                while IFS= read -r line; do
+                    line="${line%%[[:space:]]*}"
+                    case "$line" in ''|'#'*) continue ;; esac
+                    case " $shown " in *" $line "*) continue ;; esac
+                    printf '%-12s %-8s %s\n' "$line" "$(link_of "$line")" "also"
+                done < "$ALSO_FILE"
+            fi
+            echo "also list: $ALSO_FILE (leases are address-only; primary keeps route+DNS)"
+            exit 0
+        fi
+        [ -d "/sys/class/net/$i" ] || { echo "wayang-net: no such interface '$i'" >&2; exit 1; }
+        case "$3" in
+            on)
+                mkdir -p /data/etc/network 2>/dev/null || true
+                grep -qxF "$i" "$ALSO_FILE" 2>/dev/null || printf '%s\n' "$i" >> "$ALSO_FILE"
+                echo "$i: will lease at boot (address only)"
+                ;;
+            off)
+                if [ -f "$ALSO_FILE" ]; then
+                    grep -vxF "$i" "$ALSO_FILE" > "$ALSO_FILE.tmp" 2>/dev/null || true
+                    mv "$ALSO_FILE.tmp" "$ALSO_FILE"
+                fi
+                echo "$i: not leased at boot"
+                ;;
+            *)
+                usage; exit 1
+                ;;
+        esac
         ;;
     auto)
         killall udhcpc 2>/dev/null
