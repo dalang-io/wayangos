@@ -44,6 +44,31 @@ Atas permintaan owner, dukungan **firewall** tidak lagi menunggu edisi router:
 - Edisi router (`defconfig-router` + `router.img`) tetap rencana untuk
   bridge/VLAN/VPN/QoS/PPPoE/BGP. Roadmap firewall: `wayang-fw/docs/ROADMAP.md`.
 
+## Update 2026-09-26 (2): kernel router di core + wayang-router
+
+Mengikuti keputusan nftables di atas, opsi kernel router juga masuk
+`configs/defconfig-intel` (bukan `defconfig-router`), +~450 KB bzImage:
+802.1Q, bridge (+VLAN filtering), bonding, dummy/veth/macvlan, TUN, WireGuard,
+GRE/IPIP, VRF, ECMP, policy routing IPv6, ESP + xfrm interface, HTB, fq_codel,
+CAKE, ingress/IFB, u32/fw classifier, police/mirred (bagian A: L2, VRF, VPN,
+QoS, tunnel GRE/IPIP ✅ — PPPoE, MPLS, VXLAN, ipset belum).
+
+- Control-plane router = repo **`dalang-io/wayang-router`** (Rust, pola sama
+  dengan wayang-fw): interface/VLAN/bridge, alamat statis/DHCP, static route,
+  DHCP server (udhcpd, static lease), hostname/DNS; planner yang diff ke state
+  live, commit-confirm + watchdog, deteksi drift, riwayat, TUI gaya dcheck,
+  CLI config-as-code (`check/plan/commit FILE`). Lab QEMU 22/22.
+- Boot: `/etc/init.d/network start` memanggil `/etc/init.d/router owns`; bila
+  ada config router yang sudah dikonfirmasi, interface diserahkan ke
+  `wayang-router boot` (di background) dan deteksi uplink DHCP otomatis
+  dilewati (bagian D "tanpa config router → perilaku core" ✅).
+- `/etc/udhcpc.script` tidak menimpa `resolv.conf` yang ditulis wayang-router.
+- rcS menyalakan `nf_conntrack_acct=1`.
+- Userspace router untuk MVP cukup BusyBox (`vconfig`, `brctl`, `udhcpd`,
+  `dumpleases`). Rencana berikutnya (netlink di Rust, WireGuard, QoS, IPsec
+  via strongSwan, BGP via BIRD): `wayang-router/docs/ROADMAP.md` — keputusan
+  I.2 condong ke **BIRD**.
+
 ## Status sekarang (diaudit dari `configs/defconfig-qemu` + `defconfig-intel`)
 
 | Area | Ada | Belum |
