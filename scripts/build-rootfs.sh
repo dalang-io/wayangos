@@ -433,8 +433,12 @@ apply_static() {
         fi
         if [ -n "$IPV4_GATEWAY" ]; then
             route del default 2>/dev/null
-            route add default gw "$IPV4_GATEWAY" dev "$i" 2>/dev/null \
-                || ip route add default via "$IPV4_GATEWAY" dev "$i" 2>/dev/null || true
+            if have_ip && ip route add default via "$IPV4_GATEWAY" dev "$i" 2>/dev/null; then
+                :
+            else
+                # BusyBox `route`: the interface is positional, no `dev` keyword
+                route add default gw "$IPV4_GATEWAY" "$i" 2>/dev/null || true
+            fi
         fi
     fi
     if want_v6; then
@@ -556,7 +560,15 @@ case "$1" in
         if [ "$interface" = "$prim" ]; then
             if [ -n "$router" ]; then
                 route del default 2>/dev/null
-                for gw in $router; do route add default gw "$gw" dev "$interface"; done
+                for gw in $router; do
+                    # BusyBox `route` takes the interface positionally (no `dev`)
+                    if command -v ip >/dev/null 2>&1 && \
+                       ip route add default via "$gw" dev "$interface" 2>/dev/null; then
+                        :
+                    else
+                        route add default gw "$gw" "$interface" 2>/dev/null || true
+                    fi
+                done
             fi
             : > /etc/resolv.conf
             for ns in $dns; do echo "nameserver $ns" >> /etc/resolv.conf; done
