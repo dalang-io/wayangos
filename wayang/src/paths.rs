@@ -49,11 +49,6 @@ pub fn wpa_conf_file() -> PathBuf {
     data_dir().join("etc/wpa_supplicant.conf")
 }
 
-/// `/data/etc/pos.conf` — WayangPOS autostart/exit policy (see `crate::pos`).
-pub fn pos_conf_file() -> PathBuf {
-    data_dir().join("etc/pos.conf")
-}
-
 /// `/etc/resolv.conf` (relocated under `WAYANG_ROOT` for tests).
 pub fn resolv_conf() -> PathBuf {
     under_root("etc/resolv.conf", "/etc/resolv.conf")

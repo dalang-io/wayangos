@@ -21,8 +21,6 @@ pub enum Command {
     Net,
     Wifi,
     WifiDetect { json: bool },
-    /// Point-of-sale kiosk service (`/etc/init.d/pos <action>`).
-    Pos { action: String },
     Keygen { out: PathBuf, keyid: String },
     Sign { key: PathBuf, keyid: Option<String>, manifest: PathBuf },
     Verify { bundle: PathBuf, esp: Option<String> },
@@ -162,16 +160,6 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 esp,
             })
         }
-        "pos" => {
-            let actions = crate::pos::ACTIONS;
-            match rest {
-                [] => Ok(Command::Pos { action: "status".into() }),
-                [a] if a == "--help" || a == "-h" => Ok(Command::Help),
-                [a] if actions.contains(&a.as_str()) => Ok(Command::Pos { action: a.clone() }),
-                [a] => Err(format!("unknown action for `pos`: {a} (one of: {})", actions.join(", "))),
-                _ => Err("`pos` takes one action".into()),
-            }
-        }
         "mark-ok" => {
             let mut esp = None;
             let mut i = 0;
@@ -258,10 +246,6 @@ mod tests {
         assert!(matches!(parse(&v(&["wifi"])).unwrap(), Command::Wifi));
         assert!(matches!(parse(&v(&["net", "--help"])).unwrap(), Command::Net));
         assert!(parse(&v(&["net", "--bogus"])).is_err());
-        assert!(matches!(parse(&v(&["pos"])).unwrap(), Command::Pos { action } if action == "status"));
-        assert!(matches!(parse(&v(&["pos", "enable"])).unwrap(), Command::Pos { action } if action == "enable"));
-        assert!(parse(&v(&["pos", "bogus"])).is_err());
-        assert!(parse(&v(&["pos", "start", "stop"])).is_err());
         assert!(matches!(
             parse(&v(&["wifi", "detect"])).unwrap(),
             Command::WifiDetect { json: false }

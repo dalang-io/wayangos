@@ -38,31 +38,18 @@ KERNEL_FLAVOR=rt ./scripts/fetch-sources.sh
 | Dropbear SSH | 2024.86 | `dropbear-2024.86/` |
 | SQLite | amalgamation | `sqlite3.c`, `sqlite3.h` |
 
-### POS application (external, private)
-Wayang POS source lives in the private repo
-[`dalang-io/wayang-pos`](https://github.com/dalang-io/wayang-pos) (direct
-framebuffer, evdev input, SQLite backend). `scripts/build-pos.sh` fetches it at
-a pinned ref (`POS_REF`, default `v3.2.3`); access needs git credentials for
-that repo (`gh auth setup-git`, or `POS_TOKEN`), or a local checkout via
-`POS_SRC_DIR`.
-
-| Component | Path |
-|-----------|------|
-| POS source | `dalang-io/wayang-pos` → `$BUILD_DIR/wayang-pos/` |
-| POS binary | `$BUILD_DIR/wayang-pos-static` |
-
 ---
 
 ## Quick Start
 
-Build everything and get a bootable POS ISO:
+Build everything and get a bootable ISO:
 
 ```bash
 ./scripts/fetch-sources.sh
-./scripts/build-pos-iso.sh defconfig-qemu wayangos-pos-qemu.iso
+./scripts/build-kernel.sh defconfig-qemu bzImage-qemu
+./scripts/build-rootfs.sh
+./scripts/build-iso.sh ~/wayangos-build/bzImage-qemu ~/wayangos-build/wayangos-initramfs.img
 ```
-
-`build-pos-iso.sh` skips steps whose outputs already exist, so re-runs are cheap.
 
 ---
 
@@ -129,35 +116,13 @@ Includes:
 - Auto DHCP networking
 - Root SSH login, public key only (`SSH_AUTHORIZED_KEYS` → `/root/.ssh/authorized_keys`)
 
-### 3. Build POS Binary
+### 3. Assemble ISO
 
-Build the Wayang POS app (fetched from `dalang-io/wayang-pos`):
-
-```bash
-./scripts/build-pos.sh                           # pinned POS_REF
-POS_SRC_DIR=~/wayang-pos ./scripts/build-pos.sh  # local checkout
-# Output: $BUILD_DIR/wayang-pos-static
-```
-
-The POS app uses:
-- Direct framebuffer rendering (`/dev/fb0`)
-- Linux evdev for touch/keyboard/mouse input
-- SQLite for transaction storage
-- An embedded bitmap font, no external dependencies
-
-### 4. Assemble ISO
-
-**Plain OS (no POS):**
 ```bash
 ./scripts/build-iso.sh ~/wayangos-build/bzImage-qemu ~/wayangos-build/wayangos-initramfs.img
 ```
 
-**POS ISO (includes POS app):**
-```bash
-./scripts/build-pos-iso.sh defconfig-qemu
-```
-
-### 5. USB Installer (bare metal)
+### 4. USB Installer (bare metal)
 
 Installs WayangOS onto a machine's internal disk — built and tested for a
 Lenovo ThinkStation P320 Tiny (NVMe, USB-to-Ethernet adapter), and the same
@@ -263,10 +228,10 @@ qemu-system-x86_64 \
     -nic user
 ```
 
-### GUI/POS test (graphical)
+### GUI test (graphical)
 ```bash
 qemu-system-x86_64 \
-    -cdrom ~/wayangos-build/wayangos-pos-qemu.iso \
+    -cdrom ~/wayangos-build/wayangos.iso \
     -m 256M -vga std -display gtk \
     -nic user,hostfwd=tcp::2222-:22
 ```
@@ -303,7 +268,6 @@ The base rootfs is a **development image**:
 Before deploying to the field:
 - Build with only the deployment's keys in `SSH_AUTHORIZED_KEYS`
 - Restrict or disable Dropbear
-- Change the default POS admin PIN (`1234`)
 
 ---
 
@@ -354,9 +318,7 @@ wayangos/
 │   ├── fetch-sources.sh            # Download kernel/BusyBox/Dropbear/SQLite
 │   ├── build-kernel.sh             # Build kernel from config (ARCH-aware)
 │   ├── build-rootfs.sh             # Build base rootfs
-│   ├── build-pos.sh                # Fetch + build POS (dalang-io/wayang-pos)
 │   ├── build-iso.sh                # Assemble ISO
-│   ├── build-pos-iso.sh            # Full POS ISO pipeline
 │   ├── build-installer.sh          # Build the wayang-installer binary
 │   ├── build-installer-iso.sh      # USB installer ISO for bare metal
 │   └── deprecated/                 # Historical scripts (reference only)

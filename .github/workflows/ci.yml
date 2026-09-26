@@ -66,29 +66,6 @@ jobs:
             test -f "configs/$c" || { echo "missing configs/$c"; exit 1; }
           done
 
-  pos:
-    name: Build WayangPOS
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential linux-libc-dev
-
-      # Source is in the private repo dalang-io/wayang-pos. Needs a
-      # POS_REPO_TOKEN secret (fine-grained PAT, contents:read on that repo);
-      # skipped when the secret is absent (e.g. PRs from forks).
-      - name: Build POS binary
-        env:
-          POS_TOKEN: ${{ secrets.POS_REPO_TOKEN }}
-        run: |
-          if [ -z "$POS_TOKEN" ]; then
-            echo "::notice::POS_REPO_TOKEN not set; skipping WayangPOS build"
-            exit 0
-          fi
-          ./scripts/build-pos.sh
-          test -x "$HOME/wayangos-build/wayang-pos-static"
-
   smoke:
     name: Rootfs smoke build
     if: github.event_name == 'workflow_dispatch'

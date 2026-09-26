@@ -1,6 +1,6 @@
 # WayangOS
 
-Ultra-minimal Linux distro for kiosks, POS terminals, and embedded/edge devices. No X11, no Wayland, no systemd — just a kernel, BusyBox, and direct framebuffer rendering. The base headless image is a ~20 MB ISO that boots in seconds and runs entirely from RAM.
+Ultra-minimal Linux distro for kiosks and embedded/edge devices. No X11, no Wayland, no systemd — just a kernel, BusyBox, and direct framebuffer rendering. The base headless image is a ~20 MB ISO that boots in seconds and runs entirely from RAM.
 
 Target market: Indonesian UMKM (warung, kafe, toko) and industrial kiosks. Fully offline — your data stays on the device.
 
@@ -26,7 +26,7 @@ the base kernel (`7.2.7`).
 | Path | Contents |
 |------|----------|
 | `configs/` | Kernel configs (base, RT, GPU, ARM64) — see `configs/README.md` |
-| `scripts/` | Build pipeline: kernel → rootfs → ISO, plus POS builds |
+| `scripts/` | Build pipeline: kernel → rootfs → ISO |
 | `scripts/deprecated/` | Historical build scripts, kept for reference only |
 | `installer/` | `wayang-installer` — the USB installer's TUI (Rust, dcheck's HUD look): pick a disk, add SSH keys, install |
 | `userspace/` | Reference init scripts (legacy — see `userspace/README.md`) |
@@ -42,7 +42,7 @@ package manager.
 - **SBC:** Raspberry Pi 3 and Orange Pi Zero 2W (~$15)
 - **Display:** 7" touchscreen LCD (1024×600)
 - **Storage:** MicroSD card (any size)
-- **Total cost:** Under $50 for a complete POS terminal
+- **Total cost:** Under $50 for a complete kiosk terminal
 
 Also runs on any x86_64 machine via QEMU or bare metal.
 
@@ -112,45 +112,6 @@ as primary. On boot (and on `wayang-net restart`) `/etc/init.d/network` starts
 With no wireless NIC, driver, firmware, or `wpa_supplicant`, it prints a clear
 message instead of failing.
 
-## POS kiosk
-
-Any WayangOS image starts the point-of-sale app at boot when one is installed,
-either `/data/bin/wayang-pos` (deployed with `scp`, survives OS updates) or
-`/usr/bin/wayang-pos` (baked into a POS image). A supervisor restarts it if it
-crashes.
-
-```sh
-wayang pos status      # binary, autostart, exit policy, running or not
-wayang pos stop        # stop it; the screen goes back to the terminal
-wayang pos start       # start it again
-wayang pos restart     # e.g. after copying a new /data/bin/wayang-pos
-wayang pos disable     # no autostart at boot (and stop now)
-wayang pos enable      # autostart at boot (and start now)
-wayang pos log         # last lines of /data/log/wayang-pos.log
-```
-
-The same controls live in the `wayang` HUD: open `wayang` and pick **POS**.
-That screen shows the binary, running state, autostart and exit policy, and
-lets you toggle autostart (`a`) and the exit policy (`x`) or start/stop/restart
-it. Toggles only rewrite `/data/etc/pos.conf`; a restart applies the exit
-policy.
-
-WayangPOS is **pure userspace**: it is a static binary plus the
-`/etc/init.d/pos` supervisor, both shipped by the rootfs. Changing autostart or
-the exit policy is a runtime file edit — no kernel config change, no image
-rebuild, and no edits to the POS app itself.
-
-**Exiting to the terminal on the device:** log in as an admin, open Settings
-(`S`) and press `F10`. The POS stays stopped until `wayang pos start` or the
-next boot. Settings in `/data/etc/pos.conf`: `AUTOSTART=1|0` (default 1),
-`ALLOW_EXIT=1|0` (default 1; `0` removes the exit option).
-
-**Recovery when `ALLOW_EXIT=0`:** with exit disabled the local framebuffer
-stays on the kiosk, so recover over SSH as root (public key) and run
-`wayang pos stop` (or `wayang pos disable` for a permanent unlock); the
-terminal returns immediately. `ALLOW_EXIT=1` is the default for exactly this
-reason — think before turning it off.
-
 ## Firewall
 
 The x86 kernel (`defconfig-intel`) has nftables, NAT, conntrack and the
@@ -191,8 +152,8 @@ uplink detection. Without a confirmed config nothing changes.
 `wayang` on a terminal opens the system console, which has the same HUD as
 dcheck, wayang-fw and wayang-router. It is a command deck with **01 SYSTEM**
 (A/B slots, boot state), **02 UPDATES** (`c` check, `u` update, `g` upgrade,
-`x x` rollback, run in the background), **03 NETWORK**, **04 WIFI** and
-**05 POS**, and **06 FIREWALL** / **07 ROUTER**, which open wayang-fw /
+`x x` rollback, run in the background), **03 NETWORK**, **04 WIFI**, and
+**05 FIREWALL** / **06 ROUTER**, which open wayang-fw /
 wayang-router when they are installed. Number keys only jump, `?` lists every
 key and `q` goes back. `wayang --screens DIR --svg` renders every screen from
 demo data.
@@ -204,8 +165,10 @@ demo data.
 ./scripts/fetch-sources.sh
 #    For the RT tree instead: KERNEL_FLAVOR=rt ./scripts/fetch-sources.sh
 
-# 2. Build a bootable POS ISO
-./scripts/build-pos-iso.sh defconfig-qemu wayangos-pos-qemu.iso
+# 2. Build the kernel and rootfs, then assemble a bootable ISO
+./scripts/build-kernel.sh defconfig-qemu bzImage-qemu
+./scripts/build-rootfs.sh
+./scripts/build-iso.sh ~/wayangos-build/bzImage-qemu ~/wayangos-build/wayangos-initramfs.img
 ```
 
 Full instructions, prerequisites, the edition matrix, and QEMU testing are in
@@ -215,7 +178,6 @@ Full instructions, prerequisites, the edition matrix, and QEMU testing are in
 
 - **OS shell (serial/console):** root shell, no login prompt (development image)
 - **SSH:** root, public key only — keys are added per box in the installer (GitHub/GitLab user, USB stick, or pasted), later with `wayang-addkey`, or baked in with `SSH_AUTHORIZED_KEYS=~/.ssh/id_ed25519.pub ./scripts/build-rootfs.sh`
-- **POS app:** username `admin`, PIN `1234`
 
 > **Security:** root SSH accepts public keys only; password logins are disabled. The local console still drops straight into a root shell. See the Security section in `BUILDING.md`.
 
@@ -225,7 +187,6 @@ The base rootfs is intended for development and controlled deployments. Before s
 
 - Build with only the deployment's keys in `SSH_AUTHORIZED_KEYS`
 - Restrict or disable Dropbear on port 22
-- Change the default POS admin PIN
 
 ## Contributing
 

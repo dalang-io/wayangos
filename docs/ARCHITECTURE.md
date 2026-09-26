@@ -40,7 +40,6 @@ Firmware (BIOS/UEFI)
         → /sbin/init (BusyBox init)
           → /etc/inittab
             → /etc/init.d/rcS  (mount fs, mdev, network, sshd)
-              → /etc/init.d/pos-app  (framebuffer + POS binary, POS ISO only)
 ```
 
 On ARM64 SBCs the vendor bootloader (the Raspberry Pi firmware, or U-Boot on

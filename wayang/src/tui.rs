@@ -4,7 +4,7 @@
 //! selected module on the right), a status row and keycaps.
 //!
 //! Modules: SYSTEM (slots, boot state), UPDATES (check / update / upgrade /
-//! rollback, run in the background), NETWORK, WIFI and POS (sub-screens), and
+//! rollback, run in the background), NETWORK and WIFI (sub-screens), and
 //! FIREWALL / ROUTER, which hand the terminal to wayang-fw / wayang-router when
 //! they are installed. Number keys only jump; nothing that changes the system
 //! runs without its own key, and rollback asks twice.
@@ -31,8 +31,6 @@ use crate::manifest::SlotMeta;
 use crate::net;
 use crate::netui;
 use crate::paths;
-use crate::pos;
-use crate::posui;
 use crate::slot::{self, Slot};
 use crate::status::{self, Status};
 use crate::ui;
@@ -45,18 +43,16 @@ pub enum Module {
     Updates,
     Network,
     Wifi,
-    Pos,
     Firewall,
     Router,
 }
 
-/// Command-deck entries in order; `1`..`7` jump, `0` / EXIT quits.
-pub const MODULES: [(Module, &str); 7] = [
+/// Command-deck entries in order; `1`..`6` jump, `0` / EXIT quits.
+pub const MODULES: [(Module, &str); 6] = [
     (Module::System, "SYSTEM"),
     (Module::Updates, "UPDATES"),
     (Module::Network, "NETWORK"),
     (Module::Wifi, "WIFI"),
-    (Module::Pos, "POS"),
     (Module::Firewall, "FIREWALL"),
     (Module::Router, "ROUTER"),
 ];
@@ -65,7 +61,6 @@ pub const MODULES: [(Module, &str); 7] = [
 pub enum Sub {
     Net(netui::App),
     Wifi(wifiui::App),
-    Pos(posui::App),
 }
 
 /// An installable companion app (wayang-fw, wayang-router).
@@ -105,7 +100,6 @@ pub struct Deck {
     pub uptime: String,
     pub ifaces: Vec<net::Iface>,
     pub wifi_saved: bool,
-    pub pos: Option<pos::Status>,
     pub fw: Companion,
     pub rt: Companion,
     pub nft: bool,
@@ -120,7 +114,6 @@ impl Deck {
             uptime: uptime(secs),
             ifaces: net::list(net::primary_iface().as_deref()),
             wifi_saved: paths::wpa_conf_file().is_file(),
-            pos: Some(pos::snapshot()),
             fw: Companion::probe("wayang-fw", "fw"),
             rt: Companion::probe("wayang-router", "router"),
             nft: Path::new("/usr/sbin/nft").is_file(),
@@ -146,14 +139,6 @@ impl Deck {
                 i("wlan0", false, true, false, &[]),
             ],
             wifi_saved: false,
-            pos: Some(pos::Status {
-                bin: Some("/data/bin/wayang-pos".into()),
-                autostart: false,
-                allow_exit: true,
-                running: false,
-                supervised: false,
-                log: "/data/log/wayang-pos.log".into(),
-            }),
             fw: Companion { bin: Some("/data/bin/wayang-fw".into()), confirmed: false, pending: false },
             rt: Companion::default(),
             nft: true,
@@ -192,7 +177,7 @@ pub struct App {
     pub armed: bool,
     pub help: bool,
     pub exit: bool,
-    /// Open sub-screen (network/wifi/pos), if any.
+    /// Open sub-screen (network/wifi), if any.
     pub sub: Option<Sub>,
     /// Companion app to run full-screen next (taken by the runner).
     pub launch: Option<PathBuf>,
@@ -236,7 +221,6 @@ impl App {
             match self.sub.as_mut() {
                 Some(Sub::Net(a)) => a.on_key(key),
                 Some(Sub::Wifi(a)) => a.on_key(key),
-                Some(Sub::Pos(a)) => a.on_key(key),
                 None => {}
             }
             if self.sub_exited() {
@@ -260,7 +244,7 @@ impl App {
             }
             KeyCode::Enter => self.open(self.sel),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('0') => self.exit = true,
-            KeyCode::Char(c @ '1'..='7') => {
+            KeyCode::Char(c @ '1'..='6') => {
                 self.sel = c as usize - '1' as usize;
                 self.open(self.sel);
             }
@@ -292,7 +276,6 @@ impl App {
         match &self.sub {
             Some(Sub::Net(a)) => a.exit,
             Some(Sub::Wifi(a)) => a.exit,
-            Some(Sub::Pos(a)) => a.exit,
             None => false,
         }
     }
@@ -321,7 +304,6 @@ impl App {
             Some(Module::Updates) => {}
             Some(Module::Network) => self.sub = Some(Sub::Net(netui::App::new(demo))),
             Some(Module::Wifi) => self.sub = Some(Sub::Wifi(wifiui::App::new(demo))),
-            Some(Module::Pos) => self.sub = Some(Sub::Pos(posui::App::new(demo))),
             Some(m @ (Module::Firewall | Module::Router)) => {
                 let (c, name) =
                     if m == Module::Firewall { (&self.deck.fw, "wayang-fw") } else { (&self.deck.rt, "wayang-router") };
@@ -403,12 +385,6 @@ impl App {
                     Some(Tone::Warn)
                 }
             }
-            Module::Pos => match &self.deck.pos {
-                Some(p) if p.installed() && p.running => Some(Tone::Ok),
-                Some(p) if p.installed() && p.autostart => Some(Tone::Bad),
-                Some(p) if p.installed() => Some(Tone::Warn),
-                _ => None,
-            },
             Module::Firewall => self.deck.fw.tone(),
             Module::Router => self.deck.rt.tone(),
         }
@@ -447,7 +423,6 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         match sub {
             Sub::Net(a) => netui::draw(f, a, tick),
             Sub::Wifi(a) => wifiui::draw(f, a, tick),
-            Sub::Pos(a) => posui::draw(f, a, tick),
         }
         return;
     }
@@ -491,7 +466,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
     let keys: Vec<(&str, &str)> = match app.module() {
         Some(Module::Updates) => vec![("↑↓", "move"), ("c", "check"), ("u", "update"), ("g", "upgrade"), ("x", "rollback"), ("?", "help"), ("q", "quit")],
-        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-7", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
+        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-6", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
     };
     let mut line = hud::keycaps(&keys, t);
     line.spans.insert(0, Span::raw(" "));
@@ -681,24 +656,6 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App) {
             ];
             ("WIFI", l)
         }
-        Module::Pos => {
-            let l = match &d.pos {
-                Some(p) if p.installed() => vec![
-                    status_field(tone, if p.running { "RUNNING" } else if p.autostart { "DOWN" } else { "STOPPED" }, t),
-                    field("BINARY", p.bin.as_ref().map(|b| b.display().to_string()).unwrap_or_default(), t),
-                    field("AUTOSTART", if p.autostart { "on (starts at boot)" } else { "off" }, t),
-                    field("EXIT", if p.allow_exit { "allowed (admin: Settings -> F10)" } else { "locked kiosk" }, t),
-                    field("LOG", p.log.display().to_string(), t),
-                    Line::from(""),
-                    hint(format!("enter {arrow} start / stop / autostart / exit policy"), t),
-                ],
-                _ => vec![
-                    status_field(None, "NOT INSTALLED", t),
-                    Line::from(Span::styled("Copy wayang-pos to /data/bin/wayang-pos to use this box as a kiosk.", t.fg(t.dim))),
-                ],
-            };
-            ("POS", l)
-        }
         Module::Firewall | Module::Router => {
             let fw = m == Module::Firewall;
             let (c, name, what) = if fw {
@@ -762,7 +719,7 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         caption("DECK", t),
         key("↑ ↓  j k", "move"),
         key("enter", "open the module"),
-        key("1 - 7", "jump to a module (01 system … 07 router)"),
+        key("1 - 6", "jump to a module (01 system … 06 router)"),
         key("r", "refresh everything"),
         key("q  0  esc", "quit"),
         caption("UPDATES", t),
@@ -771,7 +728,7 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         key("g", "upgrade (may cross a major version)"),
         key("x  x", "roll back to the other slot"),
         caption("SCREENS", t),
-        key("q", "back to this deck (network, wifi, pos, fw, router)"),
+        key("q", "back to this deck (network, wifi, fw, router)"),
         Line::from(""),
         Line::from(Span::styled("  any key closes this reference", t.fg(t.dim))),
     ];
@@ -787,12 +744,11 @@ pub fn run() -> std::io::Result<()> {
         draw,
         |app| {
             app.poll();
-            // Keep an open sub-screen's background work moving (net/pos jobs,
+            // Keep an open sub-screen's background work moving (net jobs,
             // wifi link refresh) so the HUD never blocks on it.
             match app.sub.as_mut() {
                 Some(Sub::Net(a)) => a.poll_job(),
                 Some(Sub::Wifi(a)) => a.poll_tick(),
-                Some(Sub::Pos(a)) => a.poll_job(),
                 None => {}
             }
         },
@@ -852,12 +808,6 @@ pub fn demo_states() -> Vec<DemoState> {
                 app.sub = Some(Sub::Wifi(wifiui::App::new(true)));
             }),
         ),
-        (
-            "pos",
-            Box::new(|app: &mut App| {
-                app.sub = Some(Sub::Pos(posui::App::new(true)));
-            }),
-        ),
     ]
 }
 
@@ -915,7 +865,6 @@ fn set_theme(s: &mut Sub) {
     match s {
         Sub::Net(a) => a.t = t(),
         Sub::Wifi(a) => a.t = t(),
-        Sub::Pos(a) => a.t = t(),
     }
 }
 
@@ -935,7 +884,7 @@ mod tests {
     fn deck_renders_like_dcheck() {
         let app = App::new(true);
         let text = render(&app, 120, 36).unwrap();
-        for s in ["WAYANG OS", "SYSTEM CONSOLE", "MODULES", "01 SYSTEM", "02 UPDATES", "06 FIREWALL", "07 ROUTER", "00 EXIT", "A/B SLOTS", "1.4.1", "SLOT B"] {
+        for s in ["WAYANG OS", "SYSTEM CONSOLE", "MODULES", "01 SYSTEM", "02 UPDATES", "05 FIREWALL", "06 ROUTER", "00 EXIT", "A/B SLOTS", "1.4.1", "SLOT B"] {
             assert!(text.contains(s), "missing {s}:\n{text}");
         }
     }
@@ -987,19 +936,16 @@ mod tests {
         key(&mut app, KeyCode::Char('4'));
         assert!(matches!(app.sub, Some(Sub::Wifi(_))));
         key(&mut app, KeyCode::Char('q'));
-        key(&mut app, KeyCode::Char('5'));
-        assert!(matches!(app.sub, Some(Sub::Pos(_))));
-        key(&mut app, KeyCode::Char('q'));
         assert!(app.sub.is_none());
     }
 
     #[test]
     fn companions_launch_or_explain() {
         let mut app = App::new(true);
-        key(&mut app, KeyCode::Char('7'));
+        key(&mut app, KeyCode::Char('6'));
         assert!(app.message.as_ref().unwrap().1.contains("not installed"));
         app.demo = false;
-        key(&mut app, KeyCode::Char('6'));
+        key(&mut app, KeyCode::Char('5'));
         assert_eq!(app.launch.as_deref(), Some(Path::new("/data/bin/wayang-fw")));
     }
 
