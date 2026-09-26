@@ -71,3 +71,8 @@ command line. The firewall lab lives in `dalang-io/wayang-fw/tests/lab/lab.py`.
 
 `dalang-io/wayang-pos` (POS, private) · `dalang-io/wayang-fw` (firewall, private)
 · `dalang-io/dcheck` (storage health, bundled; UI reference for all TUIs).
+
+## Current state
+
+Device 163.128.55.3 runs a local, unpublished 1.0.11 (slot A); POS autostart off; firewall manual.
+Full handover and open items: `dalang-io/wayang-fw/HANDOVER.md` (~/wayang-fw/HANDOVER.md).
