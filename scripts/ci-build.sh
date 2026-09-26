@@ -4,7 +4,7 @@
 #
 # Env:
 #   BUILD_DIR       build dir (default: $HOME/wayangos-build)
-#   WAYANG_VERSION  WayangOS version (default: 1.0.5)
+#   WAYANG_VERSION  WayangOS version (default: 1.0.7)
 #   KERNEL_VERSION  kernel version for the ISO name/manifest (default: 7.2.7)
 #   KERNEL_CONFIG   kernel config name (default: defconfig-intel)
 #   CHANNEL         release channel (default: stable)
@@ -15,7 +15,7 @@ set -e
 
 export PATH="$HOME/.cargo/bin:$PATH"
 BUILD_DIR="${BUILD_DIR:-$HOME/wayangos-build}"
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.5}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.7}"
 KERNEL_VERSION="${KERNEL_VERSION:-7.2.7}"
 KERNEL_CONFIG="${KERNEL_CONFIG:-defconfig-intel}"
 CHANNEL="${CHANNEL:-stable}"

@@ -244,11 +244,15 @@ fn copy_boot_files(mnt: &str, tx: &Sender<Msg>) -> Result<(), String> {
 /// lines, then `#` padding to the end. GRUB scans back over the trailing `#`
 /// run and appends before it, so the final byte stays `#`.
 pub fn grubenv() -> Vec<u8> {
+    let kver = installed_kernel();
+    let kver = if kver.is_empty() { "?" } else { &kver };
     let mut buf = Vec::with_capacity(GRUBENV_SIZE);
     buf.extend_from_slice(b"# GRUB Environment Block\n");
     buf.extend_from_slice(b"wayang_slot=A\n");
     buf.extend_from_slice(b"wayang_good=A\n");
     buf.extend_from_slice(b"wayang_attempts=0\n");
+    buf.extend_from_slice(format!("wayang_ver_A={}\n", installed_version()).as_bytes());
+    buf.extend_from_slice(format!("wayang_kver_A={kver}\n").as_bytes());
     buf.resize(GRUBENV_SIZE, b'#');
     buf
 }
@@ -284,6 +288,15 @@ fn installed_version() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| VERSION.to_string())
+}
+
+/// `/etc/wayang/kernel` of the running rootfs (empty when absent).
+fn installed_kernel() -> String {
+    fs::read_to_string("/etc/wayang/kernel")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default()
 }
 
 fn sha256_hex(path: &Path) -> Result<String, String> {

@@ -21,7 +21,7 @@ SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
 #   wayang/version      what the installed system reports (see `wayang status`)
 #   wayang/channel      stable | edge
 #   wayang/trusted_keys release signing keys, if any
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.5}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.7}"
 WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
 WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 
@@ -239,8 +239,6 @@ mkdir -p "$ROOTFS/etc/init.d" "$ROOTFS/etc/dropbear"
 # Master init script
 cat > "$ROOTFS/etc/init.d/rcS" << 'INIT'
 #!/bin/sh
-echo "WayangOS booting..."
-
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
@@ -249,6 +247,7 @@ mount -t devpts devpts /dev/pts
 mount -t tmpfs tmpfs /dev/shm
 mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /var/run
+[ -x /usr/bin/wayang-splash ] && wayang-splash
 
 # Populate /dev
 mdev -s 2>/dev/null || true
@@ -531,6 +530,16 @@ case "$1" in
             else
                 auto_detect
             fi
+            # Lease the remaining wired NICs too, address-only: udhcpc.script
+            # gives the default route + DNS to the primary interface alone, so a
+            # second NIC plugged into a router still gets an IP for management.
+            prim="$(tr -d '[:space:]' < "$PRIMARY_RUN" 2>/dev/null)"
+            for i in $(wired); do
+                [ "$i" = "$prim" ] && continue
+                carrier "$i" || continue
+                echo "  DHCP (secondary) on $i"
+                udhcpc -b -i "$i" -s /etc/udhcpc.script >/dev/null 2>&1
+            done
         ) >/var/log/network.log 2>&1 &
         echo $! > "$PIDFILE"
         ;;
@@ -771,6 +780,32 @@ case "$t" in
 esac
 LOGO
 chmod +x "$ROOTFS/usr/bin/wayang-logo"
+
+# Boot splash: homepage wordmark + tagline + version/kernel/slot. Plain ASCII,
+# because the kernel console font has no Javanese/box-drawing glyphs.
+cat > "$ROOTFS/usr/bin/wayang-splash" << 'SPLASH'
+#!/bin/sh
+ver="$(cat /etc/wayang/version 2>/dev/null)"; [ -n "$ver" ] || ver="?"
+kver="$(uname -r 2>/dev/null)"; [ -n "$kver" ] || kver="?"
+slot="-"
+for w in $(cat /proc/cmdline 2>/dev/null); do
+    case "$w" in wayang.slot=*) slot="${w#wayang.slot=}" ;; esac
+done
+# Only draw on a real console, not when rcS output is piped/redirected.
+t="$(readlink /proc/$$/fd/1 2>/dev/null)"
+case "$t" in
+    /dev/tty[0-9]*|/dev/console) ;;
+    *) exit 0 ;;
+esac
+c="\033[1;36m"; m="\033[1;35m"; g="\033[1;32m"; y="\033[1;33m"; r="\033[0m"
+printf '\033[2J\033[H'
+printf "${c}+-----------------------------------------------------+${r}\n"
+printf "  ${m}W   A   Y   A   N   G   O   S${r}\n"
+printf "  The Shadow that Powers the Machine\n"
+printf "  ${g}version %s${r}   linux ${g}%s${r}   slot ${y}%s${r}\n" "$ver" "$kver" "$slot"
+printf "${c}+-----------------------------------------------------+${r}\n\n"
+SPLASH
+chmod +x "$ROOTFS/usr/bin/wayang-splash"
 
 # Authorize SSH keys for root, now and (with /data) across reboots
 cat > "$ROOTFS/usr/bin/wayang-addkey" << 'ADDKEY'

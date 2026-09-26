@@ -131,6 +131,12 @@ fi
 if [ -z "$wayang_slot" ]; then set wayang_slot=A; fi
 if [ -z "$wayang_good" ]; then set wayang_good=A; fi
 if [ -z "$wayang_attempts" ]; then set wayang_attempts=0; fi
+# Per-slot version/kernel, kept in grubenv by the installer and `wayang`
+# staging so the menu can show where each slot is.
+if [ -z "$wayang_ver_A" ]; then set wayang_ver_A="?"; fi
+if [ -z "$wayang_kver_A" ]; then set wayang_kver_A="?"; fi
+if [ -z "$wayang_ver_B" ]; then set wayang_ver_B="-"; fi
+if [ -z "$wayang_kver_B" ]; then set wayang_kver_B="-"; fi
 
 # After 3 boot attempts on a bad slot, go back to the last known good one.
 if [ "$wayang_attempts" -ge 3 ]; then
@@ -159,12 +165,12 @@ else
 fi
 save_env -f ($root)/boot/grub/grubenv wayang_attempts
 
-menuentry "WayangOS (slot A)" --id wayang-A {
-    linux /boot/A/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA
+menuentry "WayangOS $wayang_ver_A (slot A, linux $wayang_kver_A)" --id wayang-A {
+    linux /boot/A/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA wayang.slot=A
     initrd /boot/A/initramfs.img
 }
-menuentry "WayangOS (slot B)" --id wayang-B {
-    linux /boot/B/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA
+menuentry "WayangOS $wayang_ver_B (slot B, linux $wayang_kver_B)" --id wayang-B {
+    linux /boot/B/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA wayang.slot=B
     initrd /boot/B/initramfs.img
 }
 EOF
@@ -185,20 +191,23 @@ cp "$BASE_INITRAMFS" "$PAYLOAD/A/initramfs.img"
 
 # Initial GRUB fallback state. The installer regenerates this on the ESP, but
 # the payload must match (see installer/src/install.rs::grubenv).
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.7}"
+WAYANG_EDITION="${WAYANG_EDITION:-generic}"
+KERNEL_VERSION="${KERNEL_VERSION:-$(uname -r)}"
 {
     printf '# GRUB Environment Block\n'
     printf 'wayang_slot=A\n'
     printf 'wayang_good=A\n'
     printf 'wayang_attempts=0\n'
+    printf 'wayang_ver_A=%s\n' "$WAYANG_VERSION"
+    printf 'wayang_kver_A=%s\n' "$KERNEL_VERSION"
 } > "$PAYLOAD/grubenv"
 pad=$((1024 - $(wc -c < "$PAYLOAD/grubenv")))
 printf '%*s' "$pad" '' | tr ' ' '#' >> "$PAYLOAD/grubenv"
 
 # Slot-A metadata. The installer recomputes hashes/version from the payload it
 # actually copies, so this copy is for layout/compat; keep it in sync with the
-# rootfs's /etc/wayang/version (both default to 1.0.5).
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.5}"
-WAYANG_EDITION="${WAYANG_EDITION:-generic}"
+# rootfs's /etc/wayang/version (both default to 1.0.7).
 sha256_file() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | cut -d' ' -f1

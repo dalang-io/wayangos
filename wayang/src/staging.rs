@@ -45,6 +45,10 @@ pub fn stage(boot: &BootRoot, kernel: &[u8], initramfs: &[u8], meta: &SlotMeta) 
     store.set("wayang_prev", active.as_str());
     store.set("wayang_slot", target.as_str());
     store.set("wayang_attempts", "0");
+    // Record the staged version/kernel so the GRUB menu can show each slot.
+    let kver = meta.kernel_version.clone().unwrap_or_else(|| "?".into());
+    store.set(&format!("wayang_ver_{}", target.as_str()), &meta.version);
+    store.set(&format!("wayang_kver_{}", target.as_str()), &kver);
     store.save().map_err(AppError::err)?;
     Ok(target)
 }
