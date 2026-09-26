@@ -33,8 +33,12 @@ Count: **11 promoted, ~2 with source here** (POS + Viewer/deprecated), plus
 
 - **WayangPOS** — `scripts/build-pos.sh` (binary) and `scripts/build-pos-iso.sh`
   (bootable ISO). Source: private repo `dalang-io/wayang-pos`, fetched at
-  `POS_REF` (default `v3.2.2`) into `$BUILD/wayang-pos/` (direct framebuffer,
-  evdev, SQLite).
+  `POS_REF` (default `v3.2.3`) into `$BUILD/wayang-pos/` (direct framebuffer,
+  evdev, SQLite). It is **pure userspace**: the OS packages the binary and the
+  `wayang pos` / `/etc/init.d/pos` supervisor, and autostart plus the exit
+  policy are runtime settings in `/data/etc/pos.conf` — toggled from the
+  `wayang` HUD's POS screen or `wayang pos enable|disable`, with no kernel
+  change and no image rebuild.
 - **wayang-fw** — firewall (nftables, commit-confirm, dcheck-style HUD). Source:
   private repo `dalang-io/wayang-fw`; deployed to `/data/bin/wayang-fw`. The OS
   provides the kernel nftables support, `/usr/sbin/nft` (`scripts/build-nft.sh`)

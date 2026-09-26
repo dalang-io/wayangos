@@ -18,13 +18,14 @@ use crate::cli::UpdateArgs;
 use crate::hud::{self, Theme};
 use crate::manifest::SlotMeta;
 use crate::netui;
+use crate::posui;
 use crate::slot::{self, Slot};
 use crate::status::{self, Status};
 use crate::update;
 use crate::ui;
 use crate::wifiui;
 
-pub const ITEMS: [&str; 8] = [
+pub const ITEMS: [&str; 9] = [
     "STATUS",
     "CHECK FOR UPDATES",
     "UPDATE",
@@ -32,6 +33,7 @@ pub const ITEMS: [&str; 8] = [
     "ROLLBACK",
     "NETWORK",
     "WIFI",
+    "POS",
     "QUIT",
 ];
 
@@ -39,6 +41,7 @@ pub const ITEMS: [&str; 8] = [
 pub enum Sub {
     Net(netui::App),
     Wifi(wifiui::App),
+    Pos(posui::App),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +80,7 @@ impl App {
             match self.sub.as_mut() {
                 Some(Sub::Net(a)) => a.on_key(key),
                 Some(Sub::Wifi(a)) => a.on_key(key),
+                Some(Sub::Pos(a)) => a.on_key(key),
                 None => {}
             }
             if self.sub_exited() {
@@ -94,7 +98,7 @@ impl App {
             KeyCode::Char('r') => self.refresh(),
             KeyCode::Enter => self.act(self.sel),
             KeyCode::Esc | KeyCode::Char('q') => self.exit = true,
-            KeyCode::Char(c @ '1'..='8') => {
+            KeyCode::Char(c @ '1'..='9') => {
                 let idx = c as usize - '1' as usize;
                 if idx < ITEMS.len() {
                     self.sel = idx;
@@ -109,6 +113,7 @@ impl App {
         match &self.sub {
             Some(Sub::Net(a)) => a.exit,
             Some(Sub::Wifi(a)) => a.exit,
+            Some(Sub::Pos(a)) => a.exit,
             None => false,
         }
     }
@@ -135,7 +140,8 @@ impl App {
             4 => self.run_rollback(),
             5 => self.sub = Some(Sub::Net(netui::App::new(false))),
             6 => self.sub = Some(Sub::Wifi(wifiui::App::new(false))),
-            7 => self.exit = true,
+            7 => self.sub = Some(Sub::Pos(posui::App::new(false))),
+            8 => self.exit = true,
             _ => {}
         }
     }
@@ -205,6 +211,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         match sub {
             Sub::Net(a) => netui::draw(f, a, tick),
             Sub::Wifi(a) => wifiui::draw(f, a, tick),
+            Sub::Pos(a) => posui::draw(f, a, tick),
         }
         return;
     }
@@ -351,7 +358,16 @@ pub fn run() -> std::io::Result<()> {
     crate::screen::run(
         App::new(false),
         draw,
-        |_app| {},
+        |app| {
+            // Keep an open sub-screen's background work moving (net/pos jobs,
+            // wifi link refresh) so the HUD never blocks on it.
+            match app.sub.as_mut() {
+                Some(Sub::Net(a)) => a.poll_job(),
+                Some(Sub::Wifi(a)) => a.poll_tick(),
+                Some(Sub::Pos(a)) => a.poll_job(),
+                None => {}
+            }
+        },
         |app, key| app.on_key(key),
         |app| app.exit,
     )
@@ -395,6 +411,12 @@ pub fn demo_states() -> Vec<DemoState> {
             "wifi",
             Box::new(|app: &mut App| {
                 app.sub = Some(Sub::Wifi(wifiui::App::new(true)));
+            }),
+        ),
+        (
+            "pos",
+            Box::new(|app: &mut App| {
+                app.sub = Some(Sub::Pos(posui::App::new(true)));
             }),
         ),
     ]
@@ -459,6 +481,7 @@ mod tests {
         let mut app = App::new(true);
         assert_eq!(ITEMS[5], "NETWORK");
         assert_eq!(ITEMS[6], "WIFI");
+        assert_eq!(ITEMS[7], "POS");
         app.sel = 5;
         app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(matches!(app.sub, Some(Sub::Net(_))));
@@ -468,6 +491,16 @@ mod tests {
         app.sel = 6;
         app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(matches!(app.sub, Some(Sub::Wifi(_))));
+    }
+
+    #[test]
+    fn menu_opens_pos() {
+        let mut app = App::new(true);
+        app.sel = 7;
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(matches!(app.sub, Some(Sub::Pos(_))));
+        app.on_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(app.sub.is_none());
     }
 
     #[test]

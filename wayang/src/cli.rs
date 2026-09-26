@@ -163,12 +163,12 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             })
         }
         "pos" => {
-            const ACTIONS: [&str; 7] = ["status", "start", "stop", "restart", "enable", "disable", "log"];
+            let actions = crate::pos::ACTIONS;
             match rest {
                 [] => Ok(Command::Pos { action: "status".into() }),
                 [a] if a == "--help" || a == "-h" => Ok(Command::Help),
-                [a] if ACTIONS.contains(&a.as_str()) => Ok(Command::Pos { action: a.clone() }),
-                [a] => Err(format!("unknown action for `pos`: {a} (one of: {})", ACTIONS.join(", "))),
+                [a] if actions.contains(&a.as_str()) => Ok(Command::Pos { action: a.clone() }),
+                [a] => Err(format!("unknown action for `pos`: {a} (one of: {})", actions.join(", "))),
                 _ => Err("`pos` takes one action".into()),
             }
         }

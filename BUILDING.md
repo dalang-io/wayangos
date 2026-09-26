@@ -42,7 +42,7 @@ KERNEL_FLAVOR=rt ./scripts/fetch-sources.sh
 Wayang POS source lives in the private repo
 [`dalang-io/wayang-pos`](https://github.com/dalang-io/wayang-pos) (direct
 framebuffer, evdev input, SQLite backend). `scripts/build-pos.sh` fetches it at
-a pinned ref (`POS_REF`, default `v3.2.2`); access needs git credentials for
+a pinned ref (`POS_REF`, default `v3.2.3`); access needs git credentials for
 that repo (`gh auth setup-git`, or `POS_TOKEN`), or a local checkout via
 `POS_SRC_DIR`.
 

@@ -129,10 +129,27 @@ wayang pos enable      # autostart at boot (and start now)
 wayang pos log         # last lines of /data/log/wayang-pos.log
 ```
 
+The same controls live in the `wayang` HUD: open `wayang` and pick **POS**.
+That screen shows the binary, running state, autostart and exit policy, and
+lets you toggle autostart (`a`) and the exit policy (`x`) or start/stop/restart
+it. Toggles only rewrite `/data/etc/pos.conf`; a restart applies the exit
+policy.
+
+WayangPOS is **pure userspace**: it is a static binary plus the
+`/etc/init.d/pos` supervisor, both shipped by the rootfs. Changing autostart or
+the exit policy is a runtime file edit — no kernel config change, no image
+rebuild, and no edits to the POS app itself.
+
 **Exiting to the terminal on the device:** log in as an admin, open Settings
 (`S`) and press `F10`. The POS stays stopped until `wayang pos start` or the
 next boot. Settings in `/data/etc/pos.conf`: `AUTOSTART=1|0` (default 1),
 `ALLOW_EXIT=1|0` (default 1; `0` removes the exit option).
+
+**Recovery when `ALLOW_EXIT=0`:** with exit disabled the local framebuffer
+stays on the kiosk, so recover over SSH as root (public key) and run
+`wayang pos stop` (or `wayang pos disable` for a permanent unlock); the
+terminal returns immediately. `ALLOW_EXIT=1` is the default for exactly this
+reason — think before turning it off.
 
 ## Firewall
 

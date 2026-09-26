@@ -5,14 +5,14 @@
 # Env:   BUILD_DIR    build output directory (default: $HOME/wayangos-build)
 #        POS_SRC_DIR  use this local wayang-pos checkout instead of fetching
 #        POS_REPO     git URL (default: https://github.com/dalang-io/wayang-pos.git)
-#        POS_REF      tag/branch/commit to build (default: v3.2.2)
+#        POS_REF      tag/branch/commit to build (default: v3.2.3)
 #        POS_TOKEN    GitHub token for the private repo (CI); locally git's
 #                     credential helper (e.g. `gh auth setup-git`) is used
 set -e
 
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
 POS_REPO="${POS_REPO:-https://github.com/dalang-io/wayang-pos.git}"
-POS_REF="${POS_REF:-v3.2.2}"
+POS_REF="${POS_REF:-v3.2.3}"
 OUT="$BUILD/wayang-pos-static"
 SQLITE="$BUILD/sqlite3.c"
 

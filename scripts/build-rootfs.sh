@@ -353,6 +353,11 @@ find_fw() {
 
 case "$1" in
     start)
+        # a deployed firewall in /data/bin (persistent) is linked into /usr/bin so
+        # `wayang-fw` is reachable in PATH after every boot
+        if [ -x /data/bin/wayang-fw ]; then
+            ln -sf /data/bin/wayang-fw /usr/bin/wayang-fw 2>/dev/null || true
+        fi
         fw="$(find_fw)" || exit 0
         [ -f /data/etc/fw/config.toml ] || exit 0
         echo "Loading firewall..."

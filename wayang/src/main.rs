@@ -18,6 +18,8 @@ mod mount;
 mod net;
 mod netui;
 mod paths;
+mod pos;
+mod posui;
 mod screen;
 mod sema;
 mod sign;
@@ -54,6 +56,7 @@ usage:
   wayang wifi                           runtime wifi HUD (TTY only)
   wayang pos [status|start|stop|restart|enable|disable|log]
                                         point-of-sale kiosk service
+                                        (also in the HUD: POS screen)
   wayang keygen --out DIR [--keyid NAME]
   wayang sign   --key FILE [--keyid NAME] MANIFEST.json
   wayang verify FILE.wup [--esp DEV]
@@ -195,13 +198,9 @@ fn demo_mode(args: &[String]) -> Option<ExitCode> {
 
 /// `wayang pos <action>` runs the rootfs service script, which owns the
 /// supervisor, the autostart setting (/data/etc/pos.conf) and the log.
+/// The HUD's POS screen shares this module (`crate::pos`).
 fn run_pos(action: &str) -> Result<i32> {
-    let script = std::env::var("WAYANG_POS_SERVICE").unwrap_or_else(|_| "/etc/init.d/pos".into());
-    let status = std::process::Command::new(&script)
-        .arg(action)
-        .status()
-        .map_err(|e| error::AppError::err(format!("{script}: {e}")))?;
-    Ok(status.code().unwrap_or(1))
+    pos::run_action(action).map_err(error::AppError::err)
 }
 
 fn run_mark_ok(esp: Option<&str>) -> Result<i32> {
