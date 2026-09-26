@@ -52,12 +52,14 @@ usage:
   wayang update  [--check] [--from FILE.wup] [--channel C] [--esp DEV] [--reboot]
   wayang upgrade [--check] [--from FILE.wup] [--esp DEV] [--reboot]
   wayang update --rollback [--esp DEV] [--reboot]
+  wayang update --boot-other [--esp DEV] [--reboot]   boot the idle slot next (one-shot)
   wayang net                            runtime uplink HUD (TTY only)
   wayang wifi                           runtime wifi HUD (TTY only)
   wayang keygen --out DIR [--keyid NAME]
   wayang sign   --key FILE [--keyid NAME] MANIFEST.json
   wayang verify FILE.wup [--esp DEV]
   wayang mark-ok [--esp DEV]
+  wayang addkey github:USER | gitlab:USER | FILE | 'ssh-ed25519 AAAA... comment'
   wayang --demo [--screens DIR [--svg]] [--size COLSxROWS]   render HUD screens (text, SVG)
 
 env:
@@ -150,6 +152,7 @@ fn main() -> ExitCode {
         Command::Sign { key, keyid, manifest } => keys::sign_file(&key, keyid.as_deref(), &manifest),
         Command::Verify { bundle, esp } => verify::run(&bundle, esp.as_deref()),
         Command::MarkOk { esp } => run_mark_ok(esp.as_deref()),
+        Command::AddKey { spec } => sshkeys::addkey_cmd(&spec).map_err(error::AppError::err),
     };
 
     match result {

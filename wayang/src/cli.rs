@@ -10,6 +10,8 @@ pub struct UpdateArgs {
     pub esp: Option<String>,
     pub reboot: bool,
     pub rollback: bool,
+    /// Stage the idle slot for the next boot (a one-shot slot switch).
+    pub boot_other: bool,
 }
 
 #[derive(Debug)]
@@ -25,6 +27,9 @@ pub enum Command {
     Sign { key: PathBuf, keyid: Option<String>, manifest: PathBuf },
     Verify { bundle: PathBuf, esp: Option<String> },
     MarkOk { esp: Option<String> },
+    /// `wayang addkey`: the single SSH-key implementation behind
+    /// `wayang-addkey` and the SSH screen.
+    AddKey { spec: String },
     PrintVersion,
     Help,
 }
@@ -53,6 +58,7 @@ fn update_args(args: &[String], sub: &str) -> Result<UpdateArgs, String> {
             "--check" => a.check = true,
             "--reboot" => a.reboot = true,
             "--rollback" => a.rollback = true,
+            "--boot-other" => a.boot_other = true,
             "--from" => a.from = Some(PathBuf::from(value_after(args, &mut i, "--from")?)),
             "--channel" => a.channel = Some(value_after(args, &mut i, "--channel")?),
             "--esp" => a.esp = Some(value_after(args, &mut i, "--esp")?),
@@ -172,6 +178,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             }
             Ok(Command::MarkOk { esp })
         }
+        "addkey" => Ok(Command::AddKey { spec: rest.join(" ") }),
         "-h" | "--help" | "help" => Ok(Command::Help),
         "-V" | "--version" => Ok(Command::PrintVersion),
         other => Err(format!("unknown command '{other}' (try `wayang --help`)")),
@@ -207,6 +214,26 @@ mod tests {
                 assert!(a.rollback);
                 assert_eq!(a.from, Some(PathBuf::from("/x/y.wup")));
             }
+            _ => panic!("wrong command"),
+        }
+    }
+
+    #[test]
+    fn parses_boot_other() {
+        match parse(&v(&["update", "--boot-other"])).unwrap() {
+            Command::Update(a) => assert!(a.boot_other),
+            _ => panic!("wrong command"),
+        }
+    }
+
+    #[test]
+    fn parses_addkey_spec() {
+        match parse(&v(&["addkey", "github:alice"])).unwrap() {
+            Command::AddKey { spec } => assert_eq!(spec, "github:alice"),
+            _ => panic!("wrong command"),
+        }
+        match parse(&v(&["addkey", "ssh-ed25519", "AAAA", "me@box"])).unwrap() {
+            Command::AddKey { spec } => assert_eq!(spec, "ssh-ed25519 AAAA me@box"),
             _ => panic!("wrong command"),
         }
     }

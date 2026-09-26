@@ -1033,46 +1033,20 @@ printf "${c}+-----------------------------------------------------+${r}\n\n"
 SPLASH
 chmod +x "$ROOTFS/usr/bin/wayang-splash"
 
-# Authorize SSH keys for root, now and (with /data) across reboots
+# Authorize SSH keys for root, now and (with /data) across reboots.
+# One implementation: the same `wayang addkey` core the console SSH screen uses
+# (wayang/src/sshkeys.rs), so validation/fetch/format live in exactly one place.
 cat > "$ROOTFS/usr/bin/wayang-addkey" << 'ADDKEY'
 #!/bin/sh
 # wayang-addkey — let an SSH public key log in as root.
 #   wayang-addkey github:USER | gitlab:USER    keys published on GitHub/GitLab
 #   wayang-addkey FILE                          a .pub or authorized_keys file
 #   wayang-addkey 'ssh-ed25519 AAAA... you@laptop'
-case "$1" in
-    "" | -h | --help) sed -n '3,5s/^# *//p' "$0"; exit 1 ;;
-    github:* | gitlab:*)
-        url="https://${1%%:*}.com/${1#*:}.keys"
-        keys="$(curl -fsSL --max-time 20 --cacert /etc/ssl/certs/ca-certificates.crt "$url")" ||
-            { echo "cannot fetch $url" >&2; exit 1; } ;;
-    *) if [ -f "$1" ]; then keys="$(cat "$1")"; else keys="$*"; fi ;;
-esac
-keys="$(printf '%s\n' "$keys" | grep -E '^(ssh-(ed25519|rsa|dss)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/]+=*( |$)')"
-[ -n "$keys" ] || { echo "no SSH public key found" >&2; exit 1; }
-
-files=/root/.ssh/authorized_keys
-if mountpoint -q /data; then
-    mkdir -p /data/etc/ssh && chmod 700 /data/etc/ssh
-    files="$files /data/etc/ssh/authorized_keys"
+if ! command -v wayang >/dev/null 2>&1; then
+    echo "wayang-addkey: the wayang CLI is required (not found in PATH)" >&2
+    exit 1
 fi
-new=0
-for k in $(printf '%s\n' "$keys" | tr ' ' '\001'); do
-    k="$(printf '%s' "$k" | tr '\001' ' ')"
-    added=
-    for f in $files; do
-        touch "$f" && chmod 600 "$f"
-        grep -qxF "$k" "$f" || { echo "$k" >> "$f"; added=1; }
-    done
-    [ -n "$added" ] && new=$((new + 1))
-done
-if [ "$new" = 0 ]; then
-    echo "already authorized"
-elif mountpoint -q /data; then
-    echo "authorized $new new key(s), saved in /data"
-else
-    echo "authorized $new new key(s) until reboot (no /data)"
-fi
+exec wayang addkey "$@"
 ADDKEY
 chmod +x "$ROOTFS/usr/bin/wayang-addkey"
 
@@ -1117,6 +1091,7 @@ if [ -n "$WAYANG_BIN" ]; then
     echo "  wayang: $(du -h "$ROOTFS/usr/bin/wayang" | cut -f1)"
 else
     echo "  wayang CLI not in dist/ (optional; install it with an update)"
+    echo "  WARNING: wayang-addkey delegates to 'wayang addkey' and needs it on PATH"
 fi
 
 # dcheck — default storage-health app (static musl binary; fetched by

@@ -3,8 +3,10 @@
 //! `GET <base>/<channel>/<arch>/manifest.json`
 //! `GET <base>/<channel>/<arch>/wayang-<version>-<arch>.wup`
 
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::error::{AppError, Result};
 
@@ -49,10 +51,65 @@ pub fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
     Ok(out.stdout)
 }
 
-pub fn download(url: &str, dest: &Path) -> Result<()> {
-    let dest = dest.to_string_lossy().into_owned();
-    curl(&["-fsSL", "-o", &dest, url])?;
+/// Stream `url` to `dest`, calling `on_progress(downloaded, total)` after every
+/// chunk. `total` is 0 when the server does not advertise a length, so the
+/// caller can keep the UI indeterminate.
+pub fn download_with_progress<F: FnMut(u64, u64)>(url: &str, dest: &Path, mut on_progress: F) -> Result<()> {
+    let total = content_length(url);
+    let mut child = Command::new("curl")
+        .args(["-fsSL", "-o", "-", url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                AppError::err("curl not found; install curl or use `wayang update --from FILE.wup`")
+            } else {
+                AppError::err(format!("failed to run curl: {e}"))
+            }
+        })?;
+    let mut stdout = child.stdout.take().ok_or_else(|| AppError::err("curl: no stdout"))?;
+    let mut file = File::create(dest).map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut got: u64 = 0;
+    on_progress(0, total);
+    loop {
+        let n = stdout.read(&mut buf).map_err(|e| AppError::err(format!("curl: {e}")))?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n]).map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
+        got += n as u64;
+        on_progress(got, total);
+    }
+    let out = child.wait_with_output().map_err(|e| AppError::err(format!("curl: {e}")))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(AppError::err(format!("curl {}: {}", url, err.trim())));
+    }
+    file.sync_all().map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
     Ok(())
+}
+
+/// `Content-Length` via a HEAD request; 0 when unknown or unavailable.
+fn content_length(url: &str) -> u64 {
+    let out = match Command::new("curl").args(["-fsSLI", url]).output() {
+        Ok(o) if o.status.success() => o,
+        _ => return 0,
+    };
+    parse_content_length(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Last `Content-Length` header in an HTTP response (follows redirects, so the
+/// final one wins); 0 when absent or unparseable.
+fn parse_content_length(headers: &str) -> u64 {
+    headers
+        .lines()
+        .filter_map(|l| l.split_once(':'))
+        .filter(|(k, _)| k.trim().eq_ignore_ascii_case("content-length"))
+        .filter_map(|(_, v)| v.trim().parse::<u64>().ok())
+        .last()
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -74,5 +131,14 @@ mod tests {
         if std::env::var("WAYANG_REPO_URL").is_err() {
             assert_eq!(base_url(), DEFAULT_BASE);
         }
+    }
+
+    #[test]
+    fn parses_content_length_header() {
+        let headers = "HTTP/1.1 302 Found\r\nContent-Length: 12\r\nLocation: /x\r\n\r\n\
+                       HTTP/1.1 200 OK\r\nContent-Length: 4242\r\n\r\n";
+        assert_eq!(parse_content_length(headers), 4242);
+        assert_eq!(parse_content_length("HTTP/1.1 200 OK\r\n\r\n"), 0);
+        assert_eq!(parse_content_length("Content-Length: nope\r\n"), 0);
     }
 }

@@ -17,12 +17,13 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, Paragraph, Wrap};
+use ratatui::widgets::{Clear, Gauge, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::cli::UpdateArgs;
@@ -174,13 +175,34 @@ fn uptime(s: u64) -> String {
 }
 
 /// An update action running in the background.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobKind {
+    Check,
+    Update,
+    Upgrade,
+    Rollback,
+    BootOther,
+}
+
 pub struct Job {
     pub label: String,
     rx: mpsc::Receiver<Result<i32, String>>,
-    check: bool,
-    rollback: bool,
+    kind: JobKind,
+    /// Byte counter fed by the bundle download; `None` when the job never
+    /// fetches, so the card keeps the indeterminate bar.
+    pub progress: Option<Arc<update::Progress>>,
     /// When the job started, for the elapsed-seconds readout.
     started: Instant,
+}
+
+/// A determinate progress line for the UPDATES card: `(ratio, label)`.
+/// `None` while the transfer size is unknown (keep the sweeping bar).
+fn job_progress(job: &Job) -> Option<(f64, String)> {
+    let p = job.progress.as_ref()?;
+    let pct = update::percent(p.downloaded(), p.total())?;
+    let elapsed = job.started.elapsed().as_secs_f64();
+    let rate = update::human_rate(update::mb_per_s(p.downloaded(), elapsed));
+    Some((pct / 100.0, format!("{pct:>3.0}%  {rate}  {elapsed:.0}s")))
 }
 
 pub struct App {
@@ -195,6 +217,8 @@ pub struct App {
     pub job: Option<Job>,
     /// Rollback key pressed once.
     pub armed: bool,
+    /// "Boot other slot" key pressed once.
+    pub armed_other: bool,
     pub help: bool,
     pub exit: bool,
     /// Open sub-screen (network/wifi), if any.
@@ -224,6 +248,7 @@ impl App {
             message: None,
             job: None,
             armed: false,
+            armed_other: false,
             help: false,
             exit: false,
             sub: None,
@@ -255,6 +280,7 @@ impl App {
             return;
         }
         let armed = std::mem::take(&mut self.armed);
+        let armed_other = std::mem::take(&mut self.armed_other);
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.sel = self.sel.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => self.sel = (self.sel + 1).min(MODULES.len()),
@@ -270,16 +296,24 @@ impl App {
                 self.open(self.sel);
             }
             // update actions: only from the UPDATES card, never from a number key
-            KeyCode::Char(c @ ('c' | 'u' | 'g' | 'x')) if self.module() == Some(Module::Updates) => {
+            KeyCode::Char(c @ ('c' | 'u' | 'g' | 'x' | 'b')) if self.module() == Some(Module::Updates) => {
                 if let Some(j) = &self.job {
                     self.message = Some((Tone::Warn, format!("{} is still running.", j.label)));
                     return;
                 }
                 match c {
-                    'c' => self.start_job("Checking for updates", false, true, false),
-                    'u' => self.start_job("Updating", false, false, false),
-                    'g' => self.start_job("Upgrading", true, false, false),
-                    _ if armed => self.start_job("Rolling back", false, false, true),
+                    'c' => self.start_job(JobKind::Check),
+                    'u' => self.start_job(JobKind::Update),
+                    'g' => self.start_job(JobKind::Upgrade),
+                    'b' if armed_other => self.start_job(JobKind::BootOther),
+                    'b' => {
+                        self.armed_other = true;
+                        self.message = Some((
+                            Tone::Warn,
+                            format!("Press b again to boot slot {} next (one-shot).", self.status.active.idle().as_str()),
+                        ));
+                    }
+                    _ if armed => self.start_job(JobKind::Rollback),
                     _ => {
                         self.armed = true;
                         self.message = Some((
@@ -349,20 +383,36 @@ impl App {
         }
     }
 
-    fn start_job(&mut self, label: &str, upgrade: bool, check: bool, rollback: bool) {
+    fn start_job(&mut self, kind: JobKind) {
+        let label = match kind {
+            JobKind::Check => "Checking for updates",
+            JobKind::Update => "Updating",
+            JobKind::Upgrade => "Upgrading",
+            JobKind::Rollback => "Rolling back",
+            JobKind::BootOther => "Staging boot",
+        };
         if self.demo {
             self.message = Some((Tone::Ok, format!("demo: {} (nothing runs)", label.to_lowercase())));
             return;
         }
         let (tx, rx) = mpsc::channel();
-        let args = UpdateArgs { check, rollback, ..Default::default() };
+        // Only a fetch reports bytes; slot switches have nothing to measure.
+        let progress = matches!(kind, JobKind::Update | JobKind::Upgrade).then(update::Progress::new);
+        let hook = progress.clone();
+        let upgrade = kind == JobKind::Upgrade;
+        let args = match kind {
+            JobKind::Check => UpdateArgs { check: true, ..Default::default() },
+            JobKind::Rollback => UpdateArgs { rollback: true, ..Default::default() },
+            JobKind::BootOther => UpdateArgs { boot_other: true, ..Default::default() },
+            _ => UpdateArgs::default(),
+        };
         std::thread::spawn(move || {
             ui::set_quiet(true);
-            let r = update::run(upgrade, &args).map_err(|e| e.to_string());
+            let r = update::run_with_progress(upgrade, &args, hook).map_err(|e| e.to_string());
             let _ = tx.send(r);
         });
         self.message = Some((Tone::Warn, format!("{label}…")));
-        self.job = Some(Job { label: label.into(), rx, check, rollback, started: Instant::now() });
+        self.job = Some(Job { label: label.into(), rx, kind, progress, started: Instant::now() });
     }
 
     /// Picks up a finished background job.
@@ -370,11 +420,16 @@ impl App {
         self.tick = self.tick.wrapping_add(1);
         let Some(job) = &self.job else { return };
         let Ok(result) = job.rx.try_recv() else { return };
-        let (check, rollback) = (job.check, job.rollback);
+        let kind = job.kind;
         self.job = None;
         self.message = Some(match result {
-            Ok(0) if check => (Tone::Ok, "An update is available: u installs it into the other slot.".into()),
-            Ok(0) if rollback => (Tone::Warn, "Rollback staged: reboot to apply.".into()),
+            Ok(0) if kind == JobKind::Check => {
+                (Tone::Ok, "An update is available: u installs it into the other slot.".into())
+            }
+            Ok(0) if kind == JobKind::Rollback => (Tone::Warn, "Rollback staged: reboot to apply.".into()),
+            Ok(0) if kind == JobKind::BootOther => {
+                (Tone::Warn, "Boot to the other slot staged: reboot to apply.".into())
+            }
             Ok(0) => (Tone::Ok, "Update staged in the other slot: reboot to apply.".into()),
             Ok(2) => (Tone::Ok, "Up to date: no update available.".into()),
             Ok(code) => (Tone::Bad, format!("Finished with exit code {code}.")),
@@ -498,7 +553,16 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     hud::status_row(f, status, msg, busy, "Pick a module; ? shows every key.", t);
 
     let keys: Vec<(&str, &str)> = match app.module() {
-        Some(Module::Updates) => vec![("↑↓", "move"), ("c", "check"), ("u", "update"), ("g", "upgrade"), ("x", "rollback"), ("?", "help"), ("q", "quit")],
+        Some(Module::Updates) => vec![
+            ("↑↓", "move"),
+            ("c", "check"),
+            ("u", "update"),
+            ("g", "upgrade"),
+            ("b", "boot other"),
+            ("x", "rollback"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
         _ => vec![("↑↓", "move"), ("enter", "open"), ("1-8", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
     };
     let mut line = hud::keycaps(&keys, t);
@@ -582,7 +646,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let st = &app.status;
     let d = &app.deck;
     let tone = app.module_tone(m);
-    let (title, lines): (&str, Vec<Line>) = match m {
+    let (title, lines, gauge): (&str, Vec<Line>, Option<(usize, f64, String)>) = match m {
         Module::System => {
             let good = st.good.map(Slot::as_str).unwrap_or("-");
             let mut l = vec![
@@ -621,7 +685,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             }
             l.push(Line::from(""));
             l.push(hint(format!("enter {arrow} refresh"), t));
-            ("SYSTEM", l)
+            ("SYSTEM", l, None)
         }
         Module::Updates => {
             let mut l = vec![
@@ -630,13 +694,19 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 field("CHANNEL", st.channel.clone(), t),
                 field("TARGET", format!("slot {} (the one not running)", st.active.idle().as_str()), t),
             ];
+            let mut gauge = None;
             if let Some(job) = &app.job {
                 l.push(Line::from(""));
                 l.push(caption("PROGRESS", t));
-                l.push(Line::from(vec![
-                    Span::styled(hud::progress_bar(tick, 24), t.bold(t.accent2)),
-                    Span::styled(format!("  {}s", job.started.elapsed().as_secs()), t.fg(t.dim)),
-                ]));
+                match job_progress(job) {
+                    // Determinate: a real Gauge row is drawn where this line is.
+                    Some((ratio, label)) => gauge = Some((l.len(), ratio, label)),
+                    // No byte count: the sweeping bar stays as the fallback.
+                    None => l.push(Line::from(vec![
+                        Span::styled(hud::progress_bar(tick, 24), t.bold(t.accent2)),
+                        Span::styled(format!("  {}s", job.started.elapsed().as_secs()), t.fg(t.dim)),
+                    ])),
+                }
                 l.push(Line::from(Span::styled(
                     format!("{} {}…", hud::spinner(tick), job.label),
                     t.fg(t.warn),
@@ -648,6 +718,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 ("c", "check the channel for a newer release"),
                 ("u", "download, verify and stage it in the other slot"),
                 ("g", "same, and allow a new major version"),
+                ("b b", "boot the other slot next (one-shot, asks twice)"),
                 ("x x", "roll back: boot the other slot next (asks twice)"),
             ] {
                 l.push(Line::from(vec![
@@ -665,7 +736,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 "Staged updates apply on the next reboot; a boot that never reaches `wayang mark-ok` falls back on its own.",
                 t.fg(t.dim),
             )));
-            ("UPDATES", l)
+            ("UPDATES", l, gauge)
         }
         Module::Network => {
             let prim = d.ifaces.iter().find(|i| i.primary);
@@ -693,7 +764,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             }
             l.push(Line::from(""));
             l.push(hint(format!("enter {arrow} uplink: DHCP or static, IPv4/IPv6"), t));
-            ("NETWORK", l)
+            ("NETWORK", l, None)
         }
         Module::Wifi => {
             let radios: Vec<&net::Iface> = d.ifaces.iter().filter(|i| i.wireless).collect();
@@ -704,7 +775,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 Line::from(""),
                 hint(format!("enter {arrow} scan and connect"), t),
             ];
-            ("WIFI", l)
+            ("WIFI", l, None)
         }
         Module::Dcheck => {
             let c = &d.dcheck;
@@ -727,7 +798,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     l.push(Line::from(Span::styled("dcheck ships at /usr/bin/dcheck.", t.fg(t.dim))));
                 }
             }
-            ("DCHECK", l)
+            ("DCHECK", l, None)
         }
         Module::Ssh => {
             let n = d.ssh_keys;
@@ -739,7 +810,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 Line::from(""),
                 hint(format!("enter {arrow} manage SSH keys"), t),
             ];
-            ("SSH", l)
+            ("SSH", l, None)
         }
         Module::Firewall | Module::Router => {
             let fw = m == Module::Firewall;
@@ -785,11 +856,42 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     l.push(Line::from(Span::styled(format!("Copy {name} to /data/bin/{name} (survives updates)."), t.fg(t.dim))));
                 }
             }
-            (if fw { "FIREWALL" } else { "ROUTER" }, l)
+            (if fw { "FIREWALL" } else { "ROUTER" }, l, None)
         }
     };
     let inner = hud::panel(f, area, title, t);
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    let wrap = Wrap { trim: false };
+    match gauge {
+        None => f.render_widget(Paragraph::new(lines).wrap(wrap), inner),
+        Some((at, ratio, label)) => {
+            let at = at.min(inner.height as usize) as u16;
+            if at > 0 {
+                let prefix: Vec<Line> = lines.iter().take(at as usize).cloned().collect();
+                f.render_widget(Paragraph::new(prefix).wrap(wrap), Rect { height: at, ..inner });
+            }
+            if at < inner.height {
+                let bar = Rect { x: inner.x, y: inner.y + at, width: inner.width, height: 1 };
+                f.render_widget(
+                    Gauge::default()
+                        .ratio(ratio)
+                        .label(label)
+                        .style(t.fg(t.dim))
+                        .gauge_style(t.bold(t.accent2)),
+                    bar,
+                );
+            }
+            let below = at + 1;
+            if below < inner.height {
+                let suffix: Vec<Line> = lines.iter().skip(at as usize).cloned().collect();
+                if !suffix.is_empty() {
+                    f.render_widget(
+                        Paragraph::new(suffix).wrap(wrap),
+                        Rect { y: inner.y + below, height: inner.height - below, ..inner },
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn draw_help(f: &mut Frame, body: Rect, app: &App) {
@@ -811,6 +913,7 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         key("c", "check for an update"),
         key("u", "update (same major version)"),
         key("g", "upgrade (may cross a major version)"),
+        key("b  b", "boot the other slot next (one-shot)"),
         key("x  x", "roll back to the other slot"),
         caption("SCREENS", t),
         key("q", "back to this deck (network, wifi, ssh, fw, router)"),
@@ -872,12 +975,18 @@ pub fn demo_states() -> Vec<DemoState> {
                 app.sel = 1;
                 let (tx, rx) = mpsc::channel();
                 std::mem::forget(tx);
+                let progress = update::Progress::new();
+                progress.set_total(8_000_000);
+                progress.set(6_000_000);
+                let started = Instant::now()
+                    .checked_sub(std::time::Duration::from_secs(4))
+                    .unwrap_or_else(Instant::now);
                 app.job = Some(Job {
                     label: "Updating".into(),
                     rx,
-                    check: false,
-                    rollback: false,
-                    started: Instant::now(),
+                    kind: JobKind::Update,
+                    progress: Some(progress),
+                    started,
                 });
                 app.message = Some((Tone::Warn, "Updating…".into()));
             }),
@@ -1052,6 +1161,35 @@ mod tests {
     }
 
     #[test]
+    fn boot_other_asks_twice_then_stages() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('2'));
+        key(&mut app, KeyCode::Char('b'));
+        assert!(app.armed_other);
+        assert!(app.job.is_none(), "the first b only arms");
+        let msg = app.message.as_ref().unwrap().1.clone();
+        assert!(msg.contains("again") && msg.contains("one-shot"), "{msg}");
+        // any other key disarms
+        key(&mut app, KeyCode::Down);
+        assert!(!app.armed_other);
+        key(&mut app, KeyCode::Up);
+        key(&mut app, KeyCode::Char('b'));
+        key(&mut app, KeyCode::Char('b'));
+        assert!(!app.armed_other);
+        assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("staging boot"), "{:?}", app.message);
+    }
+
+    #[test]
+    fn boot_other_does_not_disturb_rollback_arming() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('2'));
+        key(&mut app, KeyCode::Char('b'));
+        assert!(app.armed_other && !app.armed);
+        key(&mut app, KeyCode::Char('x'));
+        assert!(app.armed && !app.armed_other);
+    }
+
+    #[test]
     fn deck_opens_screens_and_back() {
         let mut app = App::new(true);
         key(&mut app, KeyCode::Char('3'));
@@ -1097,22 +1235,67 @@ mod tests {
     }
 
     #[test]
-    fn running_update_shows_progress_and_elapsed() {
+    fn running_update_shows_determinate_gauge() {
         let mut app = App::new(true);
         app.sel = 1;
         let (tx, rx) = mpsc::channel();
         std::mem::forget(tx);
+        let progress = update::Progress::new();
+        progress.set_total(8_000_000);
+        progress.set(4_000_000);
         app.job = Some(Job {
             label: "Updating".into(),
             rx,
-            check: false,
-            rollback: false,
+            kind: JobKind::Update,
+            progress: Some(progress),
             started: Instant::now(),
         });
         let text = render(&app, 120, 36).unwrap();
         assert!(text.contains("PROGRESS"), "{text}");
         assert!(text.contains("RUNNING"), "{text}");
         assert!(text.contains("Updating"), "{text}");
+        assert!(text.contains("50%"), "the gauge shows the real percent:\n{text}");
+        assert!(text.contains("MB/s"), "the gauge shows the rate:\n{text}");
+    }
+
+    #[test]
+    fn running_update_without_bytes_falls_back_to_the_bar() {
+        let mut app = App::new(true);
+        app.sel = 1;
+        let (tx, rx) = mpsc::channel();
+        std::mem::forget(tx);
+        app.job = Some(Job {
+            label: "Checking for updates".into(),
+            rx,
+            kind: JobKind::Check,
+            progress: None,
+            started: Instant::now(),
+        });
+        let text = render(&app, 120, 36).unwrap();
+        assert!(text.contains("PROGRESS"), "{text}");
+        assert!(text.contains('█') && text.contains('░'), "indeterminate sweep is drawn:\n{text}");
+        assert!(!text.contains('%'), "no percent when the total is unknown:\n{text}");
+    }
+
+    #[test]
+    fn job_progress_formats_percent_rate_and_elapsed() {
+        let (tx, rx) = mpsc::channel();
+        std::mem::forget(tx);
+        let progress = update::Progress::new();
+        progress.set_total(1_000_000);
+        progress.set(250_000);
+        let job = Job {
+            label: "Updating".into(),
+            rx,
+            kind: JobKind::Update,
+            progress: Some(progress),
+            started: Instant::now(),
+        };
+        let (ratio, label) = job_progress(&job).unwrap();
+        assert!((ratio - 0.25).abs() < 1e-9);
+        assert!(label.contains("25%"), "{label}");
+        assert!(label.contains("/s"), "{label}");
+        assert!(label.ends_with('s'), "elapsed is shown: {label}");
     }
 
     #[test]

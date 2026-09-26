@@ -122,6 +122,25 @@ pub fn rollback(boot: &BootRoot) -> Result<Slot> {
     Ok(target)
 }
 
+/// `wayang update --boot-other`: point the next boot at the idle slot, whatever
+/// it holds. This is a one-shot switch: `wayang_good` is untouched (and seeded
+/// to the running slot if it was never set), so a slot that never reaches
+/// `wayang mark-ok` still falls back after the attempt budget. Nothing is
+/// applied or committed.
+pub fn stage_other(boot: &BootRoot) -> Result<Slot> {
+    let mut store = state_store(boot)?;
+    let current = slot::running_slot().unwrap_or_else(|| slot::staged_slot(&store));
+    let target = current.idle();
+    if store.get("wayang_good").is_none() {
+        store.set("wayang_good", current.as_str());
+    }
+    store.set("wayang_prev", current.as_str());
+    store.set("wayang_slot", target.as_str());
+    store.set("wayang_attempts", "0");
+    store.save().map_err(AppError::err)?;
+    Ok(target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,6 +270,54 @@ mod tests {
     fn rollback_errors_without_target() {
         let (dir, boot) = boot_dir();
         assert_eq!(rollback(&boot).unwrap_err().code, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_other_switches_to_the_idle_slot_and_keeps_good() {
+        let (dir, boot) = boot_dir();
+        let mut env = GrubEnv::default();
+        env.set("wayang_slot", "A");
+        env.set("wayang_good", "A");
+        env.set("wayang_attempts", "2");
+        env.write(&dir.join("grub/grubenv")).unwrap();
+
+        // no `wayang.slot=` on this host, so the staged slot is the baseline
+        assert_eq!(stage_other(&boot).unwrap(), Slot::B);
+        let env = GrubEnv::read(&dir.join("grub/grubenv")).unwrap();
+        assert_eq!(env.get("wayang_slot"), Some("B"));
+        assert_eq!(env.get("wayang_prev"), Some("A"));
+        assert_eq!(env.get("wayang_attempts"), Some("0"), "attempt budget resets for the new slot");
+        assert_eq!(env.get("wayang_good"), Some("A"), "fallback target is preserved");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_other_seeds_good_when_missing() {
+        let (dir, boot) = boot_dir();
+        let mut env = GrubEnv::default();
+        env.set("wayang_slot", "A");
+        env.write(&dir.join("grub/grubenv")).unwrap();
+
+        assert_eq!(stage_other(&boot).unwrap(), Slot::B);
+        let env = GrubEnv::read(&dir.join("grub/grubenv")).unwrap();
+        assert_eq!(env.get("wayang_good"), Some("A"), "running slot becomes the fallback");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_other_on_arm_vars_backend() {
+        let (dir, boot) = boot_dir();
+        let mut vars = VarsFile::default();
+        vars.set("wayang_slot", "B");
+        vars.set("wayang_good", "A");
+        vars.write(&dir.join("wayang/vars")).unwrap();
+
+        assert_eq!(stage_other(&boot).unwrap(), Slot::A);
+        let vars = VarsFile::read(&dir.join("wayang/vars")).unwrap();
+        assert_eq!(vars.get("wayang_slot"), Some("A"));
+        assert_eq!(vars.get("wayang_prev"), Some("B"));
+        assert_eq!(vars.get("wayang_good"), Some("A"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

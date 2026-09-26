@@ -2,9 +2,11 @@
 //! persistence to `/data/etc/ssh/authorized_keys` (survives updates) plus the
 //! live `/root/.ssh/authorized_keys`.
 //!
-//! Mirrors `installer/src/keys.rs` and `wayang-addkey`
-//! (scripts/build-rootfs.sh), so all three accept the same lines and reject the
-//! same junk.
+//! This is the single implementation of key validation/fetch/format: the
+//! console SSH screen (`sshkeysui.rs`) and the `wayang addkey` CLI both use it,
+//! and `wayang-addkey` (scripts/build-rootfs.sh) is a thin wrapper over
+//! `wayang addkey`. (The installer is a separate pre-boot binary and keeps its
+//! own copy.)
 
 use std::fs;
 use std::path::Path;
@@ -176,6 +178,63 @@ pub fn save_add(keys: &[SshKey]) -> Result<usize, String> {
     let added = append_file(&paths::ssh_authorized_keys(), keys)?;
     append_file(&paths::root_authorized_keys(), keys)?;
     Ok(added)
+}
+
+const ADDKEY_HELP: &str = "\
+wayang-addkey — let an SSH public key log in as root.
+  wayang-addkey github:USER | gitlab:USER    keys published on GitHub/GitLab
+  wayang-addkey FILE                          a .pub or authorized_keys file
+  wayang-addkey 'ssh-ed25519 AAAA... you@laptop'";
+
+/// Resolve a `wayang addkey` argument to validated keys without writing:
+/// `github:USER` / `gitlab:USER`, an existing FILE, or a literal key line.
+pub fn resolve_addkey(spec: &str) -> Result<Vec<SshKey>, String> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Err("no SSH public key found".into());
+    }
+    if spec.starts_with("github:") || spec.starts_with("gitlab:") {
+        fetch_remote(spec, false)
+    } else if Path::new(spec).is_file() {
+        let text = fs::read_to_string(spec).map_err(|e| format!("{spec}: {e}"))?;
+        Ok(parse_all(&text, "file"))
+    } else {
+        Ok(parse_all(spec, "typed"))
+    }
+}
+
+/// `wayang addkey`: the one implementation behind `wayang-addkey` and the SSH
+/// screen. Returns a process exit code.
+pub fn addkey_cmd(spec: &str) -> Result<i32, String> {
+    let spec = spec.trim();
+    if spec.is_empty() || matches!(spec, "-h" | "--help") {
+        println!("{ADDKEY_HELP}");
+        return Ok(if spec.is_empty() { 1 } else { 0 });
+    }
+    let keys = resolve_addkey(spec)?;
+    if keys.is_empty() {
+        return Err("no SSH public key found".into());
+    }
+    let added = save_add(&keys)?;
+    if added == 0 {
+        crate::outln!("already authorized");
+    } else if data_persistent() {
+        crate::outln!("authorized {added} new key(s), saved in /data");
+    } else {
+        crate::outln!("authorized {added} new key(s) until reboot (no /data)");
+    }
+    Ok(0)
+}
+
+/// Whether `/data` is a separate persistent mount (not the tmpfs root, where a
+/// key would only last until reboot).
+fn data_persistent() -> bool {
+    if paths::root().is_some() {
+        return true;
+    }
+    fs::read_to_string("/proc/mounts")
+        .map(|m| m.lines().any(|l| l.split_whitespace().nth(1) == Some("/data")))
+        .unwrap_or(false)
 }
 
 /// Remove every line whose key blob matches `blob` from both files.
@@ -362,5 +421,23 @@ mod tests {
         let keys = demo();
         assert_eq!(keys.len(), 2);
         assert!(keys.iter().all(|k| !k.fingerprint().is_empty()));
+    }
+
+    #[test]
+    fn resolve_addkey_accepts_literal_and_file() {
+        assert_eq!(resolve_addkey(ED).unwrap().len(), 1);
+        let dir = tmpdir();
+        let f = dir.join("id_ed25519.pub");
+        fs::write(&f, format!("{ED}\n")).unwrap();
+        assert_eq!(resolve_addkey(&f.to_string_lossy()).unwrap().len(), 1);
+        assert!(resolve_addkey("not a key").unwrap().is_empty());
+        assert!(resolve_addkey("").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn addkey_cmd_rejects_junk_before_writing() {
+        assert_eq!(addkey_cmd("").unwrap(), 1, "no argument prints usage");
+        assert!(addkey_cmd("not a key").is_err());
     }
 }
