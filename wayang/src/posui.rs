@@ -201,9 +201,9 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Min(10),
-            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Length(1),
         ])
         .split(area);
@@ -229,27 +229,23 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         ],
         t,
     );
+    let mut keys = keys;
+    keys.spans.insert(0, Span::raw(" "));
     f.render_widget(Paragraph::new(keys), rows[3]);
 }
 
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "POS KIOSK", t);
     let st = &app.status;
-    let (color, text) = if !st.installed() {
-        (t.warn, "no binary installed")
+    let (color, sym, text) = if !st.installed() {
+        (t.warn, t.g.warn, "NOT INSTALLED")
     } else if st.running {
-        (t.ok, "running")
+        (t.ok, t.g.ok, "RUNNING")
     } else {
-        (t.dim, "stopped")
+        (t.dim, t.g.none, "STOPPED")
     };
-    let line = Line::from(vec![
-        Span::styled(t.g.brand, t.bold(t.accent2)),
-        Span::styled(" wayang-pos ", t.bold(t.accent)),
-        Span::styled(text, t.fg(color)),
-        Span::styled("   userspace-only; policy in /data/etc/pos.conf", t.fg(t.dim)),
-    ]);
-    f.render_widget(Paragraph::new(line).wrap(Wrap { trim: true }), inner);
+    let right = vec![hud::badge(color, sym, &format!("WAYANG-POS {text}"), t), Span::raw(" ")];
+    hud::header_bar(f, area, "POS KIOSK", "", right, t);
 }
 
 fn draw_service(f: &mut Frame, area: Rect, app: &App) {
@@ -273,18 +269,18 @@ fn draw_service(f: &mut Frame, area: Rect, app: &App) {
         t.fg(if st.allow_exit { t.ok } else { t.warn }),
     );
     let lines = vec![
-        hud::field("binary", 10, vec![bin], t),
-        hud::field("state", 10, vec![state], t),
-        hud::field("autostart", 10, vec![autostart], t),
-        hud::field("exit", 10, vec![exit], t),
+        hud::field("BINARY", 10, vec![bin], t),
+        hud::field("STATE", 10, vec![state], t),
+        hud::field("AUTOSTART", 10, vec![autostart], t),
+        hud::field("EXIT", 10, vec![exit], t),
         hud::field(
-            "config",
+            "CONFIG",
             10,
             vec![Span::styled(pos::conf_file().display().to_string(), t.fg(t.dim))],
             t,
         ),
         hud::field(
-            "log",
+            "LOG",
             10,
             vec![Span::styled(st.log.display().to_string(), t.fg(t.dim))],
             t,
@@ -336,29 +332,8 @@ fn draw_policy(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_result(f: &mut Frame, area: Rect, app: &App, tick: usize) {
-    let t = &app.t;
-    let inner = hud::panel(f, area, "RESULT", t);
-    let spinner = ["|", "/", "-", "\\"][tick % 4];
-    let line = match &app.message {
-        Some((tone, text)) => {
-            let (color, sym) = match tone {
-                Tone::Ok => (t.ok, t.g.ok),
-                Tone::Warn => (t.warn, t.g.warn),
-                Tone::Bad => (t.bad, t.g.bad),
-            };
-            let lead = if app.busy() { format!("{spinner} ") } else { String::new() };
-            Line::from(vec![
-                Span::styled(lead, t.bold(t.accent2)),
-                hud::badge(color, sym, &text.to_uppercase(), t),
-                Span::styled(format!(" {text}"), t.fg(t.fg)),
-            ])
-        }
-        None => Line::from(Span::styled(
-            "s start, t stop, a autostart, x exit policy.",
-            t.fg(t.dim),
-        )),
-    };
-    f.render_widget(Paragraph::new(line), inner);
+    let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
+    hud::status_row(f, area, msg, app.busy().then(|| hud::spinner(tick)), "s start, t stop, a autostart, x exit policy.", &app.t);
 }
 
 #[cfg(test)]

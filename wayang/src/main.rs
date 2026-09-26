@@ -61,7 +61,7 @@ usage:
   wayang sign   --key FILE [--keyid NAME] MANIFEST.json
   wayang verify FILE.wup [--esp DEV]
   wayang mark-ok [--esp DEV]
-  wayang --demo [--screens DIR] [--size COLSxROWS]   render HUD screens to text
+  wayang --demo [--screens DIR [--svg]] [--size COLSxROWS]   render HUD screens (text, SVG)
 
 env:
   WAYANG_ESP        ESP partition device override
@@ -178,7 +178,7 @@ fn demo_mode(args: &[String]) -> Option<ExitCode> {
 
     let result = if flag("--screens") {
         match value("--screens") {
-            Some(dir) => tui::dump_screens(&dir, &size),
+            Some(dir) => tui::dump_screens(&dir, &size, flag("--svg")),
             None => Err("--screens needs a directory".to_string()),
         }
     } else if flag("--demo") {

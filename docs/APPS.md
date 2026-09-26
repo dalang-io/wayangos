@@ -43,6 +43,12 @@ Count: **11 promoted, ~2 with source here** (POS + Viewer/deprecated), plus
   private repo `dalang-io/wayang-fw`; deployed to `/data/bin/wayang-fw`. The OS
   provides the kernel nftables support, `/usr/sbin/nft` (`scripts/build-nft.sh`)
   and the boot loader `/etc/init.d/fw`.
+- **wayang-router** — router (interfaces, VLANs, bridges, routes, DHCP server,
+  commit-confirm, config as code, dcheck-style HUD). Source: private repo
+  `dalang-io/wayang-router`; deployed to `/data/bin/wayang-router`. The OS
+  provides the kernel options (802.1Q, bridge, …), the BusyBox tools and
+  `/etc/init.d/router`, which `/etc/init.d/network` defers to once a config is
+  confirmed. Both apps open from the `wayang` console (06 FIREWALL, 07 ROUTER).
 - **dcheck** — `scripts/fetch-dcheck.sh` downloads the signed release binary
   (x86_64-unknown-linux-musl) from `https://wayang.dalang.io/dcheck` into
   `$BUILD/dcheck/dcheck`; `build-rootfs.sh` installs it to `/usr/bin/dcheck`.

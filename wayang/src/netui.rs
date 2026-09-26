@@ -5,7 +5,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -353,9 +353,9 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Min(10),
-            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Length(1),
         ])
         .split(area);
@@ -377,17 +377,19 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let keys = hud::keycaps(
         &[
             ("↑↓", "pick"),
-            ("m", "dhcp/static"),
+            ("m", "mode"),
             ("f", "family"),
             ("1-6", "edit"),
-            ("u/d", "link up/down"),
-            ("h", "dhcp here"),
+            ("u/d", "link"),
+            ("h", "dhcp now"),
             ("enter", "apply"),
             ("r", "refresh"),
             ("q", "back"),
         ],
         t,
     );
+    let mut keys = keys;
+    keys.spans.insert(0, Span::raw(" "));
     f.render_widget(Paragraph::new(keys), rows[3]);
 
     if let Some((_, input)) = &app.input {
@@ -397,13 +399,10 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "NETWORK", t);
-    let line = Line::from(vec![
-        Span::styled(t.g.brand, t.bold(t.accent2)),
-        Span::styled(" uplink", t.bold(t.accent)),
-        Span::styled("  persists /data/etc/network/{primary,config}", t.fg(t.dim)),
-    ]);
-    f.render_widget(Paragraph::new(line).wrap(Wrap { trim: true }), inner);
+    let right = vec![
+        Span::styled("persists /data/etc/network  ", t.fg(t.dim)),
+    ];
+    hud::header_bar(f, area, "NETWORK", "", right, t);
 }
 
 fn iface_line(iface: &net::Iface, selected: bool, t: &Theme) -> Line<'static> {
@@ -541,29 +540,8 @@ fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str) -> Line<'
 }
 
 fn draw_result(f: &mut Frame, area: Rect, app: &App, tick: usize) {
-    let t = &app.t;
-    let inner = hud::panel(f, area, "RESULT", t);
-    let spinner = ["|", "/", "-", "\\"][tick % 4];
-    let line = match &app.message {
-        Some((tone, text)) => {
-            let (color, sym) = match tone {
-                Tone::Ok => (t.ok, t.g.ok),
-                Tone::Warn => (t.warn, t.g.warn),
-                Tone::Bad => (t.bad, t.g.bad),
-            };
-            let lead = if app.busy() { format!("{spinner} ") } else { String::new() };
-            Line::from(vec![
-                Span::styled(lead, t.bold(t.accent2)),
-                hud::badge(color, sym, &text.to_uppercase(), t),
-                Span::styled(format!(" {text}"), t.fg(t.fg)),
-            ])
-        }
-        None => Line::from(Span::styled(
-            "Pick an interface, then enter to apply.",
-            t.fg(t.dim),
-        )),
-    };
-    f.render_widget(Paragraph::new(line), inner);
+    let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
+    hud::status_row(f, area, msg, app.busy().then(|| hud::spinner(tick)), "Pick an interface, then enter to apply.", &app.t);
 }
 
 /// Run the screen on the real terminal.

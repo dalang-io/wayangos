@@ -31,6 +31,10 @@ pub struct Glyphs {
     pub warn: &'static str,
     pub bad: &'static str,
     pub brand: &'static str,
+    /// Header bar mark (dcheck: `◢◤`).
+    pub mark: &'static str,
+    /// Not applicable / not installed.
+    pub none: &'static str,
     pub ellipsis: char,
 }
 
@@ -55,6 +59,8 @@ pub const FANCY: Glyphs = Glyphs {
     warn: "▲",
     bad: "✖",
     brand: "▰",
+    mark: "◢◤",
+    none: "·",
     ellipsis: '…',
 };
 
@@ -68,6 +74,8 @@ pub const CONSOLE: Glyphs = Glyphs {
     warn: "▲",
     bad: "x",
     brand: "■",
+    mark: "■",
+    none: "-",
     ellipsis: '~',
 };
 
@@ -235,6 +243,94 @@ impl Theme {
             out
         }
     }
+}
+
+/// Outcome colour of a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    Ok,
+    Warn,
+    Bad,
+}
+
+impl Theme {
+    pub fn tone(&self, tone: Tone) -> (Color, &'static str) {
+        match tone {
+            Tone::Ok => (self.ok, self.g.ok),
+            Tone::Warn => (self.warn, self.g.warn),
+            Tone::Bad => (self.bad, self.g.bad),
+        }
+    }
+
+    /// Module status symbol + colour; `None` = not applicable.
+    pub fn sev(&self, tone: Option<Tone>) -> Span<'static> {
+        match tone {
+            Some(t) => {
+                let (c, sym) = self.tone(t);
+                Span::styled(sym, self.bold(c))
+            }
+            None => Span::styled(self.g.none, self.fg(self.dim)),
+        }
+    }
+}
+
+/// dcheck's one-row header bar: ` ◢◤ WAYANG OS // SECTION  vX` on the left,
+/// `right` (state badges, host) right-aligned. Parts that don't fit are dropped
+/// from the left side first.
+pub fn header_bar(f: &mut Frame, area: Rect, section: &str, version: &str, right: Vec<Span<'static>>, t: &Theme) {
+    let bar = match t.bar {
+        Some(bg) => t.base().bg(bg),
+        None => t.base(),
+    };
+    f.render_widget(Block::default().style(bar), area);
+    let mut left = vec![
+        Span::styled(format!(" {} ", t.g.mark), t.fg(t.accent2)),
+        Span::styled("WAYANG OS", t.bold(t.accent)),
+    ];
+    let right = Line::from(right);
+    let width = area.width as usize;
+    let used = |l: &[Span]| l.iter().map(|s| s.width()).sum::<usize>();
+    let sub = Span::styled(format!(" // {section}"), t.fg(t.dim));
+    if used(&left) + sub.width() + right.width() < width {
+        left.push(sub);
+    }
+    let ver = Span::styled(format!("  v{version}"), t.fg(t.dim));
+    if !version.is_empty() && used(&left) + ver.width() + right.width() < width {
+        left.push(ver);
+    }
+    let rw = (right.width() as u16).min(area.width);
+    let l = Rect { width: area.width.saturating_sub(rw), ..area };
+    let r = Rect { x: area.x + area.width - rw, width: rw, ..area };
+    f.render_widget(ratatui::widgets::Paragraph::new(Line::from(left)).style(bar), l);
+    f.render_widget(ratatui::widgets::Paragraph::new(right).style(bar), r);
+}
+
+/// One status row above the keycaps: spinner while busy, then the last
+/// message as a badge + text, or a dim hint when there is none.
+pub fn status_row(f: &mut Frame, area: Rect, message: Option<(Tone, &str)>, busy: Option<&str>, idle: &str, t: &Theme) {
+    let mut spans = vec![Span::raw(" ")];
+    if let Some(sp) = busy {
+        spans.push(Span::styled(format!("{sp} "), t.bold(t.accent2)));
+    }
+    match message {
+        Some((tone, text)) => {
+            let (color, sym) = t.tone(tone);
+            let label = match tone {
+                Tone::Ok => "OK",
+                Tone::Warn => "NOTE",
+                Tone::Bad => "ERROR",
+            };
+            spans.push(badge(color, sym, label, t));
+            spans.push(Span::styled(format!(" {text}"), t.fg(t.fg)));
+        }
+        None => spans.push(Span::styled(idle.to_string(), t.fg(t.dim))),
+    }
+    f.render_widget(ratatui::widgets::Paragraph::new(Line::from(spans)), area);
+}
+
+/// Spinner frame for a tick (ASCII: works on the console font too).
+pub fn spinner(tick: usize) -> &'static str {
+    ["|", "/", "-", "\\"][tick % 4]
 }
 
 /// HUD panel: thin frame, accent corners, `◢ TITLE ◣`. Returns the inner area.

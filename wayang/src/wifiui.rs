@@ -5,7 +5,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::hud::{self, Theme};
@@ -266,9 +266,9 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Min(10),
-            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Length(1),
         ])
         .split(area);
@@ -298,6 +298,8 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         ],
         t,
     );
+    let mut keys = keys;
+    keys.spans.insert(0, Span::raw(" "));
     f.render_widget(Paragraph::new(keys), rows[3]);
 
     if let Some((_, input)) = &app.input {
@@ -307,7 +309,6 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "WIFI", t);
     let st = app.selected_link();
     let name = app.selected_iface().map(|i| i.name.clone()).unwrap_or_default();
     let (color, text) = if st.connected {
@@ -317,13 +318,11 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     } else {
         (t.dim, st.summary())
     };
-    let line = Line::from(vec![
-        Span::styled(t.g.brand, t.bold(t.accent2)),
-        Span::styled(format!(" {name} "), t.bold(t.accent)),
-        Span::styled(text, t.fg(color)),
-        Span::styled("   persists /data/etc/wpa_supplicant.conf", t.fg(t.dim)),
-    ]);
-    f.render_widget(Paragraph::new(line).wrap(Wrap { trim: true }), inner);
+    let right = vec![
+        Span::styled(format!("{name} "), t.bold(t.accent)),
+        Span::styled(format!("{text}  "), t.fg(color)),
+    ];
+    hud::header_bar(f, area, "WIFI", "", right, t);
 }
 
 fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
@@ -420,10 +419,10 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let mut lines = Vec::new();
     match app.bss.get(app.bss_sel) {
         Some(b) => {
-            lines.push(hud::field("ssid", 10, vec![Span::styled(b.ssid.clone(), t.bold(t.fg))], t));
-            lines.push(hud::field("bssid", 10, vec![Span::styled(b.bssid.clone(), t.fg(t.dim))], t));
+            lines.push(hud::field("SSID", 10, vec![Span::styled(b.ssid.clone(), t.bold(t.fg))], t));
+            lines.push(hud::field("BSSID", 10, vec![Span::styled(b.bssid.clone(), t.fg(t.dim))], t));
             lines.push(hud::field(
-                "signal",
+                "SIGNAL",
                 10,
                 vec![Span::styled(
                     b.signal.map(|s| format!("{s} dBm")).unwrap_or_else(|| "?".into()),
@@ -431,13 +430,13 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
                 )],
                 t,
             ));
-            lines.push(hud::field("security", 10, vec![Span::styled(b.security.clone(), t.fg(t.ok))], t));
+            lines.push(hud::field("SECURITY", 10, vec![Span::styled(b.security.clone(), t.fg(t.ok))], t));
         }
         None => lines.push(Line::from(Span::styled("no network selected", t.fg(t.dim)))),
     }
     lines.push(Line::raw(""));
     lines.push(hud::field(
-        "country",
+        "COUNTRY",
         8,
         vec![Span::styled(
             if app.country.is_empty() { "-".into() } else { app.country.clone() },
@@ -453,23 +452,8 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_result(f: &mut Frame, area: Rect, app: &App) {
-    let t = &app.t;
-    let inner = hud::panel(f, area, "RESULT", t);
-    let line = match &app.message {
-        Some((tone, text)) => {
-            let (color, sym) = match tone {
-                Tone::Ok => (t.ok, t.g.ok),
-                Tone::Warn => (t.warn, t.g.warn),
-                Tone::Bad => (t.bad, t.g.bad),
-            };
-            Line::from(vec![
-                hud::badge(color, sym, &text.to_uppercase(), t),
-                Span::styled(format!(" {text}"), t.fg(t.fg)),
-            ])
-        }
-        None => Line::from(Span::styled("Press s to scan.", t.fg(t.dim))),
-    };
-    f.render_widget(Paragraph::new(line), inner);
+    let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
+    hud::status_row(f, area, msg, None, "Press s to scan.", &app.t);
 }
 
 /// Run the screen on the real terminal.

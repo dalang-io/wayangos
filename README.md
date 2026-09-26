@@ -169,6 +169,34 @@ At boot `/etc/init.d/fw` loads the last **confirmed** ruleset from
 `/data/etc/fw/config.toml` *before* the network starts; an unconfirmed commit
 is discarded. Without `wayang-fw` or a config it does nothing.
 
+## Router
+
+The same kernel has 802.1Q VLANs, bridging, bonding, WireGuard, GRE/IPIP, VRF,
+IPsec (xfrm) and traffic shaping. [`wayang-router`](https://github.com/dalang-io/wayang-router)
+(private) configures interfaces, VLANs, bridges, addresses, static routes and
+the DHCP server from one TOML file (`check/plan/commit FILE` for config as
+code), again with commit-confirm and a dcheck-style HUD.
+
+```sh
+scp wayang-router root@box:/data/bin/
+wayang-router plan site.toml && wayang-router commit site.toml --confirm 120
+```
+
+Once a config is confirmed, `/etc/init.d/network` hands every interface to
+`wayang-router boot` (`/etc/init.d/router`) instead of its automatic DHCP
+uplink detection. Without a confirmed config nothing changes.
+
+## The `wayang` console
+
+`wayang` on a terminal opens the system console, which has the same HUD as
+dcheck, wayang-fw and wayang-router. It is a command deck with **01 SYSTEM**
+(A/B slots, boot state), **02 UPDATES** (`c` check, `u` update, `g` upgrade,
+`x x` rollback, run in the background), **03 NETWORK**, **04 WIFI** and
+**05 POS**, and **06 FIREWALL** / **07 ROUTER**, which open wayang-fw /
+wayang-router when they are installed. Number keys only jump, `?` lists every
+key and `q` goes back. `wayang --screens DIR --svg` renders every screen from
+demo data.
+
 ## Quick Start
 
 ```bash
