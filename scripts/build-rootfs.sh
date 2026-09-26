@@ -433,8 +433,13 @@ apply_static() {
         fi
         if [ -n "$IPV4_GATEWAY" ]; then
             route del default 2>/dev/null
-            if have_ip && ip route add default via "$IPV4_GATEWAY" dev "$i" 2>/dev/null; then
-                :
+            if have_ip; then
+                # A /32 lease leaves no connected route, so the gateway is
+                # unreachable until we add an on-link host route to it.
+                ip route add default via "$IPV4_GATEWAY" dev "$i" 2>/dev/null || {
+                    ip route add "$IPV4_GATEWAY" dev "$i" 2>/dev/null
+                    ip route add default via "$IPV4_GATEWAY" dev "$i" 2>/dev/null || true
+                }
             else
                 # BusyBox `route`: the interface is positional, no `dev` keyword
                 route add default gw "$IPV4_GATEWAY" "$i" 2>/dev/null || true
@@ -552,7 +557,11 @@ cat > "$ROOTFS/etc/udhcpc.script" << 'DHCP'
 #!/bin/sh
 case "$1" in
     bound|renew)
-        ifconfig "$interface" "$ip" netmask "$subnet" up
+        if [ -n "$subnet" ]; then
+            ifconfig "$interface" "$ip" netmask "$subnet" up
+        else
+            ifconfig "$interface" "$ip" up
+        fi
         # Only the primary interface owns the default route and DNS, so several
         # NICs can't fight over them.
         prim="$(tr -d '[:space:]' < /var/run/wayang-primary 2>/dev/null)"
@@ -561,13 +570,16 @@ case "$1" in
             if [ -n "$router" ]; then
                 route del default 2>/dev/null
                 for gw in $router; do
-                    # BusyBox `route` takes the interface positionally (no `dev`)
-                    if command -v ip >/dev/null 2>&1 && \
-                       ip route add default via "$gw" dev "$interface" 2>/dev/null; then
-                        :
-                    else
-                        route add default gw "$gw" "$interface" 2>/dev/null || true
+                    # A /32 lease (common in datacenters) has no connected route,
+                    # so add an on-link host route to the gateway before the
+                    # default route, or the kernel rejects it as unreachable.
+                    if command -v ip >/dev/null 2>&1; then
+                        ip route add default via "$gw" dev "$interface" 2>/dev/null && continue
+                        ip route add "$gw" dev "$interface" 2>/dev/null
+                        ip route add default via "$gw" dev "$interface" 2>/dev/null && continue
                     fi
+                    # BusyBox `route` takes the interface positionally (no `dev`)
+                    route add default gw "$gw" "$interface" 2>/dev/null || true
                 done
             fi
             : > /etc/resolv.conf
