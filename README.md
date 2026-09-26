@@ -152,11 +152,13 @@ uplink detection. Without a confirmed config nothing changes.
 `wayang` on a terminal opens the system console, which has the same HUD as
 dcheck, wayang-fw and wayang-router. It is a command deck with **01 SYSTEM**
 (A/B slots, boot state), **02 UPDATES** (`c` check, `u` update, `g` upgrade,
-`x x` rollback, run in the background), **03 NETWORK**, **04 WIFI**,
-**05 DCHECK** (opens the bundled storage-health app), and **06 FIREWALL** /
-**07 ROUTER**, which open wayang-fw / wayang-router when they are installed.
-Number keys only jump, `?` lists every key and `q` goes back.
-`wayang --screens DIR --svg` renders every screen from demo data.
+`x x` rollback, run in the background with a progress bar), **03 NETWORK**,
+**04 WIFI**, **05 SSH** (add/remove root `authorized_keys`; paste a key or
+`github:USER` / `gitlab:USER`), **06 DCHECK** (opens the bundled storage-health
+app), and **07 FIREWALL** / **08 ROUTER**, which open wayang-fw /
+wayang-router when they are installed. Number keys only jump, `?` lists every
+key and `q` goes back. `wayang --screens DIR --svg` renders every screen from
+demo data.
 
 ## Quick Start
 

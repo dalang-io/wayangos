@@ -371,21 +371,27 @@ pub fn valid_dns(s: &str, v6: bool) -> Result<(), String> {
 // ---- interface discovery ----------------------------------------------
 
 /// Interfaces from `/sys/class/net`, primary first, then link-up. `lo` is
-/// skipped; wireless interfaces are kept and flagged. IPv4 addresses are read
-/// from `ip`.
+/// skipped; wireless interfaces are kept and flagged. IPv4 addresses come from
+/// a single `ip -o -4 addr` call for every interface at once.
 pub fn list(primary: Option<&str>) -> Vec<Iface> {
-    scan_at(Path::new("/sys/class/net"), primary, &read_ipv4)
+    scan_at(Path::new("/sys/class/net"), primary, &read_ipv4_all)
 }
 
 /// Pure form of [`list`] with an explicit sysfs root and address reader, so
-/// the listing can be unit-tested against a fake sysfs.
-pub fn scan_at(root: &Path, primary: Option<&str>, read_ip: &dyn Fn(&str) -> Vec<String>) -> Vec<Iface> {
+/// the listing can be unit-tested against a fake sysfs. `read_addrs` is called
+/// exactly once regardless of how many interfaces exist.
+pub fn scan_at(
+    root: &Path,
+    primary: Option<&str>,
+    read_addrs: &dyn Fn() -> Vec<(String, Vec<String>)>,
+) -> Vec<Iface> {
     let Ok(entries) = fs::read_dir(root) else {
         return Vec::new();
     };
+    let addrs = read_addrs();
     let mut out: Vec<Iface> = entries
         .flatten()
-        .filter_map(|e| read_iface(&e.path(), primary, read_ip))
+        .filter_map(|e| read_iface(&e.path(), primary, &addrs))
         .collect();
     out.sort_by(|a, b| {
         b.primary
@@ -396,11 +402,7 @@ pub fn scan_at(root: &Path, primary: Option<&str>, read_ip: &dyn Fn(&str) -> Vec
     out
 }
 
-fn read_iface(
-    path: &Path,
-    primary: Option<&str>,
-    read_ip: &dyn Fn(&str) -> Vec<String>,
-) -> Option<Iface> {
+fn read_iface(path: &Path, primary: Option<&str>, addrs: &[(String, Vec<String>)]) -> Option<Iface> {
     let name = path.file_name()?.to_string_lossy().into_owned();
     if name == "lo" {
         return None;
@@ -425,6 +427,11 @@ fn read_iface(
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "-".into());
+    let ipv4 = addrs
+        .iter()
+        .find(|(n, _)| n == &name)
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
     Some(Iface {
         name: name.clone(),
         link,
@@ -432,7 +439,7 @@ fn read_iface(
         mac,
         wireless,
         primary: primary == Some(name.as_str()),
-        ipv4: read_ip(&name),
+        ipv4,
     })
 }
 
@@ -442,18 +449,40 @@ fn read_trim(path: &Path) -> Option<String> {
     (!s.is_empty()).then(|| s.to_string())
 }
 
-/// `ip -o -4 addr show dev <name>` → `inet 192.168.1.50/24`.
-fn read_ipv4(name: &str) -> Vec<String> {
-    let Ok(out) = sys::run("ip", &["-o", "-4", "addr", "show", "dev", name]) else {
+/// All IPv4 addresses from one `ip -o -4 addr` call, grouped by device.
+fn read_ipv4_all() -> Vec<(String, Vec<String>)> {
+    let Ok(out) = sys::run("ip", &["-o", "-4", "addr"]) else {
         return Vec::new();
     };
-    out.lines()
-        .filter_map(|l| {
-            let w: Vec<&str> = l.split_whitespace().collect();
-            let i = w.iter().position(|x| *x == "inet")?;
-            w.get(i + 1).map(|s| s.to_string())
-        })
-        .collect()
+    parse_ipv4_addrs(&out)
+}
+
+/// Parse `ip -o -4 addr` output into `(device, addresses)` groups.
+///
+/// Each line is `<idx>: <dev>    inet <addr>/<prefix> ...`; a device repeats
+/// once per address. Groups keep their first-seen order and `lo` is included
+/// (callers filter it by sysfs). The `@parent` suffix on veth/vlan names and
+/// the trailing `:` are stripped.
+pub fn parse_ipv4_addrs(output: &str) -> Vec<(String, Vec<String>)> {
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for line in output.lines() {
+        let mut words = line.split_whitespace();
+        let _idx = words.next();
+        let Some(name) = words.next() else { continue };
+        let name = name.trim_end_matches(':');
+        let name = name.split('@').next().unwrap_or(name);
+        if name.is_empty() {
+            continue;
+        }
+        let rest: Vec<&str> = words.collect();
+        let Some(i) = rest.iter().position(|w| *w == "inet") else { continue };
+        let Some(addr) = rest.get(i + 1) else { continue };
+        match groups.iter_mut().find(|(n, _)| n == name) {
+            Some((_, list)) => list.push(addr.to_string()),
+            None => groups.push((name.to_string(), vec![addr.to_string()])),
+        }
+    }
+    groups
 }
 
 /// The currently pinned interface, if any.
@@ -603,12 +632,8 @@ mod tests {
     #[test]
     fn lists_wired_and_wireless_with_primary_flag() {
         let root = fake_sysfs();
-        let ifaces = scan_at(&root, Some("wlan0"), &|name| {
-            if name == "eth0" {
-                vec!["192.168.1.50/24".into()]
-            } else {
-                Vec::new()
-            }
+        let ifaces = scan_at(&root, Some("wlan0"), &|| {
+            vec![("eth0".into(), vec!["192.168.1.50/24".into()])]
         });
         let names: Vec<&str> = ifaces.iter().map(|i| i.name.as_str()).collect();
         // lo and docker0 are skipped
@@ -629,6 +654,45 @@ mod tests {
 
     #[test]
     fn scan_at_missing_root_is_empty() {
-        assert!(scan_at(Path::new("/nonexistent-wayang-net"), None, &|_| Vec::new()).is_empty());
+        assert!(scan_at(Path::new("/nonexistent-wayang-net"), None, &|| Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn scan_at_reads_addresses_once() {
+        let root = fake_sysfs();
+        let calls = std::cell::Cell::new(0);
+        let ifaces = scan_at(&root, None, &|| {
+            calls.set(calls.get() + 1);
+            vec![("eth0".into(), vec!["10.0.0.2/24".into()])]
+        });
+        assert_eq!(calls.get(), 1, "one ip call for every interface");
+        assert_eq!(ifaces.len(), 2);
+        let _ = fs::remove_dir_all(root.parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn parse_groups_addresses_by_device() {
+        let out = "\
+1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever preferred_lft forever
+2: eth0    inet 192.168.1.50/24 brd 192.168.1.255 scope global dynamic eth0\\       valid_lft 86386sec preferred_lft 86386sec
+2: eth0    inet 10.0.0.5/24 scope global secondary eth0\\       valid_lft forever preferred_lft forever
+3: wlan0    inet 192.168.0.7/24 scope global wlan0\\       valid_lft forever preferred_lft forever
+4: eth0.10@eth0    inet 172.16.0.1/24 scope global eth0.10\\       valid_lft forever preferred_lft forever
+";
+        assert_eq!(
+            parse_ipv4_addrs(out),
+            vec![
+                ("lo".to_string(), vec!["127.0.0.1/8".to_string()]),
+                ("eth0".to_string(), vec!["192.168.1.50/24".to_string(), "10.0.0.5/24".to_string()]),
+                ("wlan0".to_string(), vec!["192.168.0.7/24".to_string()]),
+                ("eth0.10".to_string(), vec!["172.16.0.1/24".to_string()]),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_ignores_lines_without_inet() {
+        assert!(parse_ipv4_addrs("1: lo    inet6 ::1/128 scope host\n").is_empty());
+        assert!(parse_ipv4_addrs("").is_empty());
     }
 }

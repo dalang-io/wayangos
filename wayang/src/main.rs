@@ -21,6 +21,8 @@ mod paths;
 mod screen;
 mod sema;
 mod sign;
+mod sshkeys;
+mod sshkeysui;
 mod slot;
 mod staging;
 mod state;

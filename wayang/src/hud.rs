@@ -333,6 +333,23 @@ pub fn spinner(tick: usize) -> &'static str {
     ["|", "/", "-", "\\"][tick % 4]
 }
 
+/// Indeterminate progress bar: a short block that sweeps back and forth across
+/// `width` cells, driven by `tick`. Rendered with half/block glyphs so it reads
+/// on the console font as well as truecolour terminals.
+pub fn progress_bar(tick: usize, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let seg = 4.min(width);
+    let span = width - seg;
+    let period = if span == 0 { 1 } else { span * 2 };
+    let p = tick % period;
+    let start = if span == 0 || p <= span { p.min(span) } else { period - p };
+    (0..width)
+        .map(|i| if i >= start && i < start + seg { '█' } else { '░' })
+        .collect()
+}
+
 /// HUD panel: thin frame, accent corners, `◢ TITLE ◣`. Returns the inner area.
 pub fn panel(f: &mut Frame, area: Rect, title: &str, t: &Theme) -> Rect {
     let (l, r) = t.g.title;
@@ -486,5 +503,14 @@ mod tests {
         let p = Theme::new(Mode::Console, &CONSOLE).console_palette().unwrap();
         assert!(p.starts_with("\x1b]P00a0e14"));
         assert!(Theme::new(Mode::Neon, &FANCY).console_palette().is_none());
+    }
+
+    #[test]
+    fn progress_bar_sweeps() {
+        let a = progress_bar(0, 10);
+        assert_eq!(a.chars().count(), 10);
+        assert!(a.contains('█') && a.contains('░'));
+        assert_ne!(a, progress_bar(3, 10), "the block moves with the tick");
+        assert_eq!(progress_bar(0, 0), "");
     }
 }

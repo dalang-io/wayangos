@@ -49,6 +49,22 @@ pub fn wpa_conf_file() -> PathBuf {
     data_dir().join("etc/wpa_supplicant.conf")
 }
 
+/// `/data/etc/ssh` — root's persisted SSH keys (survives updates).
+pub fn ssh_dir() -> PathBuf {
+    data_dir().join("etc/ssh")
+}
+
+/// `/data/etc/ssh/authorized_keys` — the persistent source of truth; the boot
+/// script appends it to `/root/.ssh/authorized_keys`.
+pub fn ssh_authorized_keys() -> PathBuf {
+    ssh_dir().join("authorized_keys")
+}
+
+/// `/root/.ssh/authorized_keys` — the live file sshd reads this boot.
+pub fn root_authorized_keys() -> PathBuf {
+    under_root("root/.ssh/authorized_keys", "/root/.ssh/authorized_keys")
+}
+
 /// `/etc/resolv.conf` (relocated under `WAYANG_ROOT` for tests).
 pub fn resolv_conf() -> PathBuf {
     under_root("etc/resolv.conf", "/etc/resolv.conf")

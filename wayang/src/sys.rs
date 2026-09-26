@@ -57,6 +57,19 @@ pub fn which(prog: &str) -> bool {
     which_in(prog, std::env::var("PATH").unwrap_or_default().as_str())
 }
 
+/// Set a file/dir mode (Unix; silently ignored elsewhere).
+pub fn chmod(path: &std::path::Path, mode: u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+    }
+}
+
 /// Pure form of [`which`] for tests.
 pub fn which_in(prog: &str, path: &str) -> bool {
     if prog.contains('/') {

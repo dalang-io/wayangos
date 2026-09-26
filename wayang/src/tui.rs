@@ -4,7 +4,7 @@
 //! selected module on the right), a status row and keycaps.
 //!
 //! Modules: SYSTEM (slots, boot state), UPDATES (check / update / upgrade /
-//! rollback, run in the background), NETWORK and WIFI (sub-screens), and
+//! rollback, run in the background), NETWORK, WIFI and SSH (sub-screens), and
 //! FIREWALL / ROUTER, which hand the terminal to wayang-fw / wayang-router when
 //! they are installed. Number keys only jump; nothing that changes the system
 //! runs without its own key, and rollback asks twice.
@@ -17,6 +17,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::time::Instant;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -32,6 +33,8 @@ use crate::net;
 use crate::netui;
 use crate::paths;
 use crate::slot::{self, Slot};
+use crate::sshkeys;
+use crate::sshkeysui;
 use crate::status::{self, Status};
 use crate::ui;
 use crate::update;
@@ -43,17 +46,19 @@ pub enum Module {
     Updates,
     Network,
     Wifi,
+    Ssh,
     Dcheck,
     Firewall,
     Router,
 }
 
-/// Command-deck entries in order; `1`..`7` jump, `0` / EXIT quits.
-pub const MODULES: [(Module, &str); 7] = [
+/// Command-deck entries in order; `1`..`8` jump, `0` / EXIT quits.
+pub const MODULES: [(Module, &str); 8] = [
     (Module::System, "SYSTEM"),
     (Module::Updates, "UPDATES"),
     (Module::Network, "NETWORK"),
     (Module::Wifi, "WIFI"),
+    (Module::Ssh, "SSH"),
     (Module::Dcheck, "DCHECK"),
     (Module::Firewall, "FIREWALL"),
     (Module::Router, "ROUTER"),
@@ -63,9 +68,10 @@ pub const MODULES: [(Module, &str); 7] = [
 pub enum Sub {
     Net(netui::App),
     Wifi(wifiui::App),
+    Ssh(sshkeysui::App),
 }
 
-/// An installable companion app (wayang-fw, wayang-router).
+/// An installable companion app (wayang-fw, wayang-router, dcheck).
 #[derive(Debug, Clone, Default)]
 pub struct Companion {
     pub bin: Option<PathBuf>,
@@ -73,6 +79,8 @@ pub struct Companion {
     pub confirmed: bool,
     /// `pending.toml`: a commit waits for confirmation.
     pub pending: bool,
+    /// The app has no config concept at all (dcheck): installed is healthy.
+    pub configless: bool,
 }
 
 impl Companion {
@@ -82,13 +90,14 @@ impl Companion {
             .into_iter()
             .find(|p| p.is_file());
         let etc = data.join("etc").join(dir);
-        Companion { bin, confirmed: etc.join("config.toml").is_file(), pending: etc.join("pending.toml").is_file() }
+        Companion { bin, confirmed: etc.join("config.toml").is_file(), pending: etc.join("pending.toml").is_file(), configless: false }
     }
 
     fn tone(&self) -> Option<Tone> {
         match (&self.bin, self.pending, self.confirmed) {
             (None, _, _) => None,
             (Some(_), true, _) => Some(Tone::Bad),
+            (Some(_), false, _) if self.configless => Some(Tone::Ok),
             (Some(_), false, true) => Some(Tone::Ok),
             (Some(_), false, false) => Some(Tone::Warn),
         }
@@ -106,6 +115,8 @@ pub struct Deck {
     pub rt: Companion,
     pub dcheck: Companion,
     pub nft: bool,
+    /// Root's authorized keys (`/data` + live), for the SSH module tone.
+    pub ssh_keys: usize,
 }
 
 impl Deck {
@@ -119,8 +130,9 @@ impl Deck {
             wifi_saved: paths::wpa_conf_file().is_file(),
             fw: Companion::probe("wayang-fw", "fw"),
             rt: Companion::probe("wayang-router", "router"),
-            dcheck: Companion::probe("dcheck", "dcheck"),
+            dcheck: Companion { configless: true, ..Companion::probe("dcheck", "dcheck") },
             nft: Path::new("/usr/sbin/nft").is_file(),
+            ssh_keys: sshkeys::load().len(),
         }
     }
 
@@ -143,10 +155,11 @@ impl Deck {
                 i("wlan0", false, true, false, &[]),
             ],
             wifi_saved: false,
-            fw: Companion { bin: Some("/data/bin/wayang-fw".into()), confirmed: false, pending: false },
+            fw: Companion { bin: Some("/data/bin/wayang-fw".into()), confirmed: false, pending: false, configless: false },
             rt: Companion::default(),
-            dcheck: Companion { bin: Some("/usr/bin/dcheck".into()), confirmed: false, pending: false },
+            dcheck: Companion { bin: Some("/usr/bin/dcheck".into()), confirmed: false, pending: false, configless: true },
             nft: true,
+            ssh_keys: 2,
         }
     }
 }
@@ -166,6 +179,8 @@ pub struct Job {
     rx: mpsc::Receiver<Result<i32, String>>,
     check: bool,
     rollback: bool,
+    /// When the job started, for the elapsed-seconds readout.
+    started: Instant,
 }
 
 pub struct App {
@@ -226,6 +241,7 @@ impl App {
             match self.sub.as_mut() {
                 Some(Sub::Net(a)) => a.on_key(key),
                 Some(Sub::Wifi(a)) => a.on_key(key),
+                Some(Sub::Ssh(a)) => a.on_key(key),
                 None => {}
             }
             if self.sub_exited() {
@@ -249,7 +265,7 @@ impl App {
             }
             KeyCode::Enter => self.open(self.sel),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('0') => self.exit = true,
-            KeyCode::Char(c @ '1'..='7') => {
+            KeyCode::Char(c @ '1'..='8') => {
                 self.sel = c as usize - '1' as usize;
                 self.open(self.sel);
             }
@@ -281,6 +297,7 @@ impl App {
         match &self.sub {
             Some(Sub::Net(a)) => a.exit,
             Some(Sub::Wifi(a)) => a.exit,
+            Some(Sub::Ssh(a)) => a.exit,
             None => false,
         }
     }
@@ -309,6 +326,7 @@ impl App {
             Some(Module::Updates) => {}
             Some(Module::Network) => self.sub = Some(Sub::Net(netui::App::new(demo))),
             Some(Module::Wifi) => self.sub = Some(Sub::Wifi(wifiui::App::new(demo))),
+            Some(Module::Ssh) => self.sub = Some(Sub::Ssh(sshkeysui::App::new(demo))),
             Some(m @ (Module::Firewall | Module::Router)) => {
                 let (c, name) =
                     if m == Module::Firewall { (&self.deck.fw, "wayang-fw") } else { (&self.deck.rt, "wayang-router") };
@@ -344,7 +362,7 @@ impl App {
             let _ = tx.send(r);
         });
         self.message = Some((Tone::Warn, format!("{label}…")));
-        self.job = Some(Job { label: label.into(), rx, check, rollback });
+        self.job = Some(Job { label: label.into(), rx, check, rollback, started: Instant::now() });
     }
 
     /// Picks up a finished background job.
@@ -400,6 +418,7 @@ impl App {
             Module::Firewall => self.deck.fw.tone(),
             Module::Router => self.deck.rt.tone(),
             Module::Dcheck => self.deck.dcheck.tone(),
+            Module::Ssh => Some(if self.deck.ssh_keys > 0 { Tone::Ok } else { Tone::Warn }),
         }
     }
 }
@@ -436,6 +455,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         match sub {
             Sub::Net(a) => netui::draw(f, a, tick),
             Sub::Wifi(a) => wifiui::draw(f, a, tick),
+            Sub::Ssh(a) => sshkeysui::draw(f, a, tick),
         }
         return;
     }
@@ -470,7 +490,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     };
     draw_modules(f, left, app);
     if let Some(r) = right {
-        draw_card(f, r, app);
+        draw_card(f, r, app, tick);
     }
 
     let busy = app.job.as_ref().map(|_| hud::spinner(tick));
@@ -479,7 +499,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
     let keys: Vec<(&str, &str)> = match app.module() {
         Some(Module::Updates) => vec![("↑↓", "move"), ("c", "check"), ("u", "update"), ("g", "upgrade"), ("x", "rollback"), ("?", "help"), ("q", "quit")],
-        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-7", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
+        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-8", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
     };
     let mut line = hud::keycaps(&keys, t);
     line.spans.insert(0, Span::raw(" "));
@@ -545,7 +565,7 @@ fn status_field(tone: Option<Tone>, label: &str, t: &Theme) -> Line<'static> {
     hud::field("STATUS", 12, vec![span], t)
 }
 
-fn draw_card(f: &mut Frame, area: Rect, app: &App) {
+fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let t = &app.t;
     let arrow = if t.g.corners.is_some() { "▸" } else { ">" };
     let Some(m) = app.module() else {
@@ -609,9 +629,21 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App) {
                 field("INSTALLED", st.version.clone().unwrap_or_else(|| "unknown".into()), t),
                 field("CHANNEL", st.channel.clone(), t),
                 field("TARGET", format!("slot {} (the one not running)", st.active.idle().as_str()), t),
-                Line::from(""),
-                caption("ACTIONS", t),
             ];
+            if let Some(job) = &app.job {
+                l.push(Line::from(""));
+                l.push(caption("PROGRESS", t));
+                l.push(Line::from(vec![
+                    Span::styled(hud::progress_bar(tick, 24), t.bold(t.accent2)),
+                    Span::styled(format!("  {}s", job.started.elapsed().as_secs()), t.fg(t.dim)),
+                ]));
+                l.push(Line::from(Span::styled(
+                    format!("{} {}…", hud::spinner(tick), job.label),
+                    t.fg(t.warn),
+                )));
+            }
+            l.push(Line::from(""));
+            l.push(caption("ACTIONS", t));
             for (k, what) in [
                 ("c", "check the channel for a newer release"),
                 ("u", "download, verify and stage it in the other slot"),
@@ -624,6 +656,11 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App) {
                 ]));
             }
             l.push(Line::from(""));
+            if app.job.is_none() {
+                if let Some((_, m)) = &app.message {
+                    l.push(field("LAST", m.clone(), t));
+                }
+            }
             l.push(Line::from(Span::styled(
                 "Staged updates apply on the next reboot; a boot that never reaches `wayang mark-ok` falls back on its own.",
                 t.fg(t.dim),
@@ -676,6 +713,9 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App) {
                 status_field(tone, state, t),
                 field("APP", "dcheck: storage health (SMART, RAID/NVMe, fake-drive checks)", t),
             ];
+            if c.bin.is_some() {
+                l.push(field("CONFIG", "not needed: dcheck has no config", t));
+            }
             match &c.bin {
                 Some(b) => {
                     l.push(field("BINARY", b.display().to_string(), t));
@@ -688,6 +728,18 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App) {
                 }
             }
             ("DCHECK", l)
+        }
+        Module::Ssh => {
+            let n = d.ssh_keys;
+            let l = vec![
+                status_field(tone, if n > 0 { "AUTHORIZED" } else { "NO KEYS" }, t),
+                field("KEYS", format!("{n} authorized key(s) for root"), t),
+                field("STORED", "/data/etc/ssh/authorized_keys (survives updates)", t),
+                field("LIVE", "/root/.ssh/authorized_keys (this boot)", t),
+                Line::from(""),
+                hint(format!("enter {arrow} manage SSH keys"), t),
+            ];
+            ("SSH", l)
         }
         Module::Firewall | Module::Router => {
             let fw = m == Module::Firewall;
@@ -752,7 +804,7 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         caption("DECK", t),
         key("↑ ↓  j k", "move"),
         key("enter", "open the module"),
-        key("1 - 7", "jump to a module (01 system … 07 router)"),
+        key("1 - 8", "jump to a module (01 system … 08 router)"),
         key("r", "refresh everything"),
         key("q  0  esc", "quit"),
         caption("UPDATES", t),
@@ -761,7 +813,7 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         key("g", "upgrade (may cross a major version)"),
         key("x  x", "roll back to the other slot"),
         caption("SCREENS", t),
-        key("q", "back to this deck (network, wifi, fw, router)"),
+        key("q", "back to this deck (network, wifi, ssh, fw, router)"),
         Line::from(""),
         Line::from(Span::styled("  any key closes this reference", t.fg(t.dim))),
     ];
@@ -782,6 +834,7 @@ pub fn run() -> std::io::Result<()> {
             match app.sub.as_mut() {
                 Some(Sub::Net(a)) => a.poll_job(),
                 Some(Sub::Wifi(a)) => a.poll_tick(),
+                Some(Sub::Ssh(a)) => a.poll_job(),
                 None => {}
             }
         },
@@ -814,6 +867,22 @@ pub fn demo_states() -> Vec<DemoState> {
             }),
         ),
         (
+            "updates-running",
+            Box::new(|app: &mut App| {
+                app.sel = 1;
+                let (tx, rx) = mpsc::channel();
+                std::mem::forget(tx);
+                app.job = Some(Job {
+                    label: "Updating".into(),
+                    rx,
+                    check: false,
+                    rollback: false,
+                    started: Instant::now(),
+                });
+                app.message = Some((Tone::Warn, "Updating…".into()));
+            }),
+        ),
+        (
             "error",
             Box::new(|app: &mut App| {
                 app.error = Some("no ESP found (set WAYANG_ESP or pass --esp DEV)".into());
@@ -821,7 +890,7 @@ pub fn demo_states() -> Vec<DemoState> {
             }),
         ),
         ("deck-network", Box::new(|app: &mut App| app.sel = 2)),
-        ("deck-firewall", Box::new(|app: &mut App| app.sel = 5)),
+        ("deck-firewall", Box::new(|app: &mut App| app.sel = 6)),
         ("help", Box::new(|app: &mut App| app.help = true)),
         (
             "net",
@@ -839,6 +908,12 @@ pub fn demo_states() -> Vec<DemoState> {
             "wifi",
             Box::new(|app: &mut App| {
                 app.sub = Some(Sub::Wifi(wifiui::App::new(true)));
+            }),
+        ),
+        (
+            "ssh",
+            Box::new(|app: &mut App| {
+                app.sub = Some(Sub::Ssh(sshkeysui::App::new(true)));
             }),
         ),
     ]
@@ -898,6 +973,7 @@ fn set_theme(s: &mut Sub) {
     match s {
         Sub::Net(a) => a.t = t(),
         Sub::Wifi(a) => a.t = t(),
+        Sub::Ssh(a) => a.t = t(),
     }
 }
 
@@ -917,7 +993,23 @@ mod tests {
     fn deck_renders_like_dcheck() {
         let app = App::new(true);
         let text = render(&app, 120, 36).unwrap();
-        for s in ["WAYANG OS", "SYSTEM CONSOLE", "MODULES", "01 SYSTEM", "02 UPDATES", "05 DCHECK", "06 FIREWALL", "07 ROUTER", "00 EXIT", "A/B SLOTS", "1.4.1", "SLOT B"] {
+        for s in [
+            "WAYANG OS",
+            "SYSTEM CONSOLE",
+            "MODULES",
+            "01 SYSTEM",
+            "02 UPDATES",
+            "03 NETWORK",
+            "04 WIFI",
+            "05 SSH",
+            "06 DCHECK",
+            "07 FIREWALL",
+            "08 ROUTER",
+            "00 EXIT",
+            "A/B SLOTS",
+            "1.4.1",
+            "SLOT B",
+        ] {
             assert!(text.contains(s), "missing {s}:\n{text}");
         }
     }
@@ -970,18 +1062,57 @@ mod tests {
         assert!(matches!(app.sub, Some(Sub::Wifi(_))));
         key(&mut app, KeyCode::Char('q'));
         assert!(app.sub.is_none());
+        key(&mut app, KeyCode::Char('5'));
+        assert!(matches!(app.sub, Some(Sub::Ssh(_))));
+        key(&mut app, KeyCode::Char('q'));
+        assert!(app.sub.is_none());
     }
 
     #[test]
     fn companions_launch_or_explain() {
         let mut app = App::new(true);
-        key(&mut app, KeyCode::Char('7'));
+        key(&mut app, KeyCode::Char('8'));
         assert!(app.message.as_ref().unwrap().1.contains("not installed"));
         app.demo = false;
-        key(&mut app, KeyCode::Char('6'));
+        key(&mut app, KeyCode::Char('7'));
         assert_eq!(app.launch.as_deref(), Some(Path::new("/data/bin/wayang-fw")));
-        key(&mut app, KeyCode::Char('5'));
+        key(&mut app, KeyCode::Char('6'));
         assert_eq!(app.launch.as_deref(), Some(Path::new("/usr/bin/dcheck")));
+    }
+
+    #[test]
+    fn dcheck_is_green_when_installed_and_absent_is_none() {
+        let mut app = App::new(true);
+        assert_eq!(app.module_tone(Module::Dcheck), Some(Tone::Ok), "configless app reads healthy");
+        app.deck.dcheck = Companion::default();
+        assert_eq!(app.module_tone(Module::Dcheck), None, "absent: no symbol");
+        // a config-having companion still warns without config.toml
+        let fw = Companion {
+            bin: Some("/data/bin/wayang-fw".into()),
+            confirmed: false,
+            pending: false,
+            configless: false,
+        };
+        assert_eq!(fw.tone(), Some(Tone::Warn));
+    }
+
+    #[test]
+    fn running_update_shows_progress_and_elapsed() {
+        let mut app = App::new(true);
+        app.sel = 1;
+        let (tx, rx) = mpsc::channel();
+        std::mem::forget(tx);
+        app.job = Some(Job {
+            label: "Updating".into(),
+            rx,
+            check: false,
+            rollback: false,
+            started: Instant::now(),
+        });
+        let text = render(&app, 120, 36).unwrap();
+        assert!(text.contains("PROGRESS"), "{text}");
+        assert!(text.contains("RUNNING"), "{text}");
+        assert!(text.contains("Updating"), "{text}");
     }
 
     #[test]
