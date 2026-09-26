@@ -21,7 +21,7 @@ SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
 #   wayang/version      what the installed system reports (see `wayang status`)
 #   wayang/channel      stable | edge
 #   wayang/trusted_keys release signing keys, if any
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.9}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.10}"
 WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
 WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 
@@ -628,6 +628,8 @@ usage: wayang-net list
        wayang-net set <iface> dhcp [ipv4|ipv6|both]
        wayang-net set <iface> static --ipv4 A/P --ipv4-gw GW --ipv4-dns "D…"
                                       [--ipv6 A/P --ipv6-gw GW --ipv6-dns "D…"]
+       wayang-net up <iface> | down <iface>
+       wayang-net dhcp <iface>
        wayang-net auto
 EOF
 }
@@ -656,6 +658,24 @@ case "$1" in
             printf '%-12s %-8s %-12s %-16s %s\n' "$i" "$(link_of "$i")" "$(drv_of "$i")" "$(ip_of "$i")" "$note"
         done
         echo "default route: $(ip route show default 2>/dev/null | head -1)"
+        ;;
+    up|down)
+        i="$2"
+        [ -n "$i" ] && [ -d "/sys/class/net/$i" ] || { echo "usage: wayang-net $1 <iface>" >&2; exit 1; }
+        ifconfig "$i" "$1" || { echo "cannot set $i $1" >&2; exit 1; }
+        echo "$i: link $1"
+        ;;
+    dhcp)
+        i="$2"
+        [ -n "$i" ] && [ -d "/sys/class/net/$i" ] || { echo "usage: wayang-net dhcp <iface>" >&2; exit 1; }
+        # Pin the current primary so this lease can't take over the route/DNS
+        # (udhcpc.script only installs those on the primary interface).
+        prim="$(tr -d '[:space:]' < "$PRIMARY_FILE" 2>/dev/null)"
+        if [ ! -s "$PRIMARY_RUN" ] && [ -n "$prim" ]; then echo "$prim" > "$PRIMARY_RUN"; fi
+        ifconfig "$i" up 2>/dev/null
+        udhcpc -n -q -t 5 -T 3 -i "$i" -s /etc/udhcpc.script || { echo "no DHCP lease on $i" >&2; exit 1; }
+        udhcpc -b -i "$i" -s /etc/udhcpc.script >/dev/null 2>&1
+        echo "$i: DHCP lease $(ip_of "$i") (primary unchanged)"
         ;;
     use)
         i="$2"

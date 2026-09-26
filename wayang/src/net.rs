@@ -259,6 +259,48 @@ impl NetChoice {
     }
 }
 
+/// Bring `iface` up or down (link only; no address change).
+pub fn set_link(iface: &str, up: bool) -> Result<String, String> {
+    if iface.trim().is_empty() {
+        return Err("pick an interface".into());
+    }
+    let state = if up { "up" } else { "down" };
+    sys::run("ip", &["link", "set", iface, state])
+        .or_else(|_| sys::run("ifconfig", &[iface, state]))
+        .map_err(|e| format!("cannot set {iface} {state}: {e}"))?;
+    Ok(format!("{iface}: link {state}"))
+}
+
+/// Obtain a DHCP lease on `iface` **without** making it the primary uplink.
+///
+/// `udhcpc.script` only installs the default route + DNS when the interface
+/// matches `/var/run/wayang-primary`, so a secondary NIC just gets an address.
+/// The lease is renewed in the background. Handy for multi-NIC testing.
+pub fn dhcp_now(iface: &str, demo: bool) -> Result<String, String> {
+    if iface.trim().is_empty() {
+        return Err("pick an interface".into());
+    }
+    if demo {
+        return Ok(format!("{iface}: dhcp (demo, not applied)"));
+    }
+    // Keep the current primary pinned so this lease can't take over the route.
+    let run = paths::run_dir();
+    let _ = fs::create_dir_all(&run);
+    let runf = run.join("wayang-primary");
+    let empty = fs::read_to_string(&runf).map(|s| s.trim().is_empty()).unwrap_or(true);
+    if empty {
+        if let Some(p) = primary_iface() {
+            let _ = fs::write(&runf, format!("{p}\n"));
+        }
+    }
+    sys::run("ip", &["link", "set", iface, "up"])
+        .map_err(|e| format!("cannot bring {iface} up: {e}"))?;
+    sys::run("udhcpc", &["-n", "-q", "-t", "5", "-T", "3", "-i", iface, "-s", "/etc/udhcpc.script"])
+        .map_err(|e| format!("no DHCP lease on {iface}: {e}"))?;
+    let _ = sys::spawn("udhcpc", &["-b", "-i", iface, "-s", "/etc/udhcpc.script"]);
+    Ok(format!("{iface}: DHCP lease (address only; primary unchanged)"))
+}
+
 fn push_kv(out: &mut String, key: &str, value: &str) {
     if !value.is_empty() {
         out.push_str(&format!("{key}={value}\n"));

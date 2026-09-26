@@ -50,10 +50,17 @@ wayang-net use <iface>              # primary = iface, DHCP (as today)
 wayang-net set <iface> dhcp [ipv4|ipv6|both]
 wayang-net set <iface> static --ipv4 A/P --ipv4-gw GW --ipv4-dns "D…" \
                                [--ipv6 A/P --ipv6-gw GW --ipv6-dns "D…"]
+wayang-net up <iface> | down <iface>  # bring a link up/down (no address change)
+wayang-net dhcp <iface>             # lease a NIC without making it primary
 wayang-net auto                     # forget choice, auto-detect again
 ```
 `set` writes `primary` + `config` and applies immediately (so `curl` works
 before a reboot). `auto` removes both and restarts the network service.
+`up`/`down` toggle the link only. `dhcp` gets a lease on any interface while
+leaving the default route/DNS on the current primary (`udhcpc.script` only
+installs those on the primary), which is what you want when testing multi-NIC
+boxes. The `wayang net` HUD exposes the same actions on the selected row:
+`u` = up, `d` = down, `h` = DHCP here.
 
 ## Installer network screen (B)
 

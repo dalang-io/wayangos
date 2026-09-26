@@ -156,6 +156,9 @@ impl App {
                 self.refresh();
                 self.message = Some((Tone::Ok, "Interfaces refreshed.".into()));
             }
+            KeyCode::Char('u') => self.link(true),
+            KeyCode::Char('d') => self.link(false),
+            KeyCode::Char('h') => self.dhcp(),
             KeyCode::Enter | KeyCode::Char('a') => self.apply(),
             KeyCode::Esc | KeyCode::Char('q') => self.exit = true,
             _ => {}
@@ -199,6 +202,35 @@ impl App {
                 }
             }
         }
+    }
+
+    fn selected(&self) -> Option<String> {
+        self.ifaces.get(self.sel).map(|i| i.name.clone())
+    }
+
+    fn link(&mut self, up: bool) {
+        let Some(name) = self.selected() else {
+            self.message = Some((Tone::Bad, "No interface selected.".into()));
+            return;
+        };
+        match net::set_link(&name, up) {
+            Ok(msg) => self.message = Some((Tone::Ok, msg)),
+            Err(e) => self.message = Some((Tone::Bad, e)),
+        }
+        self.refresh();
+    }
+
+    /// Lease this interface without making it the primary uplink.
+    fn dhcp(&mut self) {
+        let Some(name) = self.selected() else {
+            self.message = Some((Tone::Bad, "No interface selected.".into()));
+            return;
+        };
+        match net::dhcp_now(&name, self.demo) {
+            Ok(msg) => self.message = Some((Tone::Ok, msg)),
+            Err(e) => self.message = Some((Tone::Bad, e)),
+        }
+        self.refresh();
     }
 
     fn apply(&mut self) {
@@ -302,6 +334,8 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
             ("m", "dhcp/static"),
             ("f", "family"),
             ("1-6", "edit"),
+            ("u/d", "link up/down"),
+            ("h", "dhcp here"),
             ("enter", "apply"),
             ("r", "refresh"),
             ("q", "back"),
@@ -507,6 +541,13 @@ mod tests {
         assert!(text.contains("wlan0"));
         assert!(text.contains("192.168.1.50/24"));
         assert!(text.contains("BOTH"));
+    }
+
+    #[test]
+    fn dhcp_here_is_demo_safe() {
+        let mut app = App::new(true);
+        app.on_key(KeyEvent::from(KeyCode::Char('h')));
+        assert!(matches!(app.message, Some((Tone::Ok, _))));
     }
 
     #[test]
