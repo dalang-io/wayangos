@@ -16,6 +16,7 @@ page under `landing-page/apps/`, all marked *Preview*) plus one *Coming Soon*:
 | **WayangPOS** | `apps/pos.html` | — | external — `dalang-io/wayang-pos` (private) |
 | **WayangViewer** | `apps/viewer.html` | `scripts/deprecated/fbviewer.c` | deprecated |
 | **dcheck** | `apps/dcheck.html` | `dcheck/` (build artifacts only) | external — `dalang-io/dcheck` |
+| **wayang-fw** | — | — | external — `dalang-io/wayang-fw` (private) |
 | WayangDCIEM | `apps/dciem.html` | — | web-only |
 | WayangGates | `apps/gates.html` | — | web-only |
 | WayangMAP | `apps/map.html` | — | web-only |
@@ -34,6 +35,10 @@ Count: **11 promoted, ~2 with source here** (POS + Viewer/deprecated), plus
   (bootable ISO). Source: private repo `dalang-io/wayang-pos`, fetched at
   `POS_REF` (default `v3.2.2`) into `$BUILD/wayang-pos/` (direct framebuffer,
   evdev, SQLite).
+- **wayang-fw** — firewall (nftables, commit-confirm, dcheck-style HUD). Source:
+  private repo `dalang-io/wayang-fw`; deployed to `/data/bin/wayang-fw`. The OS
+  provides the kernel nftables support, `/usr/sbin/nft` (`scripts/build-nft.sh`)
+  and the boot loader `/etc/init.d/fw`.
 - **dcheck** — `scripts/fetch-dcheck.sh` downloads the signed release binary
   (x86_64-unknown-linux-musl) from `https://wayang.dalang.io/dcheck` into
   `$BUILD/dcheck/dcheck`; `build-rootfs.sh` installs it to `/usr/bin/dcheck`.

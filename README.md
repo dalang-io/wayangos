@@ -134,6 +134,24 @@ wayang pos log         # last lines of /data/log/wayang-pos.log
 next boot. Settings in `/data/etc/pos.conf`: `AUTOSTART=1|0` (default 1),
 `ALLOW_EXIT=1|0` (default 1; `0` removes the exit option).
 
+## Firewall
+
+The x86 kernel (`defconfig-intel`) has nftables, NAT, conntrack and the
+flowtable fast path, and the rootfs ships a static `nft`
+(`scripts/build-nft.sh`). [`wayang-fw`](https://github.com/dalang-io/wayang-fw)
+(private) is the firewall on top: one TOML config, atomic apply with
+commit-confirm (auto-rollback), history and a dcheck-style HUD.
+
+```sh
+scp wayang-fw root@box:/data/bin/        # persistent across OS updates
+wayang-fw init && wayang-fw              # starter config, then the HUD
+wayang-fw commit -m "why" --confirm 60 && wayang-fw confirm
+```
+
+At boot `/etc/init.d/fw` loads the last **confirmed** ruleset from
+`/data/etc/fw/config.toml` *before* the network starts; an unconfirmed commit
+is discarded. Without `wayang-fw` or a config it does nothing.
+
 ## Quick Start
 
 ```bash

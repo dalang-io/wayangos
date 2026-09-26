@@ -287,6 +287,10 @@ if [ -n "$DATA" ]; then
     fi
 fi
 
+# Firewall before the network: interfaces get addresses only after the last
+# confirmed wayang-fw ruleset is loaded (no-op without wayang-fw/config).
+/etc/init.d/fw start
+
 echo "Starting network..."
 /etc/init.d/network start
 
@@ -329,6 +333,44 @@ sync
 umount -a -r 2>/dev/null
 SHUTDOWN
 chmod +x "$ROOTFS/etc/init.d/rcK"
+
+# Firewall boot loader (wayang-fw + nft; both optional)
+cat > "$ROOTFS/etc/init.d/fw" << 'FW'
+#!/bin/sh
+# /etc/init.d/fw — loads the last *confirmed* wayang-fw ruleset at boot, before
+# the network starts. An unconfirmed commit (pending) is discarded, so a
+# reboot always lands on a config that was known to work.
+#
+# wayang-fw is looked up in /data/bin (deployed, survives OS updates) then
+# /usr/bin; config lives in /data/etc/fw (see `wayang-fw --help`).
+
+find_fw() {
+    for b in /data/bin/wayang-fw /usr/bin/wayang-fw; do
+        [ -x "$b" ] && { echo "$b"; return 0; }
+    done
+    return 1
+}
+
+case "$1" in
+    start)
+        fw="$(find_fw)" || exit 0
+        [ -f /data/etc/fw/config.toml ] || exit 0
+        echo "Loading firewall..."
+        if ! "$fw" boot 2>&1 | sed 's/^/  /'; then
+            logger -t wayang-fw "boot: could not load the firewall"
+        fi
+        ;;
+    stop)
+        # keep filtering until power-off
+        ;;
+    status)
+        fw="$(find_fw)" || { echo "wayang-fw not installed"; exit 1; }
+        "$fw" status
+        ;;
+    *) echo "usage: $0 {start|stop|status}" >&2; exit 1 ;;
+esac
+FW
+chmod +x "$ROOTFS/etc/init.d/fw"
 
 # Point-of-sale kiosk service (supervisor + autostart setting)
 cat > "$ROOTFS/etc/init.d/pos" << 'POS'
@@ -1073,6 +1115,14 @@ if [ -f "$BUILD/dcheck/dcheck" ]; then
     echo "  dcheck: $(du -h "$ROOTFS/usr/bin/dcheck" | cut -f1)"
 else
     echo "  dcheck not staged (run scripts/fetch-dcheck.sh to bundle it)"
+fi
+
+# nft — nftables CLI for wayang-fw (static; scripts/build-nft.sh). Optional.
+if [ -f "$BUILD/nft/nft" ]; then
+    install -m 755 "$BUILD/nft/nft" "$ROOTFS/usr/sbin/nft"
+    echo "  nft: $(du -h "$ROOTFS/usr/sbin/nft" | cut -f1)"
+else
+    echo "  nft not staged (run scripts/build-nft.sh to bundle it)"
 fi
 
 # DNS fallback

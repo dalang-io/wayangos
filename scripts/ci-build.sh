@@ -35,6 +35,7 @@ echo "=== ci-build: v$WAYANG_VERSION / linux $KERNEL_VERSION / $KERNEL_CONFIG ==
 [ -d "${FIRMWARE_DIR:-/lib/firmware}" ] && ./scripts/stage-firmware.sh || true
 ./scripts/build-wifi-tools.sh || true
 ./scripts/fetch-dcheck.sh || true
+./scripts/build-nft.sh
 ./scripts/build-rootfs.sh
 ./scripts/build-installer-iso.sh "$BUILD_DIR/bzImage-installer" "$BUILD_DIR/wayangos-initramfs.img" "$ISO"
 cp "$ISO" "$BUILD_DIR/wayangos-installer.iso"

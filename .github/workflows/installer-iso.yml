@@ -102,6 +102,9 @@ jobs:
       - name: Build kernel (${{ env.KERNEL_CONFIG }})
         run: ./scripts/build-kernel.sh "$KERNEL_CONFIG" bzImage-installer
 
+      - name: Build nft (static, for wayang-fw)
+        run: ./scripts/build-nft.sh
+
       - name: Build rootfs (updater + trusted keys)
         run: ./scripts/build-rootfs.sh
 

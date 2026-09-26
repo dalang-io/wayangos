@@ -23,6 +23,27 @@ Overlay = initramfs kedua; kernel membongkar keduanya berurutan sehingga
 file overlay menimpa core (mis. `/etc/init.d/network`). Tidak ada satu baris
 pun kode router di `build-rootfs.sh`.
 
+## Update 2026-09-26: nftables masuk kernel core + wayang-fw
+
+Atas permintaan owner, dukungan **firewall** tidak lagi menunggu edisi router:
+
+- `configs/defconfig-intel` (kernel core x86, dipakai device & installer) kini
+  berisi nftables, NAT, conntrack, flowtable (bagian A baris "nftables" dan
+  "Fast path" ✅ — tapi di core, bukan `defconfig-router`).
+- `scripts/build-nft.sh` membangun `nft` statis → `/usr/sbin/nft` di rootfs core
+  (bagian B baris `nft` ✅).
+- Firewall control-plane = repo terpisah **`dalang-io/wayang-fw`** (Rust):
+  config TOML terpusat, renderer nftables, apply atomik + **commit confirmed**
+  dengan watchdog auto-rollback, riwayat revisi, TUI gaya dcheck (bagian E:
+  config terpusat untuk firewall, renderer, apply+rollback, validasi, riwayat ✅;
+  bagian F: TUI firewall ✅ sebagian).
+- Boot: `/etc/init.d/fw` (di `build-rootfs.sh`) menjalankan `wayang-fw boot`
+  setelah `/data` di-mount dan **sebelum network** (bagian D "default firewall
+  aman" ✅ bila config ada).
+- Keputusan I.3 (format config): **TOML** untuk firewall. I.2 (BIRD/FRR) masih terbuka.
+- Edisi router (`defconfig-router` + `router.img`) tetap rencana untuk
+  bridge/VLAN/VPN/QoS/PPPoE/BGP. Roadmap firewall: `wayang-fw/docs/ROADMAP.md`.
+
 ## Status sekarang (diaudit dari `configs/defconfig-qemu` + `defconfig-intel`)
 
 | Area | Ada | Belum |
