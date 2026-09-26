@@ -75,11 +75,19 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential linux-libc-dev
 
+      # Source is in the private repo dalang-io/wayang-pos. Needs a
+      # POS_REPO_TOKEN secret (fine-grained PAT, contents:read on that repo);
+      # skipped when the secret is absent (e.g. PRs from forks).
       - name: Build POS binary
-        run: ./scripts/build-pos.sh
-
-      - name: Verify binary
-        run: test -x "$HOME/wayangos-build/wayang-pos-static"
+        env:
+          POS_TOKEN: ${{ secrets.POS_REPO_TOKEN }}
+        run: |
+          if [ -z "$POS_TOKEN" ]; then
+            echo "::notice::POS_REPO_TOKEN not set; skipping WayangPOS build"
+            exit 0
+          fi
+          ./scripts/build-pos.sh
+          test -x "$HOME/wayangos-build/wayang-pos-static"
 
   smoke:
     name: Rootfs smoke build

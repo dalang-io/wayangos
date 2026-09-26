@@ -7,7 +7,7 @@ build/
 # Embedded git repos (separate repos)
 wayangos-viewer/
 
-# Legacy POS scratch files (live in scripts/deprecated/ or wayangos-pos/)
+# Legacy POS scratch files (live in scripts/deprecated/)
 fbpos-v2.c
 fbpos.c
 fbkiosk.c
@@ -40,7 +40,6 @@ wx-static
 !landing-page/**/*.jpg
 !docs/**/*.png
 !docs/**/*.jpg
-!wayangos-pos/**/*.png
 
 # Node/Wrangler
 node_modules/

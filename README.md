@@ -28,7 +28,6 @@ the base kernel (`7.2.7`).
 | `configs/` | Kernel configs (base, RT, GPU, ARM64) — see `configs/README.md` |
 | `scripts/` | Build pipeline: kernel → rootfs → ISO, plus POS builds |
 | `scripts/deprecated/` | Historical build scripts, kept for reference only |
-| `wayangos-pos/` | Wayang POS source (`fbpos-v3.c`) — direct framebuffer, evdev, SQLite |
 | `installer/` | `wayang-installer` — the USB installer's TUI (Rust, dcheck's HUD look): pick a disk, add SSH keys, install |
 | `userspace/` | Reference init scripts (legacy — see `userspace/README.md`) |
 | `docs/` | Architecture and per-component build notes |

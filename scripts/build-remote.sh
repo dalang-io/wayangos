@@ -28,7 +28,7 @@ echo "=== syncing repo -> $HOST:$REMOTE_SRC ==="
 ssh "$HOST" "mkdir -p '$REMOTE_SRC' '$BUILD_DIR'"
 rsync -az --delete \
     --exclude '.git' --exclude 'dist' --exclude 'target' --exclude 'node_modules' \
-    --exclude 'wayangos-pos' --exclude 'landing-page' \
+    --exclude 'landing-page' \
     "$REPO_DIR/" "$HOST:$REMOTE_SRC/"
 
 if [ "${SKIP_DEPS:-}" != 1 ]; then

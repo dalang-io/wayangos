@@ -38,13 +38,17 @@ KERNEL_FLAVOR=rt ./scripts/fetch-sources.sh
 | Dropbear SSH | 2024.86 | `dropbear-2024.86/` |
 | SQLite | amalgamation | `sqlite3.c`, `sqlite3.h` |
 
-### POS application (in this repo)
-Wayang POS source is tracked here at `wayangos-pos/fbpos-v3.c` (direct
-framebuffer, evdev input, SQLite backend).
+### POS application (external, private)
+Wayang POS source lives in the private repo
+[`dalang-io/wayang-pos`](https://github.com/dalang-io/wayang-pos) (direct
+framebuffer, evdev input, SQLite backend). `scripts/build-pos.sh` fetches it at
+a pinned ref (`POS_REF`, default `v3.1.0`); access needs git credentials for
+that repo (`gh auth setup-git`, or `POS_TOKEN`), or a local checkout via
+`POS_SRC_DIR`.
 
 | Component | Path |
 |-----------|------|
-| POS source | `wayangos-pos/fbpos-v3.c` |
+| POS source | `dalang-io/wayang-pos` → `$BUILD_DIR/wayang-pos/fbpos-v3.c` |
 | POS binary | `$BUILD_DIR/wayang-pos-static` |
 
 ---
@@ -127,10 +131,11 @@ Includes:
 
 ### 3. Build POS Binary
 
-Build the in-repo Wayang POS app (`wayangos-pos/fbpos-v3.c`):
+Build the Wayang POS app (fetched from `dalang-io/wayang-pos`):
 
 ```bash
-./scripts/build-pos.sh
+./scripts/build-pos.sh                           # pinned POS_REF
+POS_SRC_DIR=~/wayang-pos ./scripts/build-pos.sh  # local checkout
 # Output: $BUILD_DIR/wayang-pos-static
 ```
 
@@ -349,14 +354,13 @@ wayangos/
 │   ├── fetch-sources.sh            # Download kernel/BusyBox/Dropbear/SQLite
 │   ├── build-kernel.sh             # Build kernel from config (ARCH-aware)
 │   ├── build-rootfs.sh             # Build base rootfs
-│   ├── build-pos.sh                # Build POS binary from wayangos-pos/
+│   ├── build-pos.sh                # Fetch + build POS (dalang-io/wayang-pos)
 │   ├── build-iso.sh                # Assemble ISO
 │   ├── build-pos-iso.sh            # Full POS ISO pipeline
 │   ├── build-installer.sh          # Build the wayang-installer binary
 │   ├── build-installer-iso.sh      # USB installer ISO for bare metal
 │   └── deprecated/                 # Historical scripts (reference only)
 ├── installer/                      # wayang-installer TUI (Rust), run by the installer ISO
-├── wayangos-pos/                   # Wayang POS source (fbpos-v3.c)
 ├── userspace/                      # Reference init scripts (legacy)
 ├── docs/                           # Architecture notes
 ├── landing-page/                   # Website (wayang.dalang.io)
