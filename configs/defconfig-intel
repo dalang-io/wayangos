@@ -97,9 +97,12 @@ CONFIG_NFT_SYNPROXY=y
 CONFIG_NF_FLOW_TABLE=y
 CONFIG_NF_FLOW_TABLE_INET=y
 CONFIG_NFT_FLOW_OFFLOAD=y
-# Router kernel options (VLAN/bridge/bonding/dummy/veth/macvlan/TUN/WireGuard/
-# GRE-IPIP/VRF/policy-routing/ECMP/IPsec/IFB/shaping) DISABLED for v1.0.14:
-# they were added in 1.0.13 and the same release locked the test device (see
-# docs/INCIDENT-1.0.13.md). Re-enable only after the lockup is bisected and the
-# result is validated on real hardware.
+# Router MVP (v0.1, docs/ROUTER-TODO.md): 802.1Q VLANs + bridges, driven with
+# vconfig/brctl by wayang-router. Kept minimal on purpose — the larger router
+# block added in 1.0.13 locked the test device (docs/INCIDENT-1.0.13.md), so the
+# rest (bonding/dummy/veth/macvlan/TUN/WireGuard/GRE-IPIP/VRF/policy-routing/
+# ECMP/IPsec/IFB/shaping) stays off until bisected and hardware-validated.
+CONFIG_VLAN_8021Q=y
+CONFIG_BRIDGE=y
+CONFIG_BRIDGE_VLAN_FILTERING=y
 

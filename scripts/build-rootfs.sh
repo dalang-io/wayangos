@@ -21,7 +21,7 @@ SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
 #   wayang/version      what the installed system reports (see `wayang status`)
 #   wayang/channel      stable | edge
 #   wayang/trusted_keys release signing keys, if any
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.14}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.15}"
 WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
 WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 
@@ -290,7 +290,7 @@ fi
 # Per-connection byte/packet counters (wayang-fw / wayang-router dashboards).
 [ -w /proc/sys/net/netfilter/nf_conntrack_acct ] && echo 1 > /proc/sys/net/netfilter/nf_conntrack_acct
 
-# Opt-in crash diagnostics (incident 1.0.14): with `wayang.debug` on the kernel
+# Opt-in crash diagnostics (incident 1.0.15): with `wayang.debug` on the kernel
 # cmdline, keep dmesg/interrupts on /data so a freeze can be read back after a
 # power-cycle. Off unless requested.
 DEBUG=0
@@ -314,6 +314,12 @@ fi
 # Firewall before the network: interfaces get addresses only after the last
 # confirmed wayang-fw ruleset is loaded (no-op without wayang-fw/config).
 /etc/init.d/fw start
+
+# Deployed companions in /data/bin (persistent) are linked into /usr/bin so
+# `wayang-fw` / `wayang-router` are reachable in PATH after every boot. The fw
+# script links wayang-fw; link the router here unconditionally (its own `start`
+# only runs when a confirmed router config exists).
+[ -x /data/bin/wayang-router ] && ln -sf /data/bin/wayang-router /usr/bin/wayang-router 2>/dev/null || true
 
 echo "Starting network..."
 /etc/init.d/network start

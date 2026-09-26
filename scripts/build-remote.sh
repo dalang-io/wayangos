@@ -7,7 +7,7 @@
 #   HOST            ssh target (default: root@10.0.0.251)
 #   REMOTE_SRC      repo copy on the builder (default: /root/wayangos-src)
 #   BUILD_DIR       build dir on the builder (default: /root/wayangos-build)
-#   WAYANG_VERSION  (default: 1.0.14)
+#   WAYANG_VERSION  (default: 1.0.15)
 #   KERNEL_VERSION  (default: 7.2.7)
 #   KERNEL_CONFIG   (default: defconfig-intel)
 #   WAYANG_KEY      local signing key file (optional)
@@ -18,7 +18,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HOST="${HOST:-root@10.0.0.251}"
 REMOTE_SRC="${REMOTE_SRC:-/root/wayangos-src}"
 BUILD_DIR="${BUILD_DIR:-/root/wayangos-build}"
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.14}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.15}"
 KERNEL_VERSION="${KERNEL_VERSION:-7.2.7}"
 KERNEL_CONFIG="${KERNEL_CONFIG:-defconfig-intel}"
 WAYANG_KEY="${WAYANG_KEY:-}"
