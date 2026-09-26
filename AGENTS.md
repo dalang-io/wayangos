@@ -64,8 +64,10 @@ command line. The firewall lab lives in `dalang-io/wayang-fw/tests/lab/lab.py`.
 
 ## Devices
 
-- Test device `root@163.128.55.3` (public IP on eth1, WayangOS 1.0.10 slot B,
-  i915 1440×900, USB keyboard only). Runs WayangPOS from `/data/bin`.
+- Test device `root@163.128.55.3` (i3-7100; uplink eth1 = **USB** Ethernet
+  sr9700 with the public IP, onboard e1000e eth0; i915 1440×900, USB keyboard
+  only; WayangOS 1.0.12 in slot A). No sftp-server: copy files with
+  `ssh host 'cat > FILE' < FILE`. Runs WayangPOS from `/data/bin`.
   Back up `/data/pos.db` before touching the POS; commit firewall changes only
   with `--confirm`.
 
@@ -77,5 +79,9 @@ command line. The firewall lab lives in `dalang-io/wayang-fw/tests/lab/lab.py`.
 
 ## Current state
 
-Device 163.128.55.3 runs a local, unpublished 1.0.11 (slot A); POS autostart off; firewall manual.
-Full handover and open items: `dalang-io/wayang-fw/HANDOVER.md` (~/wayang-fw/HANDOVER.md).
+**Open incident: 1.0.13 locks up the test device** (keyboard + USB uplink dead
+after the shell prompt). 1.0.13 is pulled from the channel; the device is back
+on 1.0.12. Diagnosis plan, facts and recovery: [docs/INCIDENT-1.0.13.md](docs/INCIDENT-1.0.13.md).
+Next release is 1.0.14 and must be booted on the device before publishing.
+Firewall/router handovers: `dalang-io/wayang-fw/HANDOVER.md`,
+`dalang-io/wayang-router/HANDOVER.md`.
