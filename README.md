@@ -132,8 +132,9 @@ is discarded. Without `wayang-fw` or a config it does nothing.
 
 ## Router
 
-The same kernel has 802.1Q VLANs, bridging, bonding, WireGuard, GRE/IPIP, VRF,
-IPsec (xfrm) and traffic shaping. [`wayang-router`](https://github.com/dalang-io/wayang-router)
+The same kernel has 802.1Q VLANs and bridging (the wider router option set —
+WireGuard, IPsec, GRE, VRF, shaping — is off pending a hardware bisect, see
+[docs/ROUTER-KERNEL-BISECT.md](docs/ROUTER-KERNEL-BISECT.md)). [`wayang-router`](https://github.com/dalang-io/wayang-router)
 (private) configures interfaces, VLANs, bridges, addresses, static routes and
 the DHCP server from one TOML file (`check/plan/commit FILE` for config as
 code), again with commit-confirm and a dcheck-style HUD.

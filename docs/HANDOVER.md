@@ -12,7 +12,6 @@ pending-work index. This file is *where things stand* across the repos.
 | `dalang-io/wayang-router` | router (VLAN/bridge/static/DHCP) + HUD/CLI | master (v0.1.0 + netlink backend, untagged) |
 | `dalang-io/dcheck` | storage-health app (bundled in the image) | master (`dcheck-v0.5.1` + undelete/macOS, untagged) |
 | `dalang-io/wayang-pos` (private) | WayangPOS kiosk app, **separate project** | `v3.2.3` |
-| `dalang-io/dcheck` | also standalone | — |
 
 Local checkouts: `~/wayang-fw`, `~/wayang-router`, `~/dcheck`.
 
