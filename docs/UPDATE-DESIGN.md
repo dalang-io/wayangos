@@ -35,6 +35,22 @@ Environment overrides (for testing / cross-staging): `WAYANG_ROOT` (fake `/etc`
 + `/boot` tree), `WAYANG_ESP`, `WAYANG_ARCH` (override the host arch token),
 `WAYANG_REPO_URL`.
 
+## On-disk layout
+
+x86 (GRUB) nests everything under the ESP's `boot/` directory:
+
+```
+<ESP>/boot/grub/grub.cfg
+<ESP>/boot/grub/grubenv        # A/B state (see below)
+<ESP>/boot/A/{vmlinuz,initramfs.img}
+<ESP>/boot/B/{vmlinuz,initramfs.img}
+<ESP>/boot/var/meta-{A,B}.json
+```
+
+`wayang` resolves that `boot/` subdirectory automatically (it detects
+`boot/grub/grubenv`, `boot/A` or `boot/var`) after mounting the ESP. ARM keeps
+`wayang/vars` and the per-slot prefixes at the FAT boot-partition root instead.
+
 ## Fallback state (GRUB env)
 
 Stored in `/boot/grub/grubenv` using GRUB's 1024-byte format

@@ -7,7 +7,7 @@
 #   HOST            ssh target (default: root@10.0.0.251)
 #   REMOTE_SRC      repo copy on the builder (default: /root/wayangos-src)
 #   BUILD_DIR       build dir on the builder (default: /root/wayangos-build)
-#   WAYANG_VERSION  (default: 1.0.4)
+#   WAYANG_VERSION  (default: 1.0.5)
 #   KERNEL_VERSION  (default: 7.2.7)
 #   KERNEL_CONFIG   (default: defconfig-intel)
 #   WAYANG_KEY      local signing key file (optional)
@@ -18,7 +18,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HOST="${HOST:-root@10.0.0.251}"
 REMOTE_SRC="${REMOTE_SRC:-/root/wayangos-src}"
 BUILD_DIR="${BUILD_DIR:-/root/wayangos-build}"
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.4}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.5}"
 KERNEL_VERSION="${KERNEL_VERSION:-7.2.7}"
 KERNEL_CONFIG="${KERNEL_CONFIG:-defconfig-intel}"
 WAYANG_KEY="${WAYANG_KEY:-}"
@@ -44,6 +44,7 @@ done
 if [ -n "$need" ]; then
     apt-get update -qq
     apt-get install -y -qq build-essential flex bison bc libelf-dev libssl-dev \
+        libnl-3-dev libnl-genl-3-dev libnl-route-3-dev \
         cpio xz-utils unzip grub-pc-bin grub-efi-amd64-bin xorriso mtools curl wget git >/dev/null
 fi
 if ! command -v cargo >/dev/null 2>&1; then

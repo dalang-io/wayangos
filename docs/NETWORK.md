@@ -101,10 +101,35 @@ is not a TTY.
 
 WiFi needs, per board:
 - kernel drivers: `CFG80211`, `MAC80211`, `RFKILL`, a vendor driver
-  (`rtl8xxxu`/`rtw88`/`mt76x0u`/`ath9k_htc`/…), `FW_LOADER`;
-- firmware blobs (e.g. `rtlwifi/`, `mt76/`, `ath9k_htc/`) in the rootfs;
-- userspace: `wpa_supplicant` + `wpa_cli` (+ optional `iw`).
+  (`iwlwifi`/`rtl8xxxu`/`rtw88`/`mt76x0u`/`ath9k_htc`/…), `FW_LOADER`;
+- firmware blobs in the rootfs (`/lib/firmware`);
+- userspace: `wpa_supplicant` + `wpa_cli` + `iw`.
 
-`configs/defconfig-wifi` enables the common USB WiFi drivers. The rootfs bundles
-`wpa_supplicant`/`iw` **if present** under `$BUILD/wifi/` (fetched/built
-separately) and starts `wpa_supplicant` on the primary wifi iface at boot.
+The default kernel (`configs/defconfig-intel`) enables the common USB WiFi
+drivers **and** Intel `iwlwifi`/`iwlmvm` + `btusb`. `configs/defconfig-wifi`
+adds the other USB vendors on top of the QEMU base.
+
+Firmware is staged from a `linux-firmware` tree by
+[`scripts/stage-firmware.sh`](../scripts/stage-firmware.sh) into
+`$BUILD/wifi/firmware/`, which `build-rootfs.sh` copies to `/lib/firmware`.
+The kernel has no `CONFIG_FW_LOADER_COMPRESS`, so `.zst` sources are
+decompressed while staging. The curated list currently covers Intel WiFi
+(`iwlwifi-3160/3168/7265D/8265/9000/9260`), Intel Bluetooth (`ibt-12-16.*` and
+the legacy `ibt-hw-37.8*.bseq`), `i915/kbl_dmc_ver1_04.bin` and `regulatory.db`.
+Add entries when new hardware shows up — find the exact filename in
+`dmesg | grep -i firmware` or with `wayang wifi detect` (see below).
+
+Userspace tools are built statically by
+[`scripts/build-wifi-tools.sh`](../scripts/build-wifi-tools.sh) (`iw` +
+`wpa_supplicant` + `wpa_cli`, using static `libnl` and OpenSSL) into
+`$BUILD/wifi/`; `build-rootfs.sh` installs them into `/usr/sbin`. Both scripts
+are best-effort and called by `scripts/ci-build.sh` before the rootfs step.
+
+`wayang wifi detect` lists WiFi hardware even when no driver is bound: it reads
+`/sys/class/net` for bound interfaces and `/sys/bus/usb/devices` for unbound USB
+adapters (USB vendor:product + a driver/firmware suggestion). Set `WAYANG_SYS` to
+inspect an offline image. Devices already bound to a driver (e.g. a Bluetooth
+`btusb` function, also USB class `0xe0`) are not reported as WiFi candidates.
+
+At boot the network init starts `wpa_supplicant` on the primary wifi interface
+when `/data/etc/wpa_supplicant.conf` exists.

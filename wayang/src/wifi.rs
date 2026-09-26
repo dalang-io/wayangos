@@ -368,6 +368,18 @@ fn suggest(id: &str) -> String {
     "unknown — enable configs/defconfig-wifi and add the vendor firmware".into()
 }
 
+/// Hint for a wireless interface that already has a driver bound.
+fn suggest_bound(driver: &str, id: &str) -> String {
+    if id != "-" {
+        return suggest(id);
+    }
+    match driver {
+        "iwlwifi" => "Intel WiFi (iwlwifi) — firmware bundled; no action needed".into(),
+        "-" => "unknown — enable configs/defconfig-wifi and add the vendor firmware".into(),
+        d => format!("driver: {d} — bound; add vendor firmware if association fails"),
+    }
+}
+
 /// Detect WiFi hardware under the running sysfs.
 pub fn detect() -> Vec<HwDevice> {
     let sys = std::env::var("WAYANG_SYS").unwrap_or_else(|_| "/sys".into());
@@ -414,9 +426,9 @@ pub fn detect_at(sys: &Path) -> Vec<HwDevice> {
                 iface,
                 bus: bus.into(),
                 id: id.clone(),
-                driver,
+                driver: driver.clone(),
                 name,
-                hint: suggest(&id),
+                hint: suggest_bound(&driver, &id),
                 bound: true,
             });
         }
@@ -434,9 +446,14 @@ pub fn detect_at(sys: &Path) -> Vec<HwDevice> {
                 continue;
             }
             let name = read_trim(&d.join("product")).unwrap_or_default();
-            let wireless = interface_is_wireless(&d)
-                || KNOWN_USB_WIFI.iter().any(|(k, _, _)| id == *k)
-                || is_wifi_name(&name);
+            let driver = usb_driver(&d);
+            // Class 0xe0 ("wireless controller") covers both WiFi and Bluetooth;
+            // a device already bound to a driver (e.g. btusb) is not a WiFi
+            // adapter waiting for a driver, so only treat *unbound* class-e0
+            // functions as WiFi candidates.
+            let wireless = KNOWN_USB_WIFI.iter().any(|(k, _, _)| id == *k)
+                || is_wifi_name(&name)
+                || (interface_is_wireless(&d) && driver.is_none());
             if !wireless {
                 continue;
             }
@@ -444,7 +461,7 @@ pub fn detect_at(sys: &Path) -> Vec<HwDevice> {
                 iface: "-".into(),
                 bus: "usb".into(),
                 id: id.clone(),
-                driver: usb_driver(&d).unwrap_or_else(|| "-".into()),
+                driver: driver.unwrap_or_else(|| "-".into()),
                 name,
                 hint: suggest(&id),
                 bound: false,
@@ -579,6 +596,15 @@ mod detect_tests {
         write(&usb.join("product"), "802.11 n WLAN\n");
         write(&usb.join("1-2:1.0/bInterfaceClass"), "e0\n");
 
+        // bound Bluetooth (class 0xe0 too) must NOT be reported as WiFi
+        let bt = root.join("bus/usb/devices/2-1");
+        write(&bt.join("idVendor"), "8087\n");
+        write(&bt.join("idProduct"), "0aa7\n");
+        write(&bt.join("2-1:1.0/bInterfaceClass"), "e0\n");
+        let btdrv = root.join("drivers/btusb");
+        fs::create_dir_all(&btdrv).unwrap();
+        symlink(&btdrv, bt.join("2-1:1.0/driver")).unwrap();
+
         let devs = detect_at(&root);
         let bound = devs.iter().find(|d| d.iface == "wlan0").expect("bound wlan0");
         assert_eq!(bound.bus, "usb");
@@ -591,6 +617,8 @@ mod detect_tests {
         assert_eq!(free.id, "0e8d:7601");
         assert!(free.hint.contains("mt7601u"));
         assert!(!free.bound);
+
+        assert!(devs.iter().all(|d| d.id != "8087:0aa7"), "btusb must not be a WiFi candidate");
 
         let _ = fs::remove_dir_all(&root);
     }
