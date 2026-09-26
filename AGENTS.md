@@ -67,9 +67,9 @@ command line. The firewall lab lives in `dalang-io/wayang-fw/tests/lab/lab.py`.
 - Test device `root@163.128.55.3` (i3-7100; uplink eth1 = **USB** Ethernet
   sr9700 with the public IP, onboard e1000e eth0; i915 1440×900, USB keyboard
   only; WayangOS 1.0.12 in slot A). No sftp-server: copy files with
-  `ssh host 'cat > FILE' < FILE`. Runs WayangPOS from `/data/bin`.
-  Back up `/data/pos.db` before touching the POS; commit firewall changes only
-  with `--confirm`.
+  `ssh host 'cat > FILE' < FILE`. Reinstalled 2026-09-26: `/data/bin` has
+  wayang-fw + wayang-router (nothing committed), no POS. Commit firewall or
+  router changes only with `--confirm` (eth1 is the only way in).
 
 ## Related repos
 
