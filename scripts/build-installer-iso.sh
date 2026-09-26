@@ -196,8 +196,8 @@ printf '%*s' "$pad" '' | tr ' ' '#' >> "$PAYLOAD/grubenv"
 
 # Slot-A metadata. The installer recomputes hashes/version from the payload it
 # actually copies, so this copy is for layout/compat; keep it in sync with the
-# rootfs's /etc/wayang/version (both default to 1.0.3).
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.3}"
+# rootfs's /etc/wayang/version (both default to 1.0.4).
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.4}"
 WAYANG_EDITION="${WAYANG_EDITION:-generic}"
 sha256_file() {
     if command -v sha256sum >/dev/null 2>&1; then

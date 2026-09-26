@@ -21,7 +21,7 @@ SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
 #   wayang/version      what the installed system reports (see `wayang status`)
 #   wayang/channel      stable | edge
 #   wayang/trusted_keys release signing keys, if any
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.3}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.4}"
 WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
 WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 

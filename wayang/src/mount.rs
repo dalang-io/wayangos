@@ -47,7 +47,7 @@ pub fn open_with(root: Option<PathBuf>, esp_override: Option<&str>) -> Result<Bo
     };
 
     if let Some(mp) = mounted_at(&device) {
-        return Ok(BootRoot { path: mp, mounted: None });
+        return Ok(BootRoot { path: state_root(&mp), mounted: None });
     }
 
     let dir = std::env::temp_dir().join(format!("wayang-esp-{}", std::process::id()));
@@ -70,7 +70,23 @@ pub fn open_with(root: Option<PathBuf>, esp_override: Option<&str>) -> Result<Bo
             err.trim()
         )));
     }
-    Ok(BootRoot { path: dir.clone(), mounted: Some(dir) })
+    Ok(BootRoot { path: state_root(&dir), mounted: Some(dir) })
+}
+
+/// Directory that holds the A/B state (`grub/grubenv` or `wayang/vars`).
+///
+/// x86 installs nest everything under `<ESP>/boot` (GRUB prefix), so the state
+/// is at `<ESP>/boot/grub/grubenv`; ARM keeps `wayang/vars` at the FAT root.
+fn state_root(base: &Path) -> PathBuf {
+    let nested = base.join("boot/grub/grubenv").exists()
+        || base.join("boot/wayang/vars").exists()
+        || base.join("boot/A").exists()
+        || base.join("boot/var").exists();
+    if nested {
+        base.join("boot")
+    } else {
+        base.to_path_buf()
+    }
 }
 
 /// Mount point of `device` according to `/proc/mounts`, if any.
@@ -106,5 +122,22 @@ mod tests {
         let b = open_with(Some(PathBuf::from("/tmp/wayang-root-test")), Some("/dev/whatever")).unwrap();
         assert_eq!(b.path, PathBuf::from("/tmp/wayang-root-test/boot"));
         assert!(b.mounted.is_none());
+    }
+
+    #[test]
+    fn state_root_detects_layout() {
+        let base = std::env::temp_dir().join(format!("wayang-sr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("boot/grub")).unwrap();
+        std::fs::write(base.join("boot/grub/grubenv"), b"").unwrap();
+        assert_eq!(state_root(&base), base.join("boot"));
+
+        let flat = std::env::temp_dir().join(format!("wayang-sr-flat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&flat);
+        std::fs::create_dir_all(flat.join("wayang")).unwrap();
+        assert_eq!(state_root(&flat), flat);
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&flat);
     }
 }
