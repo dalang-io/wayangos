@@ -265,7 +265,9 @@ ntpd -p pool.ntp.org -S /bin/true &
 echo ""
 echo "  $(wayang-logo)WayangOS ready"
 echo "  Kernel: $(uname -r)"
-ip -4 addr show scope global 2>/dev/null | grep inet | awk '{print "  IP: " $2}'
+# Network runs in the background: announce the address when it comes up.
+( /etc/init.d/network wait 20 >/dev/null 2>&1; \
+  ip -4 addr show scope global 2>/dev/null | grep inet | awk '{print "  IP: " $2}' ) &
 echo ""
 
 # The system booted: clear the GRUB attempt counter and mark this slot good
@@ -305,6 +307,7 @@ cat > "$ROOTFS/etc/init.d/network" << 'NETWORK'
 PRIMARY_FILE=/data/etc/network/primary
 CONFIG_FILE=/data/etc/network/config
 PRIMARY_RUN=/var/run/wayang-primary
+PIDFILE=/var/run/network.pid
 
 # physical, non-wireless interfaces (skips lo, bridges, VLANs, tunnels)
 wired() {
@@ -454,30 +457,31 @@ case "$1" in
     start)
         ifconfig lo 127.0.0.1 netmask 255.0.0.0 up
         for i in $(wired); do ifconfig "$i" up 2>/dev/null; done
-        sleep 1
-
-        [ -r "$PRIMARY_FILE" ] && PRIMARY="$(tr -d '[:space:]' < "$PRIMARY_FILE")"
-        if [ -n "$PRIMARY" ]; then
-            if [ -d "/sys/class/net/$PRIMARY" ]; then
+        # Bring-up is instant, but probing/DHCP can take seconds. Run it in the
+        # background so boot (and SSH) never waits on the network. `wait` blocks
+        # only for callers that actually need an address.
+        (
+            sleep 1
+            [ -r "$PRIMARY_FILE" ] && PRIMARY="$(tr -d '[:space:]' < "$PRIMARY_FILE")"
+            if [ -n "$PRIMARY" ] && [ -d "/sys/class/net/$PRIMARY" ]; then
                 apply_primary "$PRIMARY"
             else
-                echo "  WARNING: primary $PRIMARY is gone — auto-detecting" >&2
                 auto_detect
             fi
-        else
-            auto_detect
-        fi
-
-        # give DHCP a moment so the boot banner can show the address
-        n=0
-        while [ $n -lt 10 ] && ! ip -4 addr show scope global 2>/dev/null | grep -q inet; do
-            sleep 1; n=$((n + 1))
-        done
+        ) >/var/log/network.log 2>&1 &
+        echo $! > "$PIDFILE"
+        ;;
+    wait)
+        # block until an address is up (up to ${2:-20}s); 0 when ready
+        n=0; lim="${2:-20}"
+        while [ "$n" -lt "$lim" ] && [ ! -e "$PRIMARY_RUN" ]; do sleep 1; n=$((n + 1)); done
+        [ -e "$PRIMARY_RUN" ]
         ;;
     stop)
         killall udhcpc 2>/dev/null
+        [ -r "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
         for i in $(wired); do ifconfig "$i" down 2>/dev/null; done
-        rm -f "$PRIMARY_RUN" /var/run/probe.*
+        rm -f "$PRIMARY_RUN" "$PIDFILE" /var/run/probe.*
         ;;
     restart) $0 stop; sleep 1; $0 start ;;
 esac
