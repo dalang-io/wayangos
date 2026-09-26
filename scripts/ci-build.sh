@@ -32,7 +32,9 @@ echo "=== ci-build: v$WAYANG_VERSION / linux $KERNEL_VERSION / $KERNEL_CONFIG ==
 ./scripts/build-wayang.sh
 ./scripts/build-installer.sh
 ./scripts/build-kernel.sh "$KERNEL_CONFIG" bzImage-installer
-[ -d "${FIRMWARE_DIR:-/lib/firmware}" ] && ./scripts/stage-firmware.sh || true
+if [ -d "${FIRMWARE_DIR:-/lib/firmware}" ]; then
+    ./scripts/stage-firmware.sh || true
+fi
 ./scripts/build-wifi-tools.sh || true
 ./scripts/fetch-dcheck.sh || true
 ./scripts/build-nft.sh
