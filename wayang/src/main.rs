@@ -82,13 +82,18 @@ const WIFI_HELP: &str = "\
 wayang wifi — runtime wireless configuration (interactive)
 
 usage:
-  wayang wifi       open the wifi HUD (requires a TTY)
+  wayang wifi            open the wifi HUD (requires a TTY)
+  wayang wifi detect     list WiFi hardware (works without a bound driver)
+  wayang wifi detect --json
 
 Lists wireless interfaces, scans with `iw`, and connects to a chosen SSID,
 persisting /data/etc/wpa_supplicant.conf and pinning the interface as primary.
 
-Requires `iw` and `wpa_supplicant` (see docs/NETWORK.md wifi prerequisites).
-When stdout is not a TTY this help is printed instead.";
+`detect` reads /sys (and /sys/bus/usb) to show the interface/driver and the
+USB vendor:product of unbound adapters, with a driver+firmware suggestion.
+Set WAYANG_SYS to a fake sysfs root to inspect an offline image.
+
+Requires `iw` and `wpa_supplicant` for connect (see docs/NETWORK.md).";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -138,6 +143,7 @@ fn main() -> ExitCode {
         Command::Upgrade(a) => update::run(true, &a),
         Command::Net => run_screen(NET_HELP, netui::run),
         Command::Wifi => run_screen(WIFI_HELP, wifiui::run),
+        Command::WifiDetect { json } => wifi::detect_cmd(json),
         Command::Keygen { out, keyid } => keys::keygen(&out, &keyid),
         Command::Sign { key, keyid, manifest } => keys::sign_file(&key, keyid.as_deref(), &manifest),
         Command::Verify { bundle, esp } => verify::run(&bundle, esp.as_deref()),

@@ -20,6 +20,7 @@ pub enum Command {
     Upgrade(UpdateArgs),
     Net,
     Wifi,
+    WifiDetect { json: bool },
     Keygen { out: PathBuf, keyid: String },
     Sign { key: PathBuf, keyid: Option<String>, manifest: PathBuf },
     Verify { bundle: PathBuf, esp: Option<String> },
@@ -82,6 +83,16 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "update" => Ok(Command::Update(update_args(rest, "update")?)),
         "upgrade" => Ok(Command::Upgrade(update_args(rest, "upgrade")?)),
         "net" | "wifi" => {
+            let help = rest.iter().any(|a| a == "--help" || a == "-h");
+            if sub == "wifi" && !help && rest.first().map(String::as_str) == Some("detect") {
+                let json = rest.iter().any(|a| a == "--json");
+                for a in &rest[1..] {
+                    if a != "--json" {
+                        return Err(format!("unknown option for `wifi detect`: {a}"));
+                    }
+                }
+                return Ok(Command::WifiDetect { json });
+            }
             for a in rest {
                 if a != "--help" && a != "-h" {
                     return Err(format!("unknown option for `{sub}`: {a}"));
@@ -235,5 +246,14 @@ mod tests {
         assert!(matches!(parse(&v(&["wifi"])).unwrap(), Command::Wifi));
         assert!(matches!(parse(&v(&["net", "--help"])).unwrap(), Command::Net));
         assert!(parse(&v(&["net", "--bogus"])).is_err());
+        assert!(matches!(
+            parse(&v(&["wifi", "detect"])).unwrap(),
+            Command::WifiDetect { json: false }
+        ));
+        assert!(matches!(
+            parse(&v(&["wifi", "detect", "--json"])).unwrap(),
+            Command::WifiDetect { json: true }
+        ));
+        assert!(parse(&v(&["wifi", "detect", "--bogus"])).is_err());
     }
 }

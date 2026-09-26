@@ -327,3 +327,271 @@ BSS aa:bb:cc:dd:ee:ff(on wlan0)
         assert!(ifaces_at(Path::new("/nonexistent-wayang-wifi")).is_empty());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Hardware detection (`wayang wifi detect`) — works even without a bound
+// driver, so you can see which chipset is present before bundling firmware.
+// ---------------------------------------------------------------------------
+
+/// A WiFi-related device found via sysfs (bound interface or raw USB function).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HwDevice {
+    pub iface: String,
+    pub bus: String,
+    pub id: String,
+    pub driver: String,
+    pub name: String,
+    pub hint: String,
+    pub bound: bool,
+}
+
+/// (usb id lowercase, suggested driver, suggested firmware) — best effort.
+const KNOWN_USB_WIFI: &[(&str, &str, &str)] = &[
+    ("0bda:8179", "rtl8xxxu / r8188eu", "rtlwifi/rtl8188eufw.bin"),
+    ("0bda:8178", "rtl8xxxu", "rtlwifi/rtl8192cufw.bin"),
+    ("0bda:c811", "rtw88 (rtl8821cu)", "rtw88/rtw8821c_fw.bin"),
+    ("0bda:c820", "rtw88 (rtl8821cu)", "rtw88/rtw8821c_fw.bin"),
+    ("0bda:b812", "rtw88 (rtl8821cu)", "rtw88/rtw8821c_fw.bin"),
+    ("0bda:8812", "rtw88 (rtl88xxau)", "rtw88/rtw8812a_fw.bin"),
+    ("148f:5370", "rt2800usb", "rt2870.bin"),
+    ("148f:7601", "mt7601u", "mt7601u.bin"),
+    ("0e8d:7601", "mt7601u", "mt7601u.bin"),
+    ("0cf3:9271", "ath9k_htc", "htc_9271.fw"),
+];
+
+fn suggest(id: &str) -> String {
+    for (k, drv, fw) in KNOWN_USB_WIFI {
+        if id == *k {
+            return format!("driver: {drv}; firmware: {fw}");
+        }
+    }
+    "unknown — enable configs/defconfig-wifi and add the vendor firmware".into()
+}
+
+/// Detect WiFi hardware under the running sysfs.
+pub fn detect() -> Vec<HwDevice> {
+    let sys = std::env::var("WAYANG_SYS").unwrap_or_else(|_| "/sys".into());
+    detect_at(Path::new(&sys))
+}
+
+/// Pure form of [`detect`] for tests.
+pub fn detect_at(sys: &Path) -> Vec<HwDevice> {
+    let mut out: Vec<HwDevice> = Vec::new();
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+    // Bound wireless interfaces.
+    if let Ok(entries) = fs::read_dir(sys.join("class/net")) {
+        for e in entries.flatten() {
+            let path = e.path();
+            if !path.join("wireless").exists() {
+                continue;
+            }
+            let iface = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let dev = fs::canonicalize(path.join("device")).unwrap_or_else(|_| path.join("device"));
+            let dpath = dev.to_string_lossy();
+            let id = usb_id(&dev).unwrap_or_else(|| "-".into());
+            if id != "-" {
+                seen.insert(id.clone());
+            }
+            let bus = if id != "-" {
+                "usb"
+            } else if dpath.contains("/pci") {
+                "pci"
+            } else {
+                "platform"
+            };
+            let driver = fs::read_link(path.join("device/driver"))
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "-".into());
+            let name = read_trim(&dev.join("product"))
+                .or_else(|| read_trim(&dev.join("manufacturer")))
+                .unwrap_or_default();
+            out.push(HwDevice {
+                iface,
+                bus: bus.into(),
+                id: id.clone(),
+                driver,
+                name,
+                hint: suggest(&id),
+                bound: true,
+            });
+        }
+    }
+
+    // USB functions that look like WiFi but have no interface bound yet.
+    if let Ok(entries) = fs::read_dir(sys.join("bus/usb/devices")) {
+        for e in entries.flatten() {
+            let d = e.path();
+            let (Some(vid), Some(pid)) = (read_trim(&d.join("idVendor")), read_trim(&d.join("idProduct"))) else {
+                continue;
+            };
+            let id = format!("{}:{}", vid.to_lowercase(), pid.to_lowercase());
+            if seen.contains(&id) {
+                continue;
+            }
+            let name = read_trim(&d.join("product")).unwrap_or_default();
+            let wireless = interface_is_wireless(&d)
+                || KNOWN_USB_WIFI.iter().any(|(k, _, _)| id == *k)
+                || is_wifi_name(&name);
+            if !wireless {
+                continue;
+            }
+            out.push(HwDevice {
+                iface: "-".into(),
+                bus: "usb".into(),
+                id: id.clone(),
+                driver: usb_driver(&d).unwrap_or_else(|| "-".into()),
+                name,
+                hint: suggest(&id),
+                bound: false,
+            });
+        }
+    }
+
+    out.sort_by(|a, b| a.iface.cmp(&b.iface).then(a.id.cmp(&b.id)));
+    out
+}
+
+/// Walk up from a device path to the USB device that has idVendor/idProduct.
+fn usb_id(start: &Path) -> Option<String> {
+    for anc in start.ancestors() {
+        if let (Some(v), Some(p)) = (read_trim(&anc.join("idVendor")), read_trim(&anc.join("idProduct"))) {
+            return Some(format!("{}:{}", v.to_lowercase(), p.to_lowercase()));
+        }
+    }
+    None
+}
+
+fn interface_is_wireless(usb_dev: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(usb_dev) else {
+        return false;
+    };
+    for e in entries.flatten() {
+        let class = e.path().join("bInterfaceClass");
+        if read_trim(&class).as_deref() == Some("e0") {
+            return true;
+        }
+    }
+    false
+}
+
+fn usb_driver(usb_dev: &Path) -> Option<String> {
+    let entries = fs::read_dir(usb_dev).ok()?;
+    for e in entries.flatten() {
+        if let Ok(p) = fs::read_link(e.path().join("driver")) {
+            return p.file_name().map(|n| n.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
+fn is_wifi_name(name: &str) -> bool {
+    let n = name.to_lowercase();
+    ["wifi", "wlan", "wireless", "802.11", "802.11n", "ac600", "ac1200"]
+        .iter()
+        .any(|k| n.contains(k))
+}
+
+/// Print the detection table (or JSON). Part of `wayang wifi detect`.
+pub fn detect_cmd(json: bool) -> crate::error::Result<i32> {
+    let devs = detect();
+    if json {
+        let arr: Vec<serde_json::Value> = devs
+            .iter()
+            .map(|d| {
+                serde_json::json!({
+                    "iface": d.iface, "bus": d.bus, "id": d.id,
+                    "driver": d.driver, "name": d.name, "hint": d.hint, "bound": d.bound,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::Value::Array(arr));
+        return Ok(0);
+    }
+    if devs.is_empty() {
+        println!("no WiFi hardware detected (no wireless interface and no matching USB device)");
+        println!("if it is a USB adapter, make sure it is plugged in; then re-run `wayang wifi detect`");
+        return Ok(2);
+    }
+    println!(
+        "{:<10} {:<4} {:<10} {:<16} {:<24} {}",
+        "IFACE", "BUS", "ID", "DRIVER", "NAME", "SUGGESTION"
+    );
+    for d in &devs {
+        let iface = if d.bound { d.iface.clone() } else { "usb".into() };
+        let drv = if d.driver == "-" { "(none)".to_string() } else { d.driver.clone() };
+        println!(
+            "{:<10} {:<4} {:<10} {:<16} {:<24} {}",
+            iface, d.bus, d.id, drv, trunc(&d.name, 24), d.hint
+        );
+    }
+    if devs.iter().any(|d| !d.bound) {
+        println!();
+        println!("devices marked `usb` have no driver bound: use configs/defconfig-wifi + firmware");
+    }
+    Ok(0)
+}
+
+fn trunc(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        s.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
+    }
+}
+
+#[cfg(test)]
+mod detect_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    fn write(p: &Path, v: &str) {
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, v).unwrap();
+    }
+
+    #[test]
+    fn detects_bound_and_unbound_wifi() {
+        let root = std::env::temp_dir().join(format!("wayang-detect-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+
+        // bound: wlan0 -> device with driver + usb ids + product
+        let net = root.join("class/net/wlan0");
+        fs::create_dir_all(net.join("wireless")).unwrap();
+        let dev = net.join("device");
+        fs::create_dir_all(&dev).unwrap();
+        let drv = root.join("drivers/rtw88_8821cu");
+        fs::create_dir_all(&drv).unwrap();
+        symlink(&drv, dev.join("driver")).unwrap();
+        write(&dev.join("idVendor"), "0bda\n");
+        write(&dev.join("idProduct"), "c811\n");
+        write(&dev.join("product"), "Realtek 802.11ac NIC\n");
+
+        // unbound: USB function with wireless class
+        let usb = root.join("bus/usb/devices/1-2");
+        write(&usb.join("idVendor"), "0e8d\n");
+        write(&usb.join("idProduct"), "7601\n");
+        write(&usb.join("product"), "802.11 n WLAN\n");
+        write(&usb.join("1-2:1.0/bInterfaceClass"), "e0\n");
+
+        let devs = detect_at(&root);
+        let bound = devs.iter().find(|d| d.iface == "wlan0").expect("bound wlan0");
+        assert_eq!(bound.bus, "usb");
+        assert_eq!(bound.id, "0bda:c811");
+        assert_eq!(bound.driver, "rtw88_8821cu");
+        assert!(bound.hint.contains("rtw88"));
+        assert!(bound.bound);
+
+        let free = devs.iter().find(|d| d.iface == "-").expect("unbound usb");
+        assert_eq!(free.id, "0e8d:7601");
+        assert!(free.hint.contains("mt7601u"));
+        assert!(!free.bound);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+}
