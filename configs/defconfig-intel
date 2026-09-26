@@ -22,6 +22,10 @@ CONFIG_USB_NET_AX88179_178A=y
 CONFIG_USB_NET_AX8817X=y
 CONFIG_USB_NET_CDCETHER=y
 CONFIG_USB_NET_CDC_NCM=y
+# CoreChip/Davicom USB 10/100 dongles (e.g. 0fe6:9702 SR9700, 0fe6:9700)
+CONFIG_USB_NET_SR9700=y
+CONFIG_USB_NET_SR9800=y
+CONFIG_USB_NET_DM9601=y
 # PCIe NICs: Intel I350/I340 (igb), I225/I226 (igc) and 10G (ixgbe, i40e) —
 # the usual multi-port firewall cards. Onboard I219 (e1000e) and Realtek
 # (r8169) come from the base config.
@@ -40,3 +44,19 @@ CONFIG_FUSION=y
 CONFIG_FUSION_SAS=y
 # USB sticks the installer reads SSH keys from
 CONFIG_EXFAT_FS=y
+# Intel WiFi (PCI iwlwifi) and Bluetooth (USB btusb, e.g. 8087:0aa7 with an
+# AC 3165/8260/8265/AX200 companion). Firmware is bundled from
+# $BUILD/wifi/firmware into /lib/firmware (see scripts/fetch-sources.sh).
+CONFIG_WLAN=y
+CONFIG_CFG80211=y
+CONFIG_MAC80211=y
+CONFIG_RFKILL=y
+CONFIG_FW_LOADER=y
+CONFIG_WLAN_VENDOR_INTEL=y
+CONFIG_IWLWIFI=y
+CONFIG_IWLMVM=y
+CONFIG_IWLDVM=y
+CONFIG_BT=y
+CONFIG_BT_BREDR=y
+CONFIG_BT_LE=y
+CONFIG_BT_HCIBTUSB=y
