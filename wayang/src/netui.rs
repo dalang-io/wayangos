@@ -8,6 +8,9 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::thread;
+
 use crate::hud::{self, Theme};
 use crate::input::{self, Input, Outcome};
 use crate::net::{self, Family, Mode, NetChoice};
@@ -31,6 +34,9 @@ pub struct App {
     pub choice: NetChoice,
     input: Option<(Field, Input)>,
     pub message: Option<(Tone, String)>,
+    /// Background operation (apply / link up-down / dhcp); polled each tick so
+    /// the HUD never blocks on the network.
+    job: Option<Receiver<Result<String, String>>>,
     pub exit: bool,
 }
 
@@ -58,6 +64,7 @@ impl App {
             choice,
             input: None,
             message: None,
+            job: None,
             exit: false,
         }
     }
@@ -116,6 +123,14 @@ impl App {
     pub fn on_key(&mut self, key: KeyEvent) {
         if self.input.is_some() {
             self.on_input_key(key);
+            return;
+        }
+        // While a background job runs, only allow quitting; everything else is
+        // ignored so the user can't queue conflicting operations.
+        if self.job.is_some() {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
+                self.exit = true;
+            }
             return;
         }
         let rows = self.ifaces.len();
@@ -208,16 +223,47 @@ impl App {
         self.ifaces.get(self.sel).map(|i| i.name.clone())
     }
 
+    fn busy(&self) -> bool {
+        self.job.is_some()
+    }
+
+    /// Run `f` on a worker thread; the result is picked up by [`Self::poll_job`].
+    fn start_job(&mut self, label: &str, f: impl FnOnce() -> Result<String, String> + Send + 'static) {
+        if self.busy() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        self.job = Some(rx);
+        self.message = Some((Tone::Warn, format!("{label}…")));
+    }
+
+    /// Called once per UI tick: finish a background job when it reports back.
+    pub fn poll_job(&mut self) {
+        let Some(rx) = &self.job else { return };
+        match rx.try_recv() {
+            Ok(res) => {
+                self.job = None;
+                match res {
+                    Ok(msg) => self.message = Some((Tone::Ok, msg)),
+                    Err(e) => self.message = Some((Tone::Bad, e)),
+                }
+                self.refresh();
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => self.job = None,
+        }
+    }
+
     fn link(&mut self, up: bool) {
         let Some(name) = self.selected() else {
             self.message = Some((Tone::Bad, "No interface selected.".into()));
             return;
         };
-        match net::set_link(&name, up) {
-            Ok(msg) => self.message = Some((Tone::Ok, msg)),
-            Err(e) => self.message = Some((Tone::Bad, e)),
-        }
-        self.refresh();
+        let state = if up { "up" } else { "down" };
+        self.start_job(&format!("{name}: link {state}"), move || net::set_link(&name, up));
     }
 
     /// Lease this interface without making it the primary uplink.
@@ -226,11 +272,8 @@ impl App {
             self.message = Some((Tone::Bad, "No interface selected.".into()));
             return;
         };
-        match net::dhcp_now(&name, self.demo) {
-            Ok(msg) => self.message = Some((Tone::Ok, msg)),
-            Err(e) => self.message = Some((Tone::Bad, e)),
-        }
-        self.refresh();
+        let demo = self.demo;
+        self.start_job(&format!("{name}: dhcp"), move || net::dhcp_now(&name, demo));
     }
 
     fn apply(&mut self) {
@@ -239,11 +282,14 @@ impl App {
             return;
         };
         self.choice.iface = Some(iface.name.clone());
-        match self.choice.apply(self.demo) {
-            Ok(msg) => self.message = Some((Tone::Ok, msg)),
-            Err(e) => self.message = Some((Tone::Bad, e)),
+        if let Err(e) = self.choice.validate() {
+            self.message = Some((Tone::Bad, e));
+            return;
         }
-        self.refresh();
+        let choice = self.choice.clone();
+        let demo = self.demo;
+        let label = choice.summary();
+        self.start_job(&label, move || choice.apply(demo));
     }
 }
 
@@ -326,7 +372,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .split(cols[1]);
     draw_mode(f, right[0], app);
     draw_fields(f, right[1], app);
-    draw_result(f, rows[2], app);
+    draw_result(f, rows[2], app, tick);
 
     let keys = hud::keycaps(
         &[
@@ -494,9 +540,10 @@ fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str) -> Line<'
     hud::field(&format!("{n} {label}"), 12, vec![shown], t)
 }
 
-fn draw_result(f: &mut Frame, area: Rect, app: &App) {
+fn draw_result(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let t = &app.t;
     let inner = hud::panel(f, area, "RESULT", t);
+    let spinner = ["|", "/", "-", "\\"][tick % 4];
     let line = match &app.message {
         Some((tone, text)) => {
             let (color, sym) = match tone {
@@ -504,7 +551,9 @@ fn draw_result(f: &mut Frame, area: Rect, app: &App) {
                 Tone::Warn => (t.warn, t.g.warn),
                 Tone::Bad => (t.bad, t.g.bad),
             };
+            let lead = if app.busy() { format!("{spinner} ") } else { String::new() };
             Line::from(vec![
+                Span::styled(lead, t.bold(t.accent2)),
                 hud::badge(color, sym, &text.to_uppercase(), t),
                 Span::styled(format!(" {text}"), t.fg(t.fg)),
             ])
@@ -522,6 +571,7 @@ pub fn run() -> std::io::Result<()> {
     crate::screen::run(
         App::new(false),
         draw,
+        |app| app.poll_job(),
         |app, key| app.on_key(key),
         |app| app.exit,
     )
@@ -547,6 +597,15 @@ mod tests {
     fn dhcp_here_is_demo_safe() {
         let mut app = App::new(true);
         app.on_key(KeyEvent::from(KeyCode::Char('h')));
+        assert!(app.busy(), "dhcp starts a background job");
+        for _ in 0..200 {
+            app.poll_job();
+            if !app.busy() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!app.busy());
         assert!(matches!(app.message, Some((Tone::Ok, _))));
     }
 
@@ -591,6 +650,14 @@ mod tests {
     fn apply_in_demo_does_not_touch_system() {
         let mut app = App::new(true);
         app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(app.busy());
+        for _ in 0..200 {
+            app.poll_job();
+            if !app.busy() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         assert!(matches!(app.message, Some((Tone::Ok, _))));
     }
 }

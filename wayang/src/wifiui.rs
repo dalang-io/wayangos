@@ -428,6 +428,7 @@ pub fn run() -> std::io::Result<()> {
     crate::screen::run(
         App::new(false),
         draw,
+        |_app| {},
         |app, key| app.on_key(key),
         |app| app.exit,
     )

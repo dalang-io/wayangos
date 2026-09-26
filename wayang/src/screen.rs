@@ -27,10 +27,12 @@ fn restore(console: bool) {
 /// Run `app` on the real terminal until `exited` returns true.
 ///
 /// `draw` receives the frame and a tick counter (for blinking cursors);
-/// `on_key` handles press events only.
+/// `poll` runs once per loop so the app can pick up background work; `on_key`
+/// handles press events only.
 pub fn run<A>(
     mut app: A,
     draw: impl Fn(&mut Frame, &A, usize),
+    poll: impl Fn(&mut A),
     on_key: impl Fn(&mut A, KeyEvent),
     exited: impl Fn(&A) -> bool,
 ) -> io::Result<()> {
@@ -56,6 +58,7 @@ pub fn run<A>(
 
     let mut tick: usize = 0;
     let result = loop {
+        poll(&mut app);
         terminal.draw(|f| draw(f, &app, tick))?;
         if exited(&app) {
             break Ok(());
