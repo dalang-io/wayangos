@@ -6,14 +6,16 @@ of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 
 ## wayangos (this repo)
 
-- [ ] **Re-enable the full router kernel block, bisected.** 1.0.13's block
+- [~] **Re-enable the full router kernel block, bisected.** 1.0.13's block
       locked the test device (docs/INCIDENT-1.0.13.md). 1.0.15 restored only
-      `VLAN_8021Q` + `BRIDGE` (+`BRIDGE_VLAN_FILTERING`). Re-add the rest **one
-      group at a time**, booting the device after each, and confirm keyboard +
-      SSH: `BONDING/DUMMY/VETH/MACVLAN/TUN`, `WIREGUARD` (+arch crypto),
-      `NET_IPGRE*/NET_IPIP`, `NET_VRF` + `IP_ROUTE_MULTIPATH` +
-      `IPV6_MULTIPLE_TABLES`, `INET_ESP`/`XFRM_INTERFACE`, `NET_SCH_*`/
-      `NET_CLS_*`/`NET_ACT_*`/`IFB`.
+      `VLAN_8021Q` + `BRIDGE` (+`BRIDGE_VLAN_FILTERING`). A safe harness is now
+      in place: `scripts/bisect-router-opts.sh --list` (build one group at a
+      time on the builder, never `/root/wayangos-build`) and
+      `docs/ROUTER-KERNEL-BISECT.md` (device procedure + recovery). **Needs a
+      supervised hardware session** — booting each group on the device and
+      confirming keyboard + SSH, recovering via GRUB slot A / power-cycle.
+      Groups, safest first: veth-macvlan-tun, wireguard, vrf-multipath, ipsec,
+      dummy-bonding, gre-ipip, qos.
 - [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle
       and creates the GitHub release, but `wayang.dalang.io/channel` is
       published by hand (`scripts/publish-channel.sh`). Wired into the tag path
@@ -27,9 +29,11 @@ of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 - [x] **Landing page: drop the removed POS build commands.**
       `landing-page/download.html` no longer references `scripts/build-pos.sh` /
       `build-pos-iso.sh` / `wayangos-pos` (deleted). POS is a separate project now.
-- [ ] **`wayang` console polish.** Remaining ideas: a real (determinate)
-      update progress bar once the updater reports byte counts; a SYSTEM-slot
-      "boot other slot" action; consolidate the SSH screen with `wayang-addkey`.
+- [x] **`wayang` console polish.** Determinate update progress (`Gauge` with
+      `% · MB/s · elapsed`, streaming the download; indeterminate fallback) and a
+      one-shot **boot-other-slot** action (`b` twice / `wayang update
+      --boot-other`) are in; the SSH screen and `wayang-addkey` now share one
+      implementation (`wayang addkey`).
 - [x] **Secondary-NIC DHCP ergonomics.** `wayang-net dhcp <iface>` leases
       address-only; added a persisted "also lease these" list at
       `/data/etc/network/also` (`wayang-net also [<iface> on|off]`), leased
@@ -41,21 +45,27 @@ of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 
 ## wayang-fw (dalang-io/wayang-fw)
 
-See `docs/ROADMAP.md` (v0.2+). Not started:
+See `docs/ROADMAP.md` (v0.2+). Remaining:
 
-- [ ] live conntrack / drop-log views (dashboard has charts + activity now);
-- [ ] per-zone DHCP/DNS (dnsmasq);
-- [ ] nft sets / FQDN objects, schedules (time-based rules);
-- [ ] hairpin NAT; interface config from the HUD.
+- [ ] per-zone DHCP/DNS (dnsmasq — not bundled yet);
+- [ ] nft sets / FQDN objects;
+- [ ] interface config from the HUD.
 - [ ] Firewall enforcement is **QEMU-tested only** — run the lab
       `tests/lab/lab.py` and then validate on real hardware.
+- [x] live conntrack / drop-log views → **DROPS** screen (module 08) reads the
+      `wfw:` counters + kernel drop log, grouped by source/service.
+- [x] rule **schedules** (time windows, `meta day`/`meta hour`) and **hairpin
+      NAT** (port-forward reflection + masquerade) as config + render, with TUI
+      fields.
 
 ## wayang-router (dalang-io/wayang-router)
 
 See `docs/ROADMAP.md`. v0.1 (MVP) is usable (ports, 802.1Q VLANs, bridges,
 static v4/v6, DHCP client, forwarding, static routes):
 
-- [ ] **netlink backend** to replace `vconfig`/`brctl` (fewer spawns);
+- [x] **netlink backend** for addresses/links/VLAN/bridge (rtnetlink via raw
+      `libc`, no new crate), falling back to `ip`/`vconfig`/`brctl`; `ip route`
+      stays command-based for now.
 - [ ] WireGuard (generic-netlink, no `wg` binary), then IPsec IKEv2;
 - [ ] VRF, policy routing, ECMP, multi-WAN failover;
 - [ ] QoS (HTB + fq_codel) per subnet/host/VLAN;
@@ -75,9 +85,13 @@ static v4/v6, DHCP client, forwarding, static routes):
       read capacity test, free-space and `--destructive`), `dcheck recover`
       (read-only recovery chance, steps, disk map) and `dcheck undelete`
       (NTFS/FAT32/exFAT names + block map; `--carve` for other filesystems).
-      Documented gaps, not preview labels: verify/recover are Linux-only;
-      undelete assumes FAT32/exFAT files are contiguous, does not follow NTFS
-      `$ATTRIBUTE_LIST`, and recovers ntfs3-deleted files without a name.
+      Documented gaps, not preview labels: `undelete` now follows the NTFS
+      `$ATTRIBUTE_LIST` and reads names from `$I30`, and `--carve --free`
+      restricts carving to free clusters (NTFS/FAT32/exFAT bitmaps); still
+      assumed contiguous for fragmented FAT32/exFAT files, and no name for
+      ntfs3-deleted files without an index entry. `recover`/`verify` gained a
+      macOS backend (diskutil/df; `--destructive` stays Linux-only); recover's
+      disk-map sampling is still Linux-only.
 
 ## Done (recent)
 
@@ -91,3 +105,11 @@ static v4/v6, DHCP client, forwarding, static routes):
       wayang-router scans `/proc` once per poll (−27%); dcheck skips `smartctl`
       spawns when absent (0 vs 189 execve/scan).
 - [x] WayangPOS removed from `wayang` (separate app / dedicated box).
+- [x] `wayang`: determinate update progress + `b` boot-other-slot; SSH keys via
+      `wayang addkey` (shared with the TUI).
+- [x] wayang-fw: DROPS view; rule schedules; hairpin NAT.
+- [x] wayang-router: rtnetlink backend (addr/link/VLAN/bridge).
+- [x] dcheck: undelete ATTRIBUTE_LIST + `$I30` names + `--carve --free`; macOS
+      recover/verify backends.
+- [x] Router kernel bisect harness: `scripts/bisect-router-opts.sh` +
+      `docs/ROUTER-KERNEL-BISECT.md` (hardware-gated).
