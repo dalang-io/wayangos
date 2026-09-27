@@ -311,6 +311,23 @@ if [ "$DEBUG" = 1 ] && [ -d /data ]; then
     ) &
 fi
 
+# Opt-in unattended self-test for remote kernel bisects (see
+# docs/ROUTER-KERNEL-BISECT.md, "Remote bisect"): only with
+# `wayang.selftest=SECONDS` on the kernel cmdline. It pets /dev/watchdog and
+# confirms the slot (`wayang mark-ok`) only if the gateway still answers after
+# SECONDS; otherwise it falls back to the good slot and reboots. Without the
+# flag nothing here runs and mark-ok happens at the end of rcS as always.
+SELFTEST=""
+for arg in $(cat /proc/cmdline); do
+    case "$arg" in wayang.selftest=*) SELFTEST="${arg#wayang.selftest=}" ;; esac
+done
+case "$SELFTEST" in ''|*[!0-9]*) SELFTEST="" ;; esac
+if [ -n "$SELFTEST" ] && [ -x /usr/sbin/wayang-selftest ]; then
+    /usr/sbin/wayang-selftest start "$SELFTEST"
+else
+    SELFTEST=""
+fi
+
 # Firewall before the network: interfaces get addresses only after the last
 # confirmed wayang-fw ruleset is loaded (no-op without wayang-fw/config).
 /etc/init.d/fw start
@@ -340,7 +357,8 @@ echo ""
 
 # The system booted: clear the GRUB attempt counter and mark this slot good
 # (see docs/UPDATE-DESIGN.md). A no-op when the updater is not installed.
-if [ -x /usr/bin/wayang ]; then
+# Under wayang.selftest the self-test marks the slot once its check passes.
+if [ -x /usr/bin/wayang ] && [ -z "$SELFTEST" ]; then
     wayang mark-ok >/dev/null 2>&1 || true
 fi
 INIT
@@ -1050,6 +1068,131 @@ printf "  ${g}version %s${r}   linux ${g}%s${r}   slot ${y}%s${r}\n" "$ver" "$kv
 printf "${c}+-----------------------------------------------------+${r}\n\n"
 SPLASH
 chmod +x "$ROOTFS/usr/bin/wayang-splash"
+
+# Unattended boot self-test (opt-in, `wayang.selftest=SECONDS`; started by
+# rcS). Safety net for remote kernel bisects: a kernel that boots but loses the
+# uplink/USB, or hard-locks, must not strand a box nobody can reach.
+cat > "$ROOTFS/usr/sbin/wayang-selftest" << 'SELFTEST'
+#!/bin/sh
+# wayang-selftest start SECONDS   (called by rcS; returns immediately)
+#
+#  1. pets /dev/watchdog (BusyBox `watchdog`, else a shell loop) so a hard
+#     lockup ends in a hardware reset instead of a frozen box;
+#  2. for SECONDS, probes the default gateway (or wayang.selftest_host=IP, or
+#     the first line of /data/etc/selftest.host) every 5 s;
+#  3. at the deadline: if the target answers -> `wayang mark-ok` (slot good);
+#     otherwise -> `wayang update --fallback` (next boot = last good slot; a
+#     no-op on the good slot itself) and `reboot -f`.
+#
+# A reset/reboot without mark-ok also counts against GRUB's attempt budget
+# (3), so even if this script never gets to run, GRUB falls back on its own.
+# Log: /data/selftest.log (kept across boots), also on the console.
+
+LOG=/data/selftest.log
+grep -q ' /data ' /proc/mounts 2>/dev/null || LOG=/var/log/selftest.log
+
+up() { cut -d. -f1 /proc/uptime; }
+
+log() {
+    line="$(date '+%F %T') up=$(up)s slot=$SLOT $*"
+    echo "$line" >> "$LOG" 2>/dev/null
+    echo "wayang-selftest: $*" > /dev/console 2>/dev/null
+    logger -t wayang-selftest "$*" 2>/dev/null
+}
+
+SLOT="?"
+HOST=""
+read -r CMDLINE < /proc/cmdline
+for w in $CMDLINE; do
+    case "$w" in
+        wayang.slot=*) SLOT="${w#wayang.slot=}" ;;
+        wayang.selftest_host=*) HOST="${w#wayang.selftest_host=}" ;;
+    esac
+done
+if [ -z "$HOST" ] && [ -s /data/etc/selftest.host ]; then
+    HOST="$(head -n 1 /data/etc/selftest.host)"
+fi
+
+start_watchdog() {
+    if [ ! -c /dev/watchdog ]; then
+        log "no /dev/watchdog: a hard lockup will NOT reset the box"
+        return 0
+    fi
+    if command -v watchdog >/dev/null 2>&1; then
+        # hardware timeout 60 s, pet every 10 s (daemonizes)
+        watchdog -T 60 -t 10 /dev/watchdog && { log "watchdog: busybox, T=60s"; return 0; }
+    fi
+    # fallback petter: keeps the device open and writes every 10 s
+    ( exec 3>/dev/watchdog || exit 1; while :; do printf '.' >&3; sleep 10; done ) &
+    log "watchdog: shell petter (hardware default timeout)"
+}
+
+target() {
+    if [ -n "$HOST" ]; then
+        echo "$HOST"
+    else
+        ip route show default 2>/dev/null | awk '/^default/ { print $3; exit }'
+    fi
+}
+
+probe() {
+    t="$(target)"
+    [ -n "$t" ] && ping -c 1 -W 2 "$t" >/dev/null 2>&1
+}
+
+check() {
+    secs="$1"
+    deadline=$(( $(up) + secs ))
+    seen=0
+    while [ "$(up)" -lt "$deadline" ]; do
+        if probe; then
+            [ "$seen" = 1 ] || log "target $(target) reachable"
+            seen=1
+        fi
+        sleep 5
+    done
+    # verdict at the deadline: the box must *still* be reachable (a late USB
+    # stall within the window fails the test too)
+    n=0
+    while [ $n -lt 3 ]; do
+        if probe; then
+            if wayang mark-ok >/dev/null 2>&1; then
+                log "PASS: $(target) reachable after ${secs}s; slot marked good"
+            else
+                log "PASS: $(target) reachable after ${secs}s, but mark-ok FAILED (slot not confirmed)"
+            fi
+            return 0
+        fi
+        n=$((n + 1))
+        sleep 2
+    done
+    log "FAIL: target '$(target)' unreachable at the ${secs}s deadline (ever seen: $seen)"
+    if out="$(timeout 30 wayang update --fallback 2>&1)"; then
+        log "fallback: $out"
+    else
+        log "fallback not staged ($out); relying on GRUB's attempt budget"
+    fi
+    sync
+    log "rebooting (reboot -f)"
+    sync
+    sleep 1
+    reboot -f
+}
+
+case "$1" in
+    start)
+        secs="$2"
+        case "$secs" in ''|*[!0-9]*) echo "usage: $0 start SECONDS" >&2; exit 1 ;; esac
+        # never shorter than a boot + DHCP
+        [ "$secs" -ge 30 ] || secs=30
+        log "armed: ${secs}s, target=${HOST:-default gateway}"
+        start_watchdog
+        ( check "$secs" ) </dev/null >/dev/null 2>&1 &
+        ;;
+    *) echo "usage: $0 start SECONDS" >&2; exit 1 ;;
+esac
+SELFTEST
+chmod +x "$ROOTFS/usr/sbin/wayang-selftest"
 
 # Authorize SSH keys for root, now and (with /data) across reboots.
 # One implementation: the same `wayang addkey` core the console SSH screen uses

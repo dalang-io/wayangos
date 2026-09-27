@@ -33,6 +33,7 @@ the device, the trigger is a driver/crypto path rather than a stray interface.
 
 | # | group | options | boot netdev | why it matters |
 |---|-------|---------|-------------|----------------|
+| 0 | `baseline` | none (safety net only) | none | proves the watchdog / panic / self-test path on this hardware before any router option is tried |
 | 1 | `veth-macvlan-tun` | `VETH`, `MACVLAN`, `TUN` | none | virtual links used by router tunnels/namespaces; created only on demand |
 | 2 | `wireguard` | `WIREGUARD` + `CRYPTO_LIB_CHACHA{,_ARCH}`, `CRYPTO_LIB_POLY1305{,_ARCH}`, `CRYPTO_LIB_CURVE25519{,_ARCH}` | none | the x86 arch assembly crypto is a prime suspect for a hard lockup |
 | 3 | `vrf-multipath` | `NET_L3_MASTER_DEV`, `NET_VRF`, `IPV6_MULTIPLE_TABLES`, `IPV6_SUBTREES`, `IP_ROUTE_MULTIPATH`, `IP_MULTIPLE_TABLES` | none | policy routing / ECMP / VRF lookup; `IP_MULTIPLE_TABLES` and `IP_ROUTE_MULTIPATH` are already on in the base config; `NET_VRF` needs `NET_L3_MASTER_DEV` (without it `olddefconfig` drops VRF silently — 1.0.13 never had VRF) |
@@ -61,7 +62,8 @@ WAYANG_KEY=/path/to/release.key scripts/bisect-router-opts.sh
 scripts/bisect-router-opts.sh --dry-run --group wireguard
 ```
 
-Useful flags: `--out DIR`, `--version VER` (default `1.0.99`),
+Useful flags: `--unattended SECS` (see "Remote bisect" below), `--no-safety`,
+`--print-opts [GROUP|all|safety]`, `--out DIR`, `--version VER` (default `1.0.99`),
 `--kernel-version V` (default `7.2.7`), `--host`, `--work`, `--shared`, `--key`.
 
 For each group the builder:
@@ -171,3 +173,100 @@ qemu-system-x86_64 -enable-kvm -m 1024 -kernel /tmp/wayang-tools/bzImage-lab \
 Checked in QEMU: `ip link add wg0 type wireguard` + `wg set/show`; `tc` htb +
 fq_codel + u32/fw filters, cake, ingress + `police` + `mirred` to `ifb0`;
 `bird` starts with a BGP config and opens `/var/run/bird.ctl`.
+
+## Remote bisect (unattended)
+
+The procedure above needs someone at the console, because a bad kernel can
+kill the keyboard *and* the USB uplink (1.0.13). The safety net below lets a
+bisect bundle be booted remotely and still come back to the good slot on its
+own. **Prepared and QEMU-proven only; it has not been used on the device yet.**
+Start with the `baseline` group, supervised, before trusting it unattended.
+
+### Pieces
+
+1. **Kernel (bisect builds only, never shipped)** — every group built by
+   `scripts/bisect-router-opts.sh` gets, unless `--no-safety`:
+   `WATCHDOG_CORE`, `ITCO_WDT` (+`ITCO_VENDOR_SUPPORT`, `LPC_ICH`; the
+   i3-7100's Sunrise Point PCH exposes TCO through `i2c-i801`, already `=y`),
+   `I6300ESB_WDT` (QEMU), `SOFTLOCKUP_DETECTOR`, `HARDLOCKUP_DETECTOR`,
+   `DETECT_HUNG_TASK` (via `DEBUG_KERNEL`), and a built-in command line
+   (`CMDLINE_BOOL`, prepended to GRUB's):
+   `panic=10 oops=panic softlockup_panic=1 hardlockup_panic=1 hung_task_panic=1 nmi_watchdog=1`.
+   `--unattended SECS` also adds `wayang.selftest=SECS` to it. The builder
+   warns when any requested option does not survive `olddefconfig`.
+2. **Userspace** — `wayang.selftest=SECS` on the cmdline (and only then) makes
+   rcS run `/usr/sbin/wayang-selftest start SECS` right after `/data` is mounted:
+   - it pets `/dev/watchdog` (BusyBox `watchdog -T 60 -t 10`, else a shell
+     loop), so a hard lockup or frozen userspace ends in a hardware reset;
+   - it pings the default gateway (or `wayang.selftest_host=IP`, or the first
+     line of `/data/etc/selftest.host`) every 5 s, and at the deadline
+     (min. 30 s) requires it to *still* answer;
+   - pass → `wayang mark-ok` (rcS skips its own unconditional mark-ok under
+     the flag); fail → `wayang update --fallback` (new: points the next boot
+     at `wayang_good`; refuses on the good slot itself or without
+     `wayang.slot=`) and `reboot -f`;
+   - everything is logged to `/data/selftest.log` (with slot and uptime) and
+     the console.
+   Without the flag nothing changes (no watchdog opened, mark-ok as before).
+3. **Boot loader (existing)** — staging (`wayang update --from` or
+   `--boot-other`) sets `wayang_slot=<new>`, `wayang_attempts=0` and leaves
+   `wayang_good` alone; GRUB counts every boot and falls back to `wayang_good`
+   after 3 attempts without a `mark-ok`. So a slot that resets (watchdog,
+   panic) instead of reaching the self-test verdict still returns to the good
+   slot after three tries.
+
+### Verified in QEMU
+
+`scripts/test-selftest-qemu.sh KERNEL INITRAMFS SSH_KEY [nonet|hang|panic ...]`
+(on the build box) builds a real UEFI disk (OVMF, GRUB with
+`wayang/grub-disk.cfg`, grubenv, ext4 `/data`), boots slot A, runs the real
+`wayang update --boot-other` + `reboot`, and simulates a bad slot B:
+
+| scenario | what B does | path back | result |
+|---|---|---|---|
+| `nonet` | network never comes up | self-test FAIL at 60 s → `--fallback` → `reboot -f` → A | back on A (PASS, marked good) after 146 s |
+| `hang` | SIGSTOP to every process 15 s after boot (incl. the watchdog petter) | i6300esb reset ×3 → GRUB budget → A | B booted 3×, then A (PASS) after 300 s |
+| `panic` | `sysrq c` 15 s after boot | `panic=10` reboot ×3 → GRUB budget → A | B booted 3×, then A (PASS) after 169 s |
+
+Kernel: `defconfig-intel` + safety net + `wayang.selftest=60`; final grubenv
+`wayang_slot=A wayang_good=A wayang_attempts=0`. Logs of the runs:
+`/tmp/wayang-tools/selftest-qemu-evidence.log` on the build box.
+
+### Device procedure (when the owner OKs it)
+
+1. Build `baseline` **supervised** first:
+   `WAYANG_KEY=… scripts/bisect-router-opts.sh --group baseline --unattended 600`.
+   Boot it with someone at the console and check `dmesg | grep -i -e tco -e wdt`
+   (a "failed to reset NO_REBOOT flag, reboot disabled by hardware" line means
+   the TCO watchdog cannot reset this board — then only the panic/self-test
+   paths are available), `ls /dev/watchdog`, `/data/selftest.log` → PASS.
+   Optionally prove the reset once: `kill -STOP $(pidof watchdog)` and wait
+   ~60 s for the box to reset and come back.
+2. Set a probe target the uplink can always reach, if the gateway may drop
+   ICMP: `echo 1.1.1.1 > /data/etc/selftest.host`.
+3. Then, per group: `--group NAME --unattended 600`, copy + verify, then
+   `ssh root@163.128.55.3 'wayang update --from /data/bisect.wup && reboot'`.
+   Wait ~15 min before declaring anything; then read `/data/selftest.log`,
+   `/data/debug/` (if the bundle's cmdline had `wayang.debug`) and
+   `wayang status` on whatever slot answers.
+
+### Limits
+
+- **Only the self-test window is covered.** A failure that starts *after* the
+  PASS (e.g. a USB stall 20 min in) leaves a slot already marked good; the box
+  stays unreachable and will keep booting it. Use a long window (600 s or
+  more) and let each group soak inside it. The watchdog keeps being petted
+  after PASS, so a later *hard* lockup still resets — into the same (now
+  "good") slot.
+- **Hangs before rcS opens `/dev/watchdog`** (early boot, driver probe) are
+  caught only by the lockup/hung-task detectors (`panic=10`); a hang with
+  interrupts off on every CPU that the NMI watchdog cannot see stays stuck
+  until a power-cycle. The TCO timer is not started by firmware on this box.
+- The TCO watchdog may be disabled by the BIOS (NO_REBOOT locked) — check in
+  the supervised baseline boot.
+- The fallback runs on the *bisect* slot (built from master, which has
+  `wayang update --fallback`); the good slot only needs a working `mark-ok`.
+  The GRUB budget path needs nothing from userspace at all.
+- The probe proves L3 reachability of one host, not SSH; a firewall/sshd
+  problem with a live uplink passes. The keyboard cannot be checked remotely.
+- Bundles must be signed with the release key (`WAYANG_KEY`), as before.

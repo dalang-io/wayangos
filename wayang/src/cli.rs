@@ -12,6 +12,9 @@ pub struct UpdateArgs {
     pub rollback: bool,
     /// Stage the idle slot for the next boot (a one-shot slot switch).
     pub boot_other: bool,
+    /// Point the next boot at the last known-good slot (`wayang_good`); used
+    /// by the unattended self-test (`wayang-selftest`) after a failed boot.
+    pub fallback: bool,
 }
 
 #[derive(Debug)]
@@ -59,6 +62,7 @@ fn update_args(args: &[String], sub: &str) -> Result<UpdateArgs, String> {
             "--reboot" => a.reboot = true,
             "--rollback" => a.rollback = true,
             "--boot-other" => a.boot_other = true,
+            "--fallback" => a.fallback = true,
             "--from" => a.from = Some(PathBuf::from(value_after(args, &mut i, "--from")?)),
             "--channel" => a.channel = Some(value_after(args, &mut i, "--channel")?),
             "--esp" => a.esp = Some(value_after(args, &mut i, "--esp")?),
@@ -222,6 +226,14 @@ mod tests {
     fn parses_boot_other() {
         match parse(&v(&["update", "--boot-other"])).unwrap() {
             Command::Update(a) => assert!(a.boot_other),
+            _ => panic!("wrong command"),
+        }
+    }
+
+    #[test]
+    fn parses_fallback() {
+        match parse(&v(&["update", "--fallback"])).unwrap() {
+            Command::Update(a) => assert!(a.fallback),
             _ => panic!("wrong command"),
         }
     }

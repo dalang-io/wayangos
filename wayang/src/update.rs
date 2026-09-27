@@ -96,6 +96,12 @@ pub fn run_with_progress(upgrade: bool, a: &UpdateArgs, progress: Option<Arc<Pro
         }
         return run_boot_other(a);
     }
+    if a.fallback {
+        if upgrade {
+            return Err(AppError::err("--fallback is only valid for `wayang update`"));
+        }
+        return run_fallback(a);
+    }
 
     let installed = sema::parse_version(&version::read()?)?;
     let channel = a
@@ -212,6 +218,18 @@ pub fn run_boot_other(a: &UpdateArgs) -> Result<i32> {
     Ok(0)
 }
 
+/// Point the next boot at the last known-good slot. Refuses (error, nothing
+/// written) when this *is* the good slot or none is recorded, so a failed
+/// self-test on a good slot can never send the box to an untested one.
+pub fn run_fallback(a: &UpdateArgs) -> Result<i32> {
+    let boot = mount::open(a.esp.as_deref())?;
+    let target = staging::fallback(&boot)?;
+    drop(boot);
+    crate::outln!("Fallback staged: next boot uses the good slot {}.", target.as_str());
+    maybe_reboot(a.reboot)?;
+    Ok(0)
+}
+
 /// Reboot only for a real invocation that asked for it.
 pub fn maybe_reboot(requested: bool) -> Result<()> {
     if !requested {
@@ -269,6 +287,10 @@ mod tests {
         let err = run_with_progress(true, &a, None).unwrap_err();
         assert!(err.msg.contains("--boot-other"), "{}", err.msg);
         a.boot_other = false;
+        a.fallback = true;
+        let err = run_with_progress(true, &a, None).unwrap_err();
+        assert!(err.msg.contains("--fallback"), "{}", err.msg);
+        a.fallback = false;
         a.rollback = true;
         let err = run_with_progress(true, &a, None).unwrap_err();
         assert!(err.msg.contains("--rollback"), "{}", err.msg);

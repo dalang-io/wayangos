@@ -21,11 +21,22 @@
 #   --shared DIR       existing source cache on the builder
 #                      (default: /root/wayangos-build; never written to)
 #   --key FILE         release signing key (default: $WAYANG_KEY, else unsigned)
+#   --unattended SECS  embed wayang.selftest=SECS in the kernel's built-in
+#                      cmdline: the box confirms the slot only if its gateway
+#                      still answers after SECS, else falls back + reboots
+#                      (docs/ROUTER-KERNEL-BISECT.md, "Remote bisect")
+#   --no-safety        leave out the safety net (watchdog + panic options)
 #   --print-opts [G]   print the config lines for group G (default: all router
-#                      groups) and exit; used by
+#                      groups, no safety net) and exit; used by
 #                      scripts/build-lab-kernel.sh
 #   --dry-run          print what would run; touch nothing
 #   -h, --help         this help
+#
+# Every bisect kernel carries a safety net unless --no-safety: the Intel TCO
+# hardware watchdog (+ the QEMU i6300esb one), lockup/hung-task detectors and a
+# built-in cmdline "panic=10 oops=panic softlockup_panic=1 hardlockup_panic=1
+# hung_task_panic=1 nmi_watchdog=1", so a hang ends in a reset instead of a
+# frozen box. Group `baseline` is that safety net alone: validate it first.
 #
 # Env: WAYANG_KEY (release key path), HOST, REMOTE_WORK, SHARED, OUT_DIR
 set -euo pipefail
@@ -41,12 +52,15 @@ WAYANG_KEY="${WAYANG_KEY:-}"
 GROUP=""
 DRY_RUN=0
 LIST=0
+SAFETY=1
+UNATTENDED=""
 PRINT_OPTS=""
 
 # One group at a time. Safe first: the groups that do NOT create a netdev at
 # boot can't be confused with a boot-time netdev problem (bond0/dummy0/
 # ifb0-1/gre0/gretap0/erspan0/tunl0 come from the later groups).
 BISECT_GROUPS=(
+    baseline
     veth-macvlan-tun
     wireguard
     vrf-multipath
@@ -57,12 +71,13 @@ BISECT_GROUPS=(
 )
 
 usage() {
-    sed -n '2,34s/^# \{0,1\}//p' "$0"
+    sed -n '2,42s/^# \{0,1\}//p' "$0"
     exit "${1:-0}"
 }
 
 group_note() {
     case "$1" in
+        baseline)         echo "no router options: the safety net alone (validate it first)" ;;
         veth-macvlan-tun) echo "no boot netdev (veth/macvlan/tun need explicit creation)" ;;
         wireguard)        echo "no boot netdev; WIREGUARD arch crypto is a prime suspect" ;;
         vrf-multipath)    echo "no boot netdev (VRF devices are created explicitly)" ;;
@@ -76,6 +91,8 @@ group_note() {
 
 group_opts() {
     case "$1" in
+        baseline)
+            ;;
         veth-macvlan-tun)
             echo "CONFIG_VETH=y"
             echo "CONFIG_MACVLAN=y"
@@ -132,6 +149,28 @@ group_opts() {
     esac
 }
 
+# Remote-bisect safety net (not a router option; not shipped): hardware
+# watchdog + lockup detectors + panic-and-reboot, so a bad kernel resets the
+# box instead of freezing it. Kaby Lake (i3-7100, Sunrise Point PCH) exposes
+# the TCO watchdog through i2c-i801 (already =y); older ICH chipsets and QEMU
+# q35 through lpc_ich. DEBUG_KERNEL only unlocks the detector options (compare
+# the resolved .config, see docs/ROUTER-KERNEL-BISECT.md).
+safety_opts() {
+    local cmdline="panic=10 oops=panic softlockup_panic=1 hardlockup_panic=1 hung_task_panic=1 nmi_watchdog=1"
+    [ -n "$UNATTENDED" ] && cmdline="$cmdline wayang.selftest=$UNATTENDED"
+    echo "CONFIG_WATCHDOG_CORE=y"
+    echo "CONFIG_ITCO_WDT=y"
+    echo "CONFIG_ITCO_VENDOR_SUPPORT=y"
+    echo "CONFIG_LPC_ICH=y"
+    echo "CONFIG_I6300ESB_WDT=y"
+    echo "CONFIG_DEBUG_KERNEL=y"
+    echo "CONFIG_SOFTLOCKUP_DETECTOR=y"
+    echo "CONFIG_HARDLOCKUP_DETECTOR=y"
+    echo "CONFIG_DETECT_HUNG_TASK=y"
+    echo "CONFIG_CMDLINE_BOOL=y"
+    echo "CONFIG_CMDLINE=\"$cmdline\""
+}
+
 is_group() {
     local g
     for g in "${BISECT_GROUPS[@]}"; do
@@ -155,7 +194,12 @@ list_groups() {
         done < <(group_opts "$g")
         echo
     done
-    echo "Build:  scripts/bisect-router-opts.sh [--group NAME] [--out DIR]"
+    echo "Safety net added to every group (unless --no-safety):"
+    while IFS= read -r opt; do
+        printf '      %s\n' "$opt"
+    done < <(safety_opts)
+    echo
+    echo "Build:  scripts/bisect-router-opts.sh [--group NAME] [--unattended SECS] [--out DIR]"
     echo "Device procedure and fold-back: docs/ROUTER-KERNEL-BISECT.md"
 }
 
@@ -165,11 +209,32 @@ write_config() {
     {
         printf '\n# --- router bisect group: %s ---\n' "$group"
         group_opts "$group"
+        if [ "$SAFETY" = 1 ]; then
+            printf '\n# --- remote-bisect safety net (never shipped) ---\n'
+            safety_opts
+        fi
     } >> "$dest"
 }
 
 device_procedure() {
     local wup="$1" group="$2"
+    if [ -n "$UNATTENDED" ]; then
+        cat <<EOF
+
+UNATTENDED bundle (wayang.selftest=$UNATTENDED built in) for group $group
+-----------------------------------------------------------------------
+Bundle: $wup
+Only after the 'baseline' group has proven the safety net on this device
+(docs/ROUTER-KERNEL-BISECT.md, "Remote bisect"):
+
+ 1. Copy + verify as below, then stage and reboot in one go:
+      ssh root@163.128.55.3 'wayang update --from /data/bisect.wup && reboot'
+ 2. Wait $UNATTENDED s + ~2 min. Pass: SSH answers on the new slot and
+    /data/selftest.log ends with PASS. Fail: the box comes back on the good
+    slot by itself (fallback + reboot, or watchdog/panic resets and GRUB's
+    3-attempt budget); read /data/selftest.log and /data/debug/ there.
+EOF
+    fi
     cat <<EOF
 
 Device test procedure for group $group
@@ -397,6 +462,11 @@ while [ $# -gt 0 ]; do
         --key)
             [ $# -ge 2 ] || { echo "ERROR: --key needs a file" >&2; exit 1; }
             WAYANG_KEY="$2"; shift ;;
+        --unattended)
+            [ $# -ge 2 ] || { echo "ERROR: --unattended needs SECONDS" >&2; exit 1; }
+            case "$2" in ''|*[!0-9]*) echo "ERROR: --unattended needs SECONDS" >&2; exit 1 ;; esac
+            UNATTENDED="$2"; shift ;;
+        --no-safety) SAFETY=0 ;;
         --print-opts)
             PRINT_OPTS=all
             if [ $# -ge 2 ] && [ "${2#--}" = "$2" ]; then PRINT_OPTS="$2"; shift; fi ;;
@@ -416,11 +486,18 @@ fi
 if [ -n "$PRINT_OPTS" ]; then
     if [ "$PRINT_OPTS" = all ]; then
         for g in "${BISECT_GROUPS[@]}"; do group_opts "$g"; done
+    elif [ "$PRINT_OPTS" = safety ]; then
+        safety_opts
     else
         is_group "$PRINT_OPTS" || { echo "ERROR: unknown group '$PRINT_OPTS' (try --list)" >&2; exit 1; }
         group_opts "$PRINT_OPTS"
     fi
     exit 0
+fi
+
+if [ "$SAFETY" = 0 ] && [ -n "$UNATTENDED" ]; then
+    echo "ERROR: --unattended needs the safety net (drop --no-safety)" >&2
+    exit 1
 fi
 
 # A /tmp work dir only; refuse anything that could be the real build tree.

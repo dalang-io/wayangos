@@ -53,6 +53,7 @@ usage:
   wayang upgrade [--check] [--from FILE.wup] [--esp DEV] [--reboot]
   wayang update --rollback [--esp DEV] [--reboot]
   wayang update --boot-other [--esp DEV] [--reboot]   boot the idle slot next (one-shot)
+  wayang update --fallback [--esp DEV] [--reboot]     boot the last good slot next (exit 1 if running it)
   wayang net                            runtime uplink HUD (TTY only)
   wayang wifi                           runtime wifi HUD (TTY only)
   wayang keygen --out DIR [--keyid NAME]

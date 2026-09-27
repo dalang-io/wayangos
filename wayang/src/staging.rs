@@ -141,6 +141,33 @@ pub fn stage_other(boot: &BootRoot) -> Result<Slot> {
     Ok(target)
 }
 
+/// `wayang update --fallback`: point the next boot at `wayang_good`. Only
+/// valid while running a slot that is *not* the good one (a failed boot of a
+/// freshly staged / boot-other slot); `wayang_prev` is not trusted here.
+pub fn fallback(boot: &BootRoot) -> Result<Slot> {
+    fallback_from(boot, slot::running_slot())
+}
+
+/// [`fallback`] with the running slot given. `None` (no `wayang.slot=` on the
+/// command line) is refused: without knowing what booted, the good slot could
+/// be the one that just failed.
+pub fn fallback_from(boot: &BootRoot, running: Option<Slot>) -> Result<Slot> {
+    let mut store = state_store(boot)?;
+    let running = running.ok_or_else(|| AppError::err("no wayang.slot= on the kernel command line"))?;
+    let good = store
+        .get("wayang_good")
+        .and_then(Slot::parse)
+        .ok_or_else(|| AppError::err("no good slot recorded in update state"))?;
+    if good == running {
+        return Err(AppError::err(format!("already running the good slot {}", good.as_str())));
+    }
+    store.set("wayang_prev", running.as_str());
+    store.set("wayang_slot", good.as_str());
+    store.set("wayang_attempts", "0");
+    store.save().map_err(AppError::err)?;
+    Ok(good)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +198,46 @@ mod tests {
             kernel_sha256: "aa".into(),
             keyid: "release".into(),
         }
+    }
+
+    #[test]
+    fn fallback_points_at_good_slot_from_a_bad_one() {
+        let (dir, boot) = boot_dir();
+        let mut env = GrubEnv::default();
+        env.set("wayang_slot", "B");
+        env.set("wayang_good", "A");
+        env.set("wayang_attempts", "1");
+        env.write(&dir.join("grub/grubenv")).unwrap();
+
+        assert_eq!(fallback_from(&boot, Some(Slot::B)).unwrap(), Slot::A);
+        let env = GrubEnv::read(&dir.join("grub/grubenv")).unwrap();
+        assert_eq!(env.get("wayang_slot"), Some("A"));
+        assert_eq!(env.get("wayang_good"), Some("A"));
+        assert_eq!(env.get("wayang_attempts"), Some("0"));
+        assert_eq!(env.get("wayang_prev"), Some("B"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fallback_refuses_on_the_good_slot_or_unknown_state() {
+        let (dir, boot) = boot_dir();
+        let mut env = GrubEnv::default();
+        env.set("wayang_slot", "B");
+        env.set("wayang_good", "B");
+        env.set("wayang_attempts", "1");
+        env.write(&dir.join("grub/grubenv")).unwrap();
+
+        assert!(fallback_from(&boot, Some(Slot::B)).is_err(), "running good slot");
+        assert!(fallback_from(&boot, None).is_err(), "unknown running slot");
+        let env = GrubEnv::read(&dir.join("grub/grubenv")).unwrap();
+        assert_eq!(env.get("wayang_slot"), Some("B"), "nothing written");
+        assert_eq!(env.get("wayang_attempts"), Some("1"), "nothing written");
+
+        let mut env = GrubEnv::default();
+        env.set("wayang_slot", "B");
+        env.write(&dir.join("grub/grubenv")).unwrap();
+        assert!(fallback_from(&boot, Some(Slot::B)).is_err(), "no good slot");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
