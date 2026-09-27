@@ -7,6 +7,10 @@ release: **1.0.17** (see `docs/HANDOVER.md`).
 
 ## wayangos (this repo)
 
+- [ ] **WayangOS as a wayangi EdgeRouter** — enrol on the wayangi dashboard,
+      tunnel via WireGuard, receive a delegated IPv6 prefix and route/firewall
+      it to a LAN. Full design + required system/flow: [docs/EDGEROUTER.md](EDGEROUTER.md).
+      Blocked by the WireGuard + vrf-multipath kernel groups (below).
 - [~] **Re-enable the full router kernel block, bisected.** 1.0.13's block
       locked the test device (docs/INCIDENT-1.0.13.md). 1.0.15 restored only
       `VLAN_8021Q` + `BRIDGE` (+`BRIDGE_VLAN_FILTERING`). A safe harness is now
