@@ -32,15 +32,20 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## B. Agent / tunnel client
 
-- [ ] Decide: **run the wayangi-go agent** (bundle `wayangi`) vs implement the
+- [x] Decide: **run the wayangi-go agent** (bundle `wayangi`) vs implement the
       bootstrap+tunnel in Rust in `wayang`. Bundling is faster; a native
-      implementation avoids a second updater. (Recommend: bundle the agent
-      first, revisit later.)
-- [ ] Bundle `wayangi` (static) like `nft`/`wg`/`tc`/`bird` — a
-      `scripts/build-wayangi.sh` or a pinned release download (mirror
-      `fetch-dcheck.sh`), installed to `/usr/sbin/wayangi`.
-- [ ] Persistent identity in `/data/etc/wayangi/`: token, device id, WG private
+      implementation avoids a second updater. (Decision: bundle the agent first,
+      revisit later.)
+- [x] Bundle `wayangi` (static) like `nft`/`wg`/`tc`/`bird` —
+      `scripts/build-wayangi.sh`, installed to `/usr/sbin/wayangi`. Builds a
+      local `WAYANGI_SRC` checkout (default `~/dev/wayangi`) on the Linux
+      builder, or fetches a pinned binary from `WAYANGI_BASE_URL` when set;
+      best-effort (skips the image without it). Wired into `ci-build.sh` and
+      `installer-iso.yml`.
+- [x] Persistent identity in `/data/etc/wayangi/`: token, device id, WG private
       key, last bootstrap; survives OS updates (never in the image).
+      `build-rootfs.sh` creates the dir (mode 700) at first boot like
+      `/data/etc/network`; the token itself is written at enrolment, not built.
 
 ## C. Enrollment + dashboard flow
 
@@ -94,7 +99,9 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 1. Run the **WireGuard** (+ `vrf-multipath`) bisect groups on the device
    (`scripts/bisect-router-opts.sh --unattended …`, docs/ROUTER-KERNEL-BISECT.md)
    and land them in `configs/defconfig-intel`.
-2. Bundle `wayangi` and add `/data/etc/wayangi/` + a `wayang edgerouter` enrol
-   command; prove bootstrap + tunnel + prefix install on the device.
+2. Bundle `wayangi` and add `/data/etc/wayangi/` (**done**: `build-wayangi.sh` +
+   `/usr/sbin/wayangi` install + persisted dir, no token baked); a
+   `wayang edgerouter` enrol command remains, then prove bootstrap + tunnel +
+   prefix install on the device.
 3. Add an RA daemon and IPv6 forwarding so a LAN client gets a global address
    from the delegated prefix; firewall it with wayang-fw.

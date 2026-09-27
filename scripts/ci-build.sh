@@ -37,6 +37,7 @@ if [ -d "${FIRMWARE_DIR:-/lib/firmware}" ]; then
 fi
 ./scripts/build-wifi-tools.sh || true
 ./scripts/fetch-dcheck.sh || true
+./scripts/build-wayangi.sh || true
 ./scripts/build-nft.sh
 ./scripts/build-wg.sh
 ./scripts/build-iproute2.sh

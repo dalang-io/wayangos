@@ -131,6 +131,16 @@ jobs:
           ./scripts/build-iproute2.sh
           ./scripts/build-bird.sh
 
+      # wayangi EdgeRouter agent (docs/EDGEROUTER.md). Best-effort: the script
+      # exits 0 with a warning when no source checkout or release base URL is
+      # available, so the image simply ships without it. Provide
+      # `secrets.WAYANGI_BASE_URL` (e.g. https://wayangi.dalang.io/downloads) to
+      # fetch a pinned binary; point `WAYANGI_SRC` at a checkout to build one.
+      - name: Build wayangi agent (static, best-effort)
+        env:
+          WAYANGI_BASE_URL: ${{ secrets.WAYANGI_BASE_URL }}
+        run: ./scripts/build-wayangi.sh || true
+
       - name: Build rootfs (updater + trusted keys)
         run: ./scripts/build-rootfs.sh
 

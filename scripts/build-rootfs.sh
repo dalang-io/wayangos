@@ -274,6 +274,11 @@ if [ -n "$DATA" ]; then
         # persisted wpa_supplicant config dir (wayang wifi writes
         # /data/etc/wpa_supplicant.conf; the dir is symlinked for other tools)
         mkdir -p /data/etc/wpa_supplicant
+        # persisted wayangi enrolment (token, device id, WG private key); the
+        # bundled agent and `wayang edgerouter` read/write it here so enrolment
+        # survives OS updates (docs/EDGEROUTER.md). Never baked into the image.
+        mkdir -p /data/etc/wayangi
+        chmod 700 /data/etc/wayangi
         rm -rf /etc/dropbear && ln -s /data/etc/dropbear /etc/dropbear
         rm -rf /etc/wpa_supplicant && ln -s /data/etc/wpa_supplicant /etc/wpa_supplicant
         # this box's name and root's SSH keys (set by the installer / wayang-addkey)
@@ -1297,6 +1302,11 @@ install_tool wg/wg /usr/bin/wg build-wg.sh
 install_tool iproute2/tc /usr/sbin/tc build-iproute2.sh
 install_tool bird/bird /usr/sbin/bird build-bird.sh
 [ -f "$BUILD/bird/birdc" ] && install_tool bird/birdc /usr/sbin/birdc build-bird.sh
+
+# wayangi EdgeRouter agent (static; scripts/build-wayangi.sh). Optional: the
+# image ships without it if the script skipped. Enrolment state (token, device
+# id, WG private key) lives in /data/etc/wayangi/ at runtime — never baked here.
+install_tool wayangi/wayangi /usr/sbin/wayangi build-wayangi.sh
 
 # DNS fallback
 cat > "$ROOTFS/etc/resolv.conf" << 'EOF'
