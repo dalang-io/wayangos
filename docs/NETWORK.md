@@ -159,3 +159,13 @@ inspect an offline image. Devices already bound to a driver (e.g. a Bluetooth
 
 At boot the network init starts `wpa_supplicant` on the primary wifi interface
 when `/data/etc/wpa_supplicant.conf` exists.
+
+## Persistent firewall / router monitoring
+
+When `wayang-fw` / `wayang-router` are installed **and** have a confirmed config,
+`/etc/init.d/fw` and `/etc/init.d/router` also start each app's
+`monitor --daemon` at boot (idempotent, backgrounded, no-op otherwise). The
+collectors append JSON Lines to `/data/var/<app>/history.jsonl` so the metrics
+survive reboots and OS updates; each history is trimmed to its newest 20 000
+records at boot. Files, pidfiles, logs, retention and reading recipes:
+[docs/MONITORING.md](MONITORING.md).

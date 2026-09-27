@@ -133,6 +133,12 @@ At boot `/etc/init.d/fw` loads the last **confirmed** ruleset from
 `/data/etc/fw/config.toml` *before* the network starts; an unconfirmed commit
 is discarded. Without `wayang-fw` or a config it does nothing.
 
+When a confirmed config exists, `/etc/init.d/fw` and `/etc/init.d/router` also
+start each app's `monitor --daemon`, appending metrics to
+`/data/var/{wayang-fw,wayang-router}/history.jsonl` for post-incident forensics
+(survives updates; each history keeps its newest 20 000 records). See
+[docs/MONITORING.md](docs/MONITORING.md).
+
 ## Router
 
 The same kernel has 802.1Q VLANs and bridging (the wider router option set —

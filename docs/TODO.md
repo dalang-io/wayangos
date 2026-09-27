@@ -149,3 +149,12 @@ static v4/v6, DHCP client, forwarding, static routes):
       `docs/ROUTER-KERNEL-BISECT.md` (hardware-gated).
 - [x] Released **1.0.16** and **1.0.17** (tag + channel + device); see
       `docs/HANDOVER.md`.
+- [x] **Persistent firewall/router monitoring.** `/etc/init.d/{fw,router}`
+      start `wayang-fw` / `wayang-router monitor --daemon` when the binary and a
+      confirmed config exist, appending JSON Lines to
+      `/data/var/<app>/history.jsonl` (created 0755 at the `/data` mount in
+      rcS, so history survives OS updates). Idempotent (pidfile under
+      `/var/run`), backgrounded so it never blocks boot, output to
+      `/var/log/wayang-{fw,router}-monitor.log`; `status` prints the collector
+      line. **Retention: the newest 20 000 records per collector are kept
+      (trimmed at boot).** See [docs/MONITORING.md](MONITORING.md).

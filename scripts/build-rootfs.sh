@@ -279,6 +279,23 @@ if [ -n "$DATA" ]; then
         # survives OS updates (docs/EDGEROUTER.md). Never baked into the image.
         mkdir -p /data/etc/wayangi
         chmod 700 /data/etc/wayangi
+        # Persistent monitoring history: wayang-fw / wayang-router
+        # `monitor --daemon` append metrics to /data/var/<app>/history.jsonl
+        # (JSON Lines) for post-incident forensics; on /data so it survives
+        # OS updates. Mode 0755 like the other /data state dirs; the collectors
+        # are started later by /etc/init.d/{fw,router}. See docs/MONITORING.md.
+        mkdir -p /data/var/wayang-fw /data/var/wayang-router
+        chmod 755 /data/var/wayang-fw /data/var/wayang-router
+        # Retention: before the collectors start, trim each append-only history
+        # to its newest 20000 records so a long-lived box cannot fill /data.
+        # (`wc`/`tail`/`mv` are BusyBox applets; a missing file is a no-op.)
+        for h in /data/var/wayang-fw/history.jsonl /data/var/wayang-router/history.jsonl; do
+            [ -f "$h" ] || continue
+            n="$(wc -l < "$h" 2>/dev/null)"
+            [ -n "$n" ] || continue
+            [ "$n" -gt 20000 ] || continue
+            tail -n 20000 "$h" > "$h.tmp" 2>/dev/null && mv "$h.tmp" "$h"
+        done
         rm -rf /etc/dropbear && ln -s /data/etc/dropbear /etc/dropbear
         rm -rf /etc/wpa_supplicant && ln -s /data/etc/wpa_supplicant /etc/wpa_supplicant
         # this box's name and root's SSH keys (set by the installer / wayang-addkey)
@@ -408,6 +425,36 @@ find_fw() {
     return 1
 }
 
+MON_PID=/var/run/wayang-fw-monitor.pid
+MON_LOG=/var/log/wayang-fw-monitor.log
+
+# `wayang-fw monitor --daemon` appends metrics to
+# /data/var/wayang-fw/history.jsonl (dir created at the /data mount in rcS) so
+# they survive updates and a reboot. Started only with the binary and a
+# confirmed config; idempotent via a pidfile and backgrounded so it can never
+# hold up boot (output to $MON_LOG, /var/log).
+monitor_running() {
+    [ -s "$MON_PID" ] || return 1
+    kill -0 "$(cat "$MON_PID" 2>/dev/null)" 2>/dev/null
+}
+
+start_monitor() {
+    bin="$(find_fw)" || return 0
+    [ -f /data/etc/fw/config.toml ] || return 0
+    monitor_running && return 0
+    mkdir -p /data/var/wayang-fw 2>/dev/null || true
+    "$bin" monitor --daemon >>"$MON_LOG" 2>&1 &
+    echo "$!" > "$MON_PID"
+    logger -t wayang-fw "monitor started (history: /data/var/wayang-fw/history.jsonl)"
+}
+
+stop_monitor() {
+    if monitor_running; then
+        kill "$(cat "$MON_PID" 2>/dev/null)" 2>/dev/null || true
+    fi
+    rm -f "$MON_PID"
+}
+
 case "$1" in
     start)
         # a deployed firewall in /data/bin (persistent) is linked into /usr/bin so
@@ -421,13 +468,20 @@ case "$1" in
         if ! "$fw" boot 2>&1 | sed 's/^/  /'; then
             logger -t wayang-fw "boot: could not load the firewall"
         fi
+        start_monitor
         ;;
     stop)
-        # keep filtering until power-off
+        # keep filtering until power-off; only the collector stops
+        stop_monitor
         ;;
     status)
         fw="$(find_fw)" || { echo "wayang-fw not installed"; exit 1; }
         "$fw" status
+        if monitor_running; then
+            echo "monitor: running (pid $(cat "$MON_PID"))"
+        else
+            echo "monitor: stopped"
+        fi
         ;;
     *) echo "usage: $0 {start|stop|status}" >&2; exit 1 ;;
 esac
@@ -531,6 +585,36 @@ find_router() {
     return 1
 }
 
+MON_PID=/var/run/wayang-router-monitor.pid
+MON_LOG=/var/log/wayang-router-monitor.log
+
+# `wayang-router monitor --daemon` appends metrics to
+# /data/var/wayang-router/history.jsonl (dir created at the /data mount in
+# rcS) so they survive updates and a reboot. Started only with the binary and a
+# confirmed config; idempotent via a pidfile and backgrounded so it can never
+# hold up boot (output to $MON_LOG, /var/log).
+monitor_running() {
+    [ -s "$MON_PID" ] || return 1
+    kill -0 "$(cat "$MON_PID" 2>/dev/null)" 2>/dev/null
+}
+
+start_monitor() {
+    bin="$(find_router)" || return 0
+    [ -f "$CONFIG" ] || return 0
+    monitor_running && return 0
+    mkdir -p /data/var/wayang-router 2>/dev/null || true
+    "$bin" monitor --daemon >>"$MON_LOG" 2>&1 &
+    echo "$!" > "$MON_PID"
+    logger -t wayang-router "monitor started (history: /data/var/wayang-router/history.jsonl)"
+}
+
+stop_monitor() {
+    if monitor_running; then
+        kill "$(cat "$MON_PID" 2>/dev/null)" 2>/dev/null || true
+    fi
+    rm -f "$MON_PID"
+}
+
 case "$1" in
     owns)
         # 0 when the router manages the interfaces on this box
@@ -552,15 +636,23 @@ case "$1" in
             fi
             # routing daemon last, once interfaces/addresses exist
             start_bird
+            # persistent metrics collector (also needs interfaces to exist)
+            start_monitor
         ) >/var/log/network.log 2>&1 &
         ;;
     stop)
-        # keep routing until power-off
+        # keep routing until power-off; only the collector stops
+        stop_monitor
         ;;
     status)
         rt="$(find_router)" || { echo "wayang-router not installed"; exit 1; }
         "$rt" status
         if [ -S "$BIRD_CTL" ]; then echo "bird: running ($BIRD_CTL)"; fi
+        if monitor_running; then
+            echo "monitor: running (pid $(cat "$MON_PID"))"
+        else
+            echo "monitor: stopped"
+        fi
         ;;
     *) echo "usage: $0 {owns|start|stop|status}" >&2; exit 1 ;;
 esac
