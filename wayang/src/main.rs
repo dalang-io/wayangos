@@ -63,6 +63,7 @@ usage:
   wayang edgerouter restart              stop then start the wayangi agent
   wayang edgerouter enroll TOKEN         save the dashboard device token (survives updates)
   wayang edgerouter clear                forget the saved token
+  wayang edgerouter apply BUNDLE [--force]  install a wayangi Edge bundle (dir or .tar.gz)
   wayang keygen --out DIR [--keyid NAME]
   wayang sign   --key FILE [--keyid NAME] MANIFEST.json
   wayang verify FILE.wup [--esp DEV]
@@ -117,6 +118,15 @@ usage:
   wayang edgerouter restart       stop then start the wayangi agent
   wayang edgerouter enroll TOKEN  save the per-device token from the dashboard
   wayang edgerouter clear         forget the saved token
+  wayang edgerouter apply BUNDLE [--force]
+                                  install a wayangi Edge bundle: a directory or a
+                                  .tar.gz with router.toml + fw.toml (and maybe a
+                                  token/install.sh). Writes /data/etc/router/config.toml
+                                  and /data/etc/fw/config.toml (mode 0644; refuses to
+                                  overwrite without --force, keeping a .bak when forced)
+                                  and enrols the bundle token. The configs are NOT
+                                  applied: wayang-router/fw use commit-confirm, so run
+                                  their `check` then `commit` yourself.
 
 The token is written to /data/etc/wayangi/token (mode 600) and survives OS
 updates; it is never baked into the image. The agent runs with its state dir on

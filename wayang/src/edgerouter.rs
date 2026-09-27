@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use flate2::read::GzDecoder;
 use serde_json::Value;
+use tar::Archive;
 
 use crate::cli::EdgeRouterAction;
 use crate::error::{AppError, Result};
@@ -615,6 +617,335 @@ fn run_agent(
     Ok((code, text))
 }
 
+// ---- Edge bundle import (`wayang edgerouter apply`) --------------------
+
+/// The two configs a wayangi **WayangOS Edge bundle** carries (see
+/// `docs/EDGEROUTER.md`, `wayangi/docs/edge-wayangos.md`).
+const ROUTER_CONF: &str = "router.toml";
+const FW_CONF: &str = "fw.toml";
+/// An optional one-line enrolment token; otherwise it is read out of `install.sh`.
+const TOKEN_BUNDLE_FILE: &str = "token";
+const INSTALL_SH: &str = "install.sh";
+const BACKUP_SUFFIX: &str = ".bak";
+
+/// Tables that mark a file as a wayang-router config, and as a wayang-fw
+/// config. Best-effort: the apps remain the authority when they `check` it.
+const ROUTER_MARKERS: &[&str] = &["[[interface]]", "[[policy]]", "[[uplink]]", "[[route]]", "[[vlan]]", "[[bridge]]"];
+const FW_MARKERS: &[&str] = &["[[zone]]", "[[policy]]", "[[object]]", "[[nat]]", "[[service]]", "[[rule]]"];
+
+/// What a successful `apply` wrote. No token is ever stored here.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ApplyReport {
+    pub router_config: PathBuf,
+    pub fw_config: PathBuf,
+    /// Previous config kept when `--force` replaced one.
+    pub router_backup: Option<PathBuf>,
+    pub fw_backup: Option<PathBuf>,
+    /// A token from the bundle was enrolled.
+    pub enrolled: bool,
+}
+
+impl ApplyReport {
+    /// Operator-facing output for the CLI: what was written and, crucially, the
+    /// exact next steps (the configs are deliberately **not** applied).
+    pub fn print_human(&self) {
+        println!("router config: {}", self.router_config.display());
+        println!("fw config:     {}", self.fw_config.display());
+        if let Some(b) = &self.router_backup {
+            println!("router backup: {} (previous config kept)", b.display());
+        }
+        if let Some(b) = &self.fw_backup {
+            println!("fw backup:     {} (previous config kept)", b.display());
+        }
+        if self.enrolled {
+            println!("token:         enrolled (this box now shows on the wayangi dashboard)");
+        } else {
+            println!("token:         none in the bundle (enrol with `wayang edgerouter enroll <token>` if the dashboard gave you one)");
+        }
+        println!();
+        println!("The configs are written to /data but NOT applied yet: wayang-fw and");
+        println!("wayang-router use commit-confirm, so review and commit them yourself.");
+        println!("  wayang-router check      # validate the config and show what would change");
+        println!("  wayang-router commit     # review, then confirm to keep it (else it rolls back)");
+        println!("  wayang-fw check");
+        println!("  wayang-fw commit");
+        if self.enrolled {
+            println!("Then bring the tunnel up with `wayang edgerouter start` (or just reboot).");
+        }
+        println!("Boot order: /data -> fw -> edgerouter (WireGuard tunnel) -> router -> network;");
+        println!("a reboot lands on the last *confirmed* config, never a pending one.");
+    }
+
+    /// One-line summary for the HUD (the full next steps go to the CLI).
+    pub fn summary(&self) -> String {
+        let token = if self.enrolled { "token enrolled" } else { "no token in the bundle" };
+        format!(
+            "Edge bundle installed ({token}); nothing applied yet. Next: `wayang-router check` then commit, `wayang-fw check` then commit."
+        )
+    }
+}
+
+/// Install a WayangOS Edge bundle (a directory or a `.tar.gz`) on this box:
+/// write `router.toml`/`fw.toml` to `/data/etc/{router,fw}/config.toml` and, if
+/// the bundle carries one, enrol the wayangi token. The configs are **not**
+/// applied or committed — each app has its own commit-confirm.
+pub fn apply(bundle: &Path, force: bool) -> std::result::Result<ApplyReport, String> {
+    apply_into(
+        bundle,
+        &paths::router_config_file(),
+        &paths::fw_config_file(),
+        &paths::wayangi_dir(),
+        force,
+    )
+}
+
+/// Testable core: explicit destinations so tests never touch the real `/data`.
+fn apply_into(
+    bundle: &Path,
+    router_dest: &Path,
+    fw_dest: &Path,
+    token_base: &Path,
+    force: bool,
+) -> std::result::Result<ApplyReport, String> {
+    if !bundle.exists() {
+        return Err(format!("{}: no such file or directory", bundle.display()));
+    }
+
+    // Archives are unpacked to a temp dir (removed on drop); a directory is read
+    // in place. Either way we then locate the root that holds the configs.
+    let _tmp = if bundle.is_dir() { None } else { Some(unpack_archive(bundle)?) };
+    let search = _tmp.as_ref().map(|t| t.path()).unwrap_or(bundle);
+    let root = find_bundle_root(search)
+        .ok_or_else(|| format!("{}: no {} or {} found in the bundle", bundle.display(), ROUTER_CONF, FW_CONF))?;
+
+    // Read + validate both configs *before* writing anything, so a bad bundle
+    // never leaves a half-applied pair behind.
+    let router_raw = read_config(&root, ROUTER_CONF)?;
+    let fw_raw = read_config(&root, FW_CONF)?;
+    validate_config(ROUTER_CONF, &router_raw, ROUTER_MARKERS)?;
+    validate_config(FW_CONF, &fw_raw, FW_MARKERS)?;
+
+    // Refuse to clobber an existing config unless forced (checked for both up
+    // front, so the pair is replaced together or not at all).
+    if !force {
+        for dest in [router_dest, fw_dest] {
+            if dest.exists() {
+                return Err(format!(
+                    "{} already exists; re-run with --force to replace it (the previous file is kept as {})",
+                    dest.display(),
+                    backup_path(dest).display()
+                ));
+            }
+        }
+    }
+
+    let router_backup = write_config(router_dest, &router_raw, force)?;
+    let fw_backup = write_config(fw_dest, &fw_raw, force)?;
+
+    // Enrol the token, if any. Never print it or echo the bundle file.
+    let enrolled = match bundle_token(&root) {
+        Some(token) => {
+            enroll_at(token_base, &token)
+                .map_err(|e| format!("configs written, but enrolling the bundle token failed: {e}"))?;
+            true
+        }
+        None => false,
+    };
+
+    Ok(ApplyReport {
+        router_config: router_dest.to_path_buf(),
+        fw_config: fw_dest.to_path_buf(),
+        router_backup,
+        fw_backup,
+        enrolled,
+    })
+}
+
+/// A temp dir removed when dropped.
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Unpack a `.tar.gz`/`.tgz`/`.tar` bundle into a fresh temp dir.
+fn unpack_archive(path: &Path) -> std::result::Result<TempDir, String> {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let lower = name.to_ascii_lowercase();
+    let gz = lower.ends_with(".tar.gz") || lower.ends_with(".tgz");
+    if !gz && !lower.ends_with(".tar") {
+        return Err(format!(
+            "{}: expected a directory or a .tar.gz bundle",
+            path.display()
+        ));
+    }
+
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "wayang-edge-bundle-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+
+    let file = fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let res = if gz {
+        Archive::new(GzDecoder::new(file)).unpack(&dir)
+    } else {
+        Archive::new(file).unpack(&dir)
+    };
+    if let Err(e) = res {
+        let _ = fs::remove_dir_all(&dir);
+        return Err(format!("{}: cannot unpack: {e}", path.display()));
+    }
+    Ok(TempDir(dir))
+}
+
+/// Find the directory holding the bundle: the root itself, or a single nested
+/// top-level directory (tarballs often wrap their contents in one folder).
+fn find_bundle_root(dir: &Path) -> Option<PathBuf> {
+    let has = |d: &Path| d.join(ROUTER_CONF).is_file() || d.join(FW_CONF).is_file();
+    if has(dir) {
+        return Some(dir.to_path_buf());
+    }
+    let mut dirs: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    dirs.into_iter().find(|d| has(d))
+}
+
+/// Read a required bundle file, with a clear message when missing or empty.
+fn read_config(root: &Path, name: &str) -> std::result::Result<String, String> {
+    let path = root.join(name);
+    if !path.is_file() {
+        return Err(format!("bundle is missing {name} (looked in {})", root.display()));
+    }
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if text.trim().is_empty() {
+        return Err(format!("{name} is empty ({} bytes: {})", text.len(), path.display()));
+    }
+    Ok(text)
+}
+
+/// Best-effort shape check: the file must carry at least one table marker of
+/// the expected kind. The apps do the real validation in their `check`.
+fn validate_config(name: &str, text: &str, markers: &[&str]) -> std::result::Result<(), String> {
+    if markers.iter().any(|m| text.contains(m)) {
+        return Ok(());
+    }
+    let kind = if name == ROUTER_CONF { "wayang-router" } else { "wayang-fw" };
+    Err(format!(
+        "{name} does not look like a {kind} config (expected one of {}); the bundle may be malformed or its files swapped",
+        markers.join(", ")
+    ))
+}
+
+fn backup_path(dest: &Path) -> PathBuf {
+    let mut p = dest.as_os_str().to_owned();
+    p.push(BACKUP_SUFFIX);
+    PathBuf::from(p)
+}
+
+/// Write `dest` mode 0644, keeping the previous file as `<dest>.bak` when one
+/// existed (only reached with `force`, since the caller pre-checks otherwise).
+fn write_config(dest: &Path, contents: &str, force: bool) -> std::result::Result<Option<PathBuf>, String> {
+    let mut backup = None;
+    if dest.exists() {
+        if !force {
+            return Err(format!(
+                "{} already exists; re-run with --force to replace it",
+                dest.display()
+            ));
+        }
+        let bak = backup_path(dest);
+        fs::copy(dest, &bak).map_err(|e| format!("{}: {e}", bak.display()))?;
+        backup = Some(bak);
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o644);
+    }
+    let mut f = opts.open(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    f.write_all(contents.as_bytes()).map_err(|e| format!("{}: {e}", dest.display()))?;
+    if !contents.ends_with('\n') {
+        f.write_all(b"\n").map_err(|e| format!("{}: {e}", dest.display()))?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(dest, fs::Permissions::from_mode(0o644));
+    }
+    Ok(backup)
+}
+
+/// The bundle's enrolment token: a `token` file, else one parsed out of
+/// `install.sh`. Already validated; never logged.
+fn bundle_token(root: &Path) -> Option<String> {
+    if let Ok(raw) = fs::read_to_string(root.join(TOKEN_BUNDLE_FILE)) {
+        if let Ok(t) = validate_token(&raw) {
+            return Some(t);
+        }
+    }
+    let install = fs::read_to_string(root.join(INSTALL_SH)).ok()?;
+    token_from_install(&install)
+}
+
+/// Best-effort token extraction from a generated `install.sh`: the argument to
+/// `wayang edgerouter enroll`, or a `TOKEN=`/`WAYANGI_TOKEN=` assignment.
+fn token_from_install(text: &str) -> Option<String> {
+    for line in text.lines() {
+        if let Some(idx) = line.find("edgerouter enroll") {
+            let arg = line[idx + "edgerouter enroll".len()..].split_whitespace().next().unwrap_or("");
+            if let Some(t) = clean_token(arg) {
+                return Some(t);
+            }
+        }
+    }
+    for line in text.lines() {
+        let rest = line.trim().strip_prefix("export ").unwrap_or(line.trim());
+        for key in ["WAYANGI_TOKEN", "WAYANGI_DEVICE_TOKEN", "DEVICE_TOKEN", "TOKEN"] {
+            if let Some(v) = rest.strip_prefix(key).and_then(|r| r.strip_prefix('=')) {
+                let v = v.trim().trim_end_matches(';');
+                if let Some(t) = clean_token(v) {
+                    return Some(t);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Strip shell quoting from a candidate token and validate it; `None` if it is
+/// not a plausible device token. Rejects paths/shell fragments (a `TOKEN=` line
+/// pointing at a file, an unexpanded `$VAR`) so a bad `install.sh` cannot enrol
+/// with garbage.
+fn clean_token(raw: &str) -> Option<String> {
+    let t = raw.trim().trim_matches(|c| c == '"' || c == '\'' || c == '`');
+    if t.contains('/') || t.contains('\\') || t.contains('$') {
+        return None;
+    }
+    validate_token(t).ok()
+}
+
 /// Dispatch the parsed `edgerouter` action (help is printed by `main`).
 pub fn run(action: EdgeRouterAction) -> Result<i32> {
     // Resolve the lifecycle op up front, before `action` is consumed.
@@ -662,6 +993,16 @@ pub fn run(action: EdgeRouterAction) -> Result<i32> {
             status().print_human();
             Ok(code)
         }
+        EdgeRouterAction::Apply { path, force } => match apply(&path, force) {
+            Ok(report) => {
+                report.print_human();
+                Ok(0)
+            }
+            Err(msg) => {
+                eprintln!("wayang: {msg}");
+                Ok(1)
+            }
+        },
         EdgeRouterAction::Help => Ok(0),
     }
 }
@@ -883,5 +1224,201 @@ mod tests {
         assert!(st.error.as_deref().unwrap().contains("revoked"));
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&sys);
+    }
+
+    // ---- Edge bundle apply ------------------------------------------
+
+    const ROUTER_TOML: &str = "[[interface]]\nname = \"lan\"\n[[policy]]\nname = \"lan-out\"\n";
+    const FW_TOML: &str = "[[zone]]\nname = \"lan\"\n[[policy]]\nname = \"lan-out\"\n";
+
+    /// A directory bundle with valid, non-empty configs.
+    fn bundle_dir(dir: &Path, name: &str) -> PathBuf {
+        let b = dir.join(name);
+        fs::create_dir_all(&b).unwrap();
+        fs::write(b.join(ROUTER_CONF), ROUTER_TOML).unwrap();
+        fs::write(b.join(FW_CONF), FW_TOML).unwrap();
+        b
+    }
+
+    /// A gzipped tar bundle from `(path-in-archive, contents)` pairs.
+    fn write_bundle_targz(dir: &Path, files: &[(&str, &str)]) -> PathBuf {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        let path = dir.join("edge.tar.gz");
+        let f = fs::File::create(&path).unwrap();
+        let mut enc = GzEncoder::new(f, Compression::fast());
+        {
+            let mut b = tar::Builder::new(&mut enc);
+            for (name, data) in files {
+                let mut h = tar::Header::new_gnu();
+                h.set_size(data.len() as u64);
+                h.set_mode(0o644);
+                h.set_cksum();
+                b.append_data(&mut h, name, data.as_bytes()).unwrap();
+            }
+        }
+        enc.finish().unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    fn mode_of(p: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(p).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn apply_installs_a_directory_bundle() {
+        let dir = tmp();
+        let b = bundle_dir(&dir, "bundle");
+        let router = dir.join("out/router/config.toml");
+        let fw = dir.join("out/fw/config.toml");
+        let base = dir.join("out/wayangi");
+
+        let rep = apply_into(&b, &router, &fw, &base, false).unwrap();
+        assert_eq!(rep.router_config, router);
+        assert_eq!(rep.fw_config, fw);
+        assert!(!rep.enrolled, "no token in this bundle");
+        assert!(rep.router_backup.is_none() && rep.fw_backup.is_none());
+        assert!(fs::read_to_string(&router).unwrap().contains("[[interface]]"));
+        assert!(fs::read_to_string(&fw).unwrap().contains("[[zone]]"));
+        assert!(read_token_at(&base).is_none());
+        #[cfg(unix)]
+        {
+            assert_eq!(mode_of(&router), 0o644, "configs are world-readable, not secret");
+            assert_eq!(mode_of(&fw), 0o644);
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_unpacks_a_tar_gz_bundle_with_a_wrapper_dir() {
+        let dir = tmp();
+        let tar = write_bundle_targz(
+            &dir,
+            &[
+                ("wayangos-edge/router.toml", ROUTER_TOML),
+                ("wayangos-edge/fw.toml", FW_TOML),
+            ],
+        );
+        let router = dir.join("r.toml");
+        let fw = dir.join("f.toml");
+        let rep = apply_into(&tar, &router, &fw, &dir.join("w"), false).unwrap();
+        assert_eq!(rep.router_config, router);
+        assert!(fs::read_to_string(&router).unwrap().contains("[[policy]]"));
+        assert!(fs::read_to_string(&fw).unwrap().contains("[[zone]]"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_rejects_a_non_archive_file() {
+        let dir = tmp();
+        let not_tar = dir.join("bundle.txt");
+        fs::write(&not_tar, "hello").unwrap();
+        let err = apply_into(&not_tar, &dir.join("r"), &dir.join("f"), &dir.join("w"), false).unwrap_err();
+        assert!(err.contains(".tar.gz"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_refuses_overwrite_but_force_keeps_a_backup() {
+        let dir = tmp();
+        let b = bundle_dir(&dir, "bundle");
+        let router = dir.join("router.toml");
+        let fw = dir.join("fw.toml");
+        fs::write(&router, "[[old]]\n").unwrap();
+
+        let err = apply_into(&b, &router, &fw, &dir.join("w"), false).unwrap_err();
+        assert!(err.contains("--force"), "{err}");
+        assert_eq!(fs::read_to_string(&router).unwrap(), "[[old]]\n", "refused: untouched");
+        assert!(!fw.exists(), "nothing is written when one side is refused");
+
+        let rep = apply_into(&b, &router, &fw, &dir.join("w"), true).unwrap();
+        let bak = dir.join("router.toml.bak");
+        assert_eq!(rep.router_backup.as_deref(), Some(bak.as_path()));
+        assert!(rep.fw_backup.is_none(), "fw had nothing to back up");
+        assert_eq!(fs::read_to_string(&bak).unwrap(), "[[old]]\n", "the old config is kept");
+        assert!(fs::read_to_string(&router).unwrap().contains("[[interface]]"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_enrols_a_bundle_token_without_showing_it() {
+        let dir = tmp();
+        let b = bundle_dir(&dir, "b1");
+        let hex = "0123456789abcdef0123456789abcdef";
+        fs::write(b.join(TOKEN_BUNDLE_FILE), format!("{hex}\n")).unwrap();
+        let base = dir.join("wayangi");
+
+        let rep = apply_into(&b, &dir.join("r.toml"), &dir.join("f.toml"), &base, false).unwrap();
+        assert!(rep.enrolled);
+        assert_eq!(read_token_at(&base).as_deref(), Some(hex));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(base.join(TOKEN_FILE)).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "the token stays private");
+        }
+        let summary = rep.summary();
+        assert!(!summary.contains(hex), "the HUD summary must not leak the token");
+        assert!(format!("{rep:?}").find(hex).is_none());
+
+        // A token carried in install.sh is picked up too.
+        let b2 = bundle_dir(&dir, "b2");
+        fs::write(b2.join(INSTALL_SH), format!("#!/bin/sh\nwayang edgerouter enroll {hex}\n")).unwrap();
+        let base2 = dir.join("wayangi2");
+        let rep2 = apply_into(&b2, &dir.join("r2"), &dir.join("f2"), &base2, false).unwrap();
+        assert!(rep2.enrolled);
+        assert_eq!(read_token_at(&base2).as_deref(), Some(hex));
+
+        // No token anywhere: not enrolled, no file written.
+        let b3 = bundle_dir(&dir, "b3");
+        let base3 = dir.join("wayangi3");
+        assert!(!apply_into(&b3, &dir.join("r3"), &dir.join("f3"), &base3, false).unwrap().enrolled);
+        assert!(!base3.join(TOKEN_FILE).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_rejects_missing_empty_or_swapped_configs() {
+        let dir = tmp();
+        let b = dir.join("b");
+        fs::create_dir_all(&b).unwrap();
+        let (r, f) = (dir.join("r"), dir.join("f"));
+
+        // missing fw.toml
+        fs::write(b.join(ROUTER_CONF), ROUTER_TOML).unwrap();
+        let err = apply_into(&b, &r, &f, &dir.join("w"), false).unwrap_err();
+        assert!(err.contains(FW_CONF), "{err}");
+        assert!(!r.exists() && !f.exists(), "validation happens before any write");
+
+        // empty fw.toml
+        fs::write(b.join(FW_CONF), "   \n").unwrap();
+        let err = apply_into(&b, &r, &f, &dir.join("w"), false).unwrap_err();
+        assert!(err.contains("empty"), "{err}");
+
+        // valid shape but swapped kinds (fw content in router.toml)
+        fs::write(b.join(ROUTER_CONF), "[[zone]]\nname = \"lan\"\n").unwrap();
+        fs::write(b.join(FW_CONF), FW_TOML).unwrap();
+        let err = apply_into(&b, &r, &f, &dir.join("w"), false).unwrap_err();
+        assert!(err.contains("wayang-router"), "{err}");
+        assert!(!r.exists() && !f.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn token_from_install_reads_enroll_and_assignments() {
+        let hex = "0123456789abcdef0123456789abcdef";
+        assert_eq!(token_from_install(&format!("wayang edgerouter enroll {hex}\n")).as_deref(), Some(hex));
+        assert_eq!(
+            token_from_install(&format!("wayang edgerouter enroll \"{hex}\"\n")).as_deref(),
+            Some(hex)
+        );
+        assert_eq!(token_from_install(&format!("WAYANGI_TOKEN={hex}\n")).as_deref(), Some(hex));
+        assert_eq!(token_from_install(&format!("export TOKEN='{hex}'\n")).as_deref(), Some(hex));
+        // not token lines
+        assert_eq!(token_from_install("echo hello world\n"), None);
+        assert_eq!(token_from_install("TOKEN=/data/etc/wayangi/token\n"), None, "a path is not a token");
+        assert_eq!(token_from_install("WAYANGI_TOKEN=$WAYANGI_TOKEN\n"), None, "unexpanded var");
     }
 }

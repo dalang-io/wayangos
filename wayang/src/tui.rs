@@ -252,6 +252,10 @@ pub struct App {
     pub launch: Option<PathBuf>,
     /// Open token input on the EDGEROUTER card.
     pub edge_input: Option<Input>,
+    /// Open bundle-path input on the EDGEROUTER card.
+    pub edge_bundle_input: Option<Input>,
+    /// Whether the open bundle apply replaces existing configs (`A` vs `a`).
+    edge_apply_force: bool,
     /// Token write/clear running in the background; polled each tick.
     edge_job: Option<mpsc::Receiver<Result<String, String>>>,
     pub tick: usize,
@@ -283,6 +287,8 @@ impl App {
             sub: None,
             launch: None,
             edge_input: None,
+            edge_bundle_input: None,
+            edge_apply_force: false,
             edge_job: None,
             tick: 0,
         }
@@ -314,6 +320,10 @@ impl App {
             self.on_edge_input_key(key);
             return;
         }
+        if self.edge_bundle_input.is_some() {
+            self.on_edge_bundle_key(key);
+            return;
+        }
         let armed = std::mem::take(&mut self.armed);
         let armed_other = std::mem::take(&mut self.armed_other);
         match key.code {
@@ -336,6 +346,8 @@ impl App {
             KeyCode::Char('s') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Start),
             KeyCode::Char('x') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Stop),
             KeyCode::Char('t') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Restart),
+            KeyCode::Char('a') if self.module() == Some(Module::EdgeRouter) => self.open_edge_apply(false),
+            KeyCode::Char('A') if self.module() == Some(Module::EdgeRouter) => self.open_edge_apply(true),
             // update actions: only from the UPDATES card, never from a number key
             KeyCode::Char(c @ ('c' | 'u' | 'g' | 'x' | 'b')) if self.module() == Some(Module::Updates) => {
                 if let Some(j) = &self.job {
@@ -416,6 +428,52 @@ impl App {
         }
     }
 
+    /// Open the bundle-path modal on the EDGEROUTER card. `force` is set by `A`
+    /// (replace existing configs, keeping a `.bak`).
+    fn open_edge_apply(&mut self, force: bool) {
+        self.edge_apply_force = force;
+        let hint = if force {
+            "existing /data/etc configs are replaced and kept as .bak"
+        } else {
+            "refuses to overwrite an existing config (use A to force)"
+        };
+        self.edge_bundle_input = Some(Input::new(
+            if force { "APPLY EDGE BUNDLE (FORCE)" } else { "APPLY EDGE BUNDLE" },
+            "Path to the wayangi Edge bundle (.tar.gz or a directory):",
+            hint,
+        ));
+    }
+
+    fn on_edge_bundle_key(&mut self, key: KeyEvent) {
+        let Some(input) = self.edge_bundle_input.as_mut() else { return };
+        match input.on_key(key) {
+            Outcome::None => {}
+            Outcome::Cancel => self.edge_bundle_input = None,
+            Outcome::Submit(value) => {
+                if value.is_empty() {
+                    if let Some(i) = self.edge_bundle_input.as_mut() {
+                        i.error = Some("enter the path to the bundle".into());
+                    }
+                    return;
+                }
+                self.edge_bundle_input = None;
+                self.submit_edge_bundle(value);
+            }
+        }
+    }
+
+    fn submit_edge_bundle(&mut self, path: String) {
+        if self.demo {
+            self.message = Some((Tone::Ok, "demo: would install the Edge bundle (nothing written)".into()));
+            return;
+        }
+        let force = self.edge_apply_force;
+        let label = if force { "Applying the Edge bundle (force)" } else { "Applying the Edge bundle" };
+        self.start_edge_job(label, move || {
+            edgerouter::apply(std::path::Path::new(&path), force).map(|r| r.summary())
+        });
+    }
+
     fn clear_edge_token(&mut self) {
         if self.demo {
             self.message = Some((Tone::Ok, "demo: would clear the device token (nothing written)".into()));
@@ -440,7 +498,7 @@ impl App {
 
     fn start_edge_job(&mut self, label: &str, f: impl FnOnce() -> Result<String, String> + Send + 'static) {
         if self.edge_job.is_some() {
-            self.message = Some((Tone::Warn, "A token operation is still running.".into()));
+            self.message = Some((Tone::Warn, "An EDGEROUTER operation is still running.".into()));
             return;
         }
         let (tx, rx) = mpsc::channel();
@@ -705,6 +763,8 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         Some(Module::EdgeRouter) => vec![
             ("↑↓", "move"),
             ("e", "token"),
+            ("a", "apply"),
+            ("A", "force"),
             ("s", "start"),
             ("x", "stop"),
             ("t", "restart"),
@@ -1020,7 +1080,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             } else {
                 l.push(Line::from(""));
                 l.push(hint(
-                    format!("e {arrow} token   s {arrow} start   x {arrow} stop   t {arrow} restart   c {arrow} clear"),
+                    format!("e {arrow} token   a {arrow} apply bundle   s {arrow} start   x {arrow} stop   t {arrow} restart   c {arrow} clear"),
                     t,
                 ));
             }
@@ -1131,6 +1191,8 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         key("x  x", "roll back to the other slot"),
         caption("EDGEROUTER", t),
         key("e", "paste the wayangi device token"),
+        key("a", "apply a WayangOS Edge bundle (.tar.gz or dir)"),
+        key("A", "apply a bundle, replacing existing configs"),
         key("s", "start the wayangi agent (tunnel up)"),
         key("x", "stop the wayangi agent"),
         key("t", "restart the wayangi agent"),
@@ -1506,6 +1568,39 @@ mod tests {
             assert!(msg.contains("demo") && msg.contains(verb), "{c}: {msg}");
             assert!(app.edge_job.is_none(), "demo never spawns a job");
         }
+    }
+
+    #[test]
+    fn edgerouter_apply_opens_a_path_input_only_on_the_card() {
+        let mut app = App::new(true);
+        // not on the card: a/A are inert
+        key(&mut app, KeyCode::Char('1'));
+        key(&mut app, KeyCode::Char('a'));
+        key(&mut app, KeyCode::Char('A'));
+        assert!(app.edge_bundle_input.is_none(), "no bundle input off the card");
+
+        key(&mut app, KeyCode::Char('9'));
+        key(&mut app, KeyCode::Char('a'));
+        assert!(app.edge_bundle_input.is_some());
+        assert!(!app.edge_apply_force);
+        // an empty path keeps the modal open with an error
+        key(&mut app, KeyCode::Enter);
+        assert!(app.edge_bundle_input.is_some());
+        assert!(app.edge_bundle_input.as_ref().unwrap().error.is_some());
+        // a path submits in demo without writing
+        for c in "/data/edge.tar.gz".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        key(&mut app, KeyCode::Enter);
+        assert!(app.edge_bundle_input.is_none());
+        assert!(app.message.as_ref().unwrap().1.contains("demo"), "{:?}", app.message);
+
+        // A opens the force variant; esc cancels
+        key(&mut app, KeyCode::Char('A'));
+        assert!(app.edge_bundle_input.is_some());
+        assert!(app.edge_apply_force, "A arms the force replace");
+        key(&mut app, KeyCode::Esc);
+        assert!(app.edge_bundle_input.is_none());
     }
 
     #[test]

@@ -10,7 +10,10 @@ release: **1.0.17** (see `docs/HANDOVER.md`).
 - [ ] **WayangOS as a wayangi EdgeRouter** — enrol on the wayangi dashboard,
       tunnel via WireGuard, receive a delegated IPv6 prefix and route/firewall
       it to a LAN. Full design + required system/flow: [docs/EDGEROUTER.md](EDGEROUTER.md).
-      Blocked by the WireGuard + vrf-multipath kernel groups (below).
+      Token enrol + TUI/CLI (`wayang edgerouter enroll`/`start`/…) and the
+      dashboard **bundle import** (`wayang edgerouter apply <dir|.tar.gz>`, TUI
+      `a`/`A`) are in; still blocked by the WireGuard + vrf-multipath kernel
+      groups (below) and the dashboard-side `internal/edgewos` renderer.
 - [~] **Re-enable the full router kernel block, bisected.** 1.0.13's block
       locked the test device (docs/INCIDENT-1.0.13.md). 1.0.15 restored only
       `VLAN_8021Q` + `BRIDGE` (+`BRIDGE_VLAN_FILTERING`). A safe harness is now
@@ -129,6 +132,12 @@ static v4/v6, DHCP client, forwarding, static routes):
 
 ## Done (recent)
 
+- [x] **Edge bundle import**: `wayang edgerouter apply <dir|.tar.gz> [--force]`
+      + the 09 EDGEROUTER `a`/`A` keys install a wayangi WayangOS Edge bundle
+      (`router.toml` + `fw.toml` → `/data/etc/{router,fw}/config.toml`, mode
+      0644, refuse-overwrite/`.bak` on force, token enrolled from `token` or
+      `install.sh`), printing the commit-confirm next steps and never applying
+      automatically (docs/EDGEROUTER.md §C).
 - [x] Router + firewall usable at the CLI: `/data/bin/{wayang-fw,wayang-router}`
       linked into `/usr/bin` at boot; VLAN/bridge MVP on; released in 1.0.15.
 - [x] `wayang` console: 05 SSH (add/remove root keys), 06 DCHECK (opens the

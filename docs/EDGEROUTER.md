@@ -49,9 +49,22 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## C. Enrollment + dashboard flow
 
-- [ ] **Enrol**: how a box becomes a device on the dashboard — dashboard
+- [x] **Enrol**: how a box becomes a device on the dashboard — dashboard
       creates a device + token (see `internal/web/install.go` `--token=`), the
-      operator pastes the token on the box.
+      operator pastes the token on the box (`wayang edgerouter enroll <token>`)
+      or installs the whole Edge bundle (`wayang edgerouter apply`, below).
+- [x] **Import/apply a dashboard bundle**: `wayang edgerouter apply <dir|.tar.gz>`
+      (+ the **09 EDGEROUTER** `a`/`A` keys) unpacks a wayangi **WayangOS Edge
+      bundle** to a temp dir, verifies it carries non-empty `router.toml` +
+      `fw.toml` that look like the right kind (best-effort `[[…]]` markers),
+      writes them to `/data/etc/router/config.toml` and `/data/etc/fw/config.toml`
+      (mode 0644; refuses to clobber without `--force`, keeping a `.bak` when
+      forced), and enrols the bundle's `token` file — or the token parsed out of
+      `install.sh` — through the existing `enroll()` path (never printed). It
+      deliberately does **not** apply/commit: the CLI prints the exact next steps
+      (`wayang-router check` → commit, `wayang-fw check` → commit; commit-confirm
+      rolls back if unconfirmed) and the boot order. The HUD runs it as a
+      background job (`edge_job`), so it never blocks.
 - [x] **TUI/CLI** on WayangOS to paste the token: `wayang edgerouter
       status|start|stop|restart|enroll <token>|clear` + the **09 EDGEROUTER**
       console module (token written to `/data/etc/wayangi/token`, mode 0600;
@@ -114,8 +127,8 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
    (`scripts/bisect-router-opts.sh --unattended …`, docs/ROUTER-KERNEL-BISECT.md)
    and land them in `configs/defconfig-intel`.
 2. Bundle `wayangi` and add `/data/etc/wayangi/` (**done**: `build-wayangi.sh` +
-   `/usr/sbin/wayangi` install + persisted dir, no token baked); a
-   `wayang edgerouter` enrol command remains, then prove bootstrap + tunnel +
-   prefix install on the device.
+   `/usr/sbin/wayangi` install + persisted dir, no token baked); `wayang
+   edgerouter enroll` + `apply` (**done**) consume the dashboard's token/bundle;
+   prove bootstrap + tunnel + prefix install on the device.
 3. Add an RA daemon and IPv6 forwarding so a LAN client gets a global address
    from the delegated prefix; firewall it with wayang-fw.

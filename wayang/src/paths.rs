@@ -61,6 +61,29 @@ pub fn wayangi_dir() -> PathBuf {
     data_dir().join("etc/wayangi")
 }
 
+/// `/data/etc/router` — persisted wayang-router config (commit-confirm; see
+/// `docs/APPS.md`). `wayang edgerouter apply` writes `config.toml` here.
+pub fn router_dir() -> PathBuf {
+    data_dir().join("etc/router")
+}
+
+/// `/data/etc/router/config.toml` — wayang-router's *confirmed* config, applied
+/// at boot by `/etc/init.d/router`.
+pub fn router_config_file() -> PathBuf {
+    router_dir().join("config.toml")
+}
+
+/// `/data/etc/fw` — persisted wayang-fw config (commit-confirm).
+pub fn fw_dir() -> PathBuf {
+    data_dir().join("etc/fw")
+}
+
+/// `/data/etc/fw/config.toml` — wayang-fw's *confirmed* ruleset, loaded at boot
+/// by `/etc/init.d/fw`.
+pub fn fw_config_file() -> PathBuf {
+    fw_dir().join("config.toml")
+}
+
 /// `/data/etc/ssh` — root's persisted SSH keys (survives updates).
 pub fn ssh_dir() -> PathBuf {
     data_dir().join("etc/ssh")

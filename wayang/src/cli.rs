@@ -29,6 +29,8 @@ pub enum EdgeRouterAction {
     Stop,
     /// Stop then start the wayangi agent.
     Restart,
+    /// Install a wayangi Edge bundle (dir or `.tar.gz`) onto this box.
+    Apply { path: PathBuf, force: bool },
     Help,
 }
 
@@ -167,7 +169,27 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                         _ => EdgeRouterAction::Restart,
                     }))
                 }
-                Some(other) => Err(format!("unknown edgerouter action '{other}' (status|start|stop|restart|enroll|clear)")),
+                Some("apply") => {
+                    let mut path: Option<PathBuf> = None;
+                    let mut force = false;
+                    let mut i = 1;
+                    while i < rest.len() {
+                        match rest[i].as_str() {
+                            "--force" => force = true,
+                            other if other.starts_with("--") => {
+                                return Err(format!("unknown option for `edgerouter apply`: {other}"))
+                            }
+                            other => path = Some(PathBuf::from(other)),
+                        }
+                        i += 1;
+                    }
+                    let path = path
+                        .ok_or_else(|| "edgerouter apply needs a bundle (a directory or FILE.tar.gz)".to_string())?;
+                    Ok(Command::EdgeRouter(EdgeRouterAction::Apply { path, force }))
+                }
+                Some(other) => Err(format!(
+                    "unknown edgerouter action '{other}' (status|start|stop|restart|enroll|clear|apply)"
+                )),
             }
         }
         "keygen" => {
@@ -382,6 +404,20 @@ mod tests {
             parse(&v(&["edgerouter", "restart"])).unwrap(),
             Command::EdgeRouter(EdgeRouterAction::Restart)
         ));
+        match parse(&v(&["edgerouter", "apply", "/tmp/bundle.tar.gz"])).unwrap() {
+            Command::EdgeRouter(EdgeRouterAction::Apply { path, force }) => {
+                assert_eq!(path, PathBuf::from("/tmp/bundle.tar.gz"));
+                assert!(!force);
+            }
+            _ => panic!("wrong command"),
+        }
+        match parse(&v(&["edgerouter", "apply", "/tmp/b", "--force"])).unwrap() {
+            Command::EdgeRouter(EdgeRouterAction::Apply { path, force }) => {
+                assert_eq!(path, PathBuf::from("/tmp/b"));
+                assert!(force);
+            }
+            _ => panic!("wrong command"),
+        }
         assert!(matches!(
             parse(&v(&["edgerouter", "--help"])).unwrap(),
             Command::EdgeRouter(EdgeRouterAction::Help)
@@ -390,5 +426,7 @@ mod tests {
         assert!(parse(&v(&["edgerouter", "bogus"])).is_err());
         assert!(parse(&v(&["edgerouter", "start", "now"])).is_err());
         assert!(parse(&v(&["edgerouter", "status", "extra"])).is_err());
+        assert!(parse(&v(&["edgerouter", "apply"])).is_err(), "bundle required");
+        assert!(parse(&v(&["edgerouter", "apply", "/x", "--wat"])).is_err());
     }
 }
