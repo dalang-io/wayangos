@@ -198,9 +198,12 @@ Start with the `baseline` group, supervised, before trusting it unattended.
    rcS run `/usr/sbin/wayang-selftest start SECS` right after `/data` is mounted:
    - it pets `/dev/watchdog` (BusyBox `watchdog -T 60 -t 10`, else a shell
      loop), so a hard lockup or frozen userspace ends in a hardware reset;
-   - it pings the default gateway (or `wayang.selftest_host=IP`, or the first
-     line of `/data/etc/selftest.host`) every 5 s, and at the deadline
-     (min. 30 s) requires it to *still* answer;
+   - it pings a reachability target every 5 s, and at the deadline (min. 30 s)
+     requires it to *still* answer. Target: `wayang.selftest_host=IP`, else the
+     first line of `/data/etc/selftest.host`, else **the default gateway *and*
+     `1.1.1.1`** (many gateways — including the test device's `/32` uplink —
+     do not answer ICMP echo, so gateway-only probing would report a healthy
+     box as failed);
    - pass → `wayang mark-ok` (rcS skips its own unconditional mark-ok under
      the flag); fail → `wayang update --fallback` (new: points the next boot
      at `wayang_good`; refuses on the good slot itself or without

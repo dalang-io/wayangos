@@ -21,7 +21,7 @@ SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
 #   wayang/version      what the installed system reports (see `wayang status`)
 #   wayang/channel      stable | edge
 #   wayang/trusted_keys release signing keys, if any
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.18}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.19}"
 WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
 WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 
@@ -290,7 +290,7 @@ fi
 # Per-connection byte/packet counters (wayang-fw / wayang-router dashboards).
 [ -w /proc/sys/net/netfilter/nf_conntrack_acct ] && echo 1 > /proc/sys/net/netfilter/nf_conntrack_acct
 
-# Opt-in crash diagnostics (incident 1.0.18): with `wayang.debug` on the kernel
+# Opt-in crash diagnostics (incident 1.0.19): with `wayang.debug` on the kernel
 # cmdline, keep dmesg/interrupts on /data so a freeze can be read back after a
 # power-cycle. Off unless requested.
 DEBUG=0
@@ -1127,17 +1127,26 @@ start_watchdog() {
     log "watchdog: shell petter (hardware default timeout)"
 }
 
+gw() { ip route show default 2>/dev/null | awk '/^default/ { print $3; exit }'; }
+
+# Log label: the explicit host, else the default gateway (may be empty until
+# DHCP lands).
 target() {
-    if [ -n "$HOST" ]; then
-        echo "$HOST"
-    else
-        ip route show default 2>/dev/null | awk '/^default/ { print $3; exit }'
-    fi
+    if [ -n "$HOST" ]; then echo "$HOST"; else gw; fi
 }
 
+# Reachability probe. An explicit wayang.selftest_host wins; otherwise try the
+# default gateway AND a public host, because many gateways do not answer ICMP
+# echo (the test device's /32 uplink does not) — probing the gateway alone
+# would report a healthy box as failed.
 probe() {
-    t="$(target)"
-    [ -n "$t" ] && ping -c 1 -W 2 "$t" >/dev/null 2>&1
+    if [ -n "$HOST" ]; then
+        ping -c 1 -W 2 "$HOST" >/dev/null 2>&1
+        return $?
+    fi
+    g="$(gw)"
+    if [ -n "$g" ] && ping -c 1 -W 2 "$g" >/dev/null 2>&1; then return 0; fi
+    ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1
 }
 
 check() {
@@ -1146,7 +1155,7 @@ check() {
     seen=0
     while [ "$(up)" -lt "$deadline" ]; do
         if probe; then
-            [ "$seen" = 1 ] || log "target $(target) reachable"
+            [ "$seen" = 1 ] || log "connectivity verified ($(target) or 1.1.1.1)"
             seen=1
         fi
         sleep 5
@@ -1157,16 +1166,16 @@ check() {
     while [ $n -lt 3 ]; do
         if probe; then
             if wayang mark-ok >/dev/null 2>&1; then
-                log "PASS: $(target) reachable after ${secs}s; slot marked good"
+                log "PASS: reachable after ${secs}s; slot marked good"
             else
-                log "PASS: $(target) reachable after ${secs}s, but mark-ok FAILED (slot not confirmed)"
+                log "PASS: reachable after ${secs}s, but mark-ok FAILED (slot not confirmed)"
             fi
             return 0
         fi
         n=$((n + 1))
         sleep 2
     done
-    log "FAIL: target '$(target)' unreachable at the ${secs}s deadline (ever seen: $seen)"
+    log "FAIL: no target reachable at the ${secs}s deadline (host='$HOST' gw='$(gw)', ever seen: $seen)"
     if out="$(timeout 30 wayang update --fallback 2>&1)"; then
         log "fallback: $out"
     else
