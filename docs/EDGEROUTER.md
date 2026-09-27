@@ -53,14 +53,24 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
       creates a device + token (see `internal/web/install.go` `--token=`), the
       operator pastes the token on the box.
 - [x] **TUI/CLI** on WayangOS to paste the token: `wayang edgerouter
-      status|enroll <token>|clear` + the **09 EDGEROUTER** console module (token
-      written to `/data/etc/wayangi/token`, mode 0600; shows agent/token/tunnel
-      and last bootstrap). Running the agent / bootstrap itself is still open.
-- [ ] Boot order: `/data` → firewall → **WireGuard tunnel up (bootstrap)** →
+      status|start|stop|restart|enroll <token>|clear` + the **09 EDGEROUTER**
+      console module (token written to `/data/etc/wayangi/token`, mode 0600;
+      shows agent/token/tunnel, the delegated prefix, handshake, account/plan
+      and last bootstrap). `start|stop|restart` drive the agent in the
+      background (bounded, output captured; never argv so the token can't leak
+      via `ps`) and then print the state.
+- [x] Boot order: `/data` → firewall → **WireGuard tunnel up (bootstrap)** →
       router applies addresses/routes/prefix → network; the hub peer comes up
-      as soon as the tunnel does. (A commented marker is in rcS where this goes.)
-- [ ] Token lifecycle: renewal/revocation (`internal/web/renewal.go` drops the
-      peer on expiry) — surface "token expired / device revoked" clearly.
+      as soon as the tunnel does. `/etc/init.d/edgerouter start` runs after `fw`
+      and before `network`; it is a no-op unless the agent binary and the token
+      at `/data/etc/wayangi/token` both exist, and it backgrounds the agent
+      (log: `/var/log/wayangi.log`) so boot never waits on the hub.
+- [~] Token lifecycle: renewal/revocation (`internal/web/renewal.go` drops the
+      peer on expiry). `wayang edgerouter status` and the console now classify
+      "token missing", "hub rejected the token (revoked/expired/unauthorized)",
+      "subscription not active" and "tunnel down" with a clear next step, read
+      from the agent's JSON state and the tail of its log (no secrets shown).
+      Dashboard-driven rotation still means re-running `enroll`.
 
 ## D. Prefix delegation → LAN (EdgeRouter role)
 

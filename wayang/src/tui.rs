@@ -184,6 +184,7 @@ impl Deck {
                 plan: Some("edge /64".into()),
                 endpoint: Some("203.0.113.9:443".into()),
                 addresses: vec!["2a06:98c0::5/128".into(), "10.66.0.3/32".into()],
+                error: None,
             },
         }
     }
@@ -332,6 +333,9 @@ impl App {
             // edgerouter actions: only from the EDGEROUTER card
             KeyCode::Char('e') if self.module() == Some(Module::EdgeRouter) => self.open_edge_input(),
             KeyCode::Char('c') if self.module() == Some(Module::EdgeRouter) => self.clear_edge_token(),
+            KeyCode::Char('s') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Start),
+            KeyCode::Char('x') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Stop),
+            KeyCode::Char('t') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Restart),
             // update actions: only from the UPDATES card, never from a number key
             KeyCode::Char(c @ ('c' | 'u' | 'g' | 'x' | 'b')) if self.module() == Some(Module::Updates) => {
                 if let Some(j) = &self.job {
@@ -422,6 +426,16 @@ impl App {
                 if removed { "Device token cleared.".into() } else { "No saved token to clear.".into() }
             })
         });
+    }
+
+    /// start/stop/restart the wayangi agent in the background, polled by
+    /// `poll_edge_job` like the token write (never blocks the HUD).
+    fn edge_agent(&mut self, op: edgerouter::AgentOp) {
+        if self.demo {
+            self.message = Some((Tone::Ok, format!("demo: would {} the wayangi agent (nothing runs)", op.verb())));
+            return;
+        }
+        self.start_edge_job(op.label(), move || op.run());
     }
 
     fn start_edge_job(&mut self, label: &str, f: impl FnOnce() -> Result<String, String> + Send + 'static) {
@@ -594,17 +608,11 @@ impl App {
             Module::Router => self.deck.rt.tone(),
             Module::Dcheck => self.deck.dcheck.tone(),
             Module::Ssh => Some(if self.deck.ssh_keys > 0 { Tone::Ok } else { Tone::Warn }),
-            Module::EdgeRouter => {
-                if self.deck.edge.binary.is_none() {
-                    None
-                } else if !self.deck.edge.token {
-                    Some(Tone::Warn)
-                } else if self.deck.edge.tunnel_up {
-                    Some(Tone::Ok)
-                } else {
-                    Some(Tone::Warn)
-                }
-            }
+            Module::EdgeRouter => match self.deck.edge.health() {
+                edgerouter::Health::NotInstalled => None,
+                edgerouter::Health::TunnelUp => Some(Tone::Ok),
+                _ => Some(Tone::Warn),
+            },
         }
     }
 }
@@ -697,8 +705,10 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         Some(Module::EdgeRouter) => vec![
             ("↑↓", "move"),
             ("e", "token"),
+            ("s", "start"),
+            ("x", "stop"),
+            ("t", "restart"),
             ("c", "clear"),
-            ("r", "refresh"),
             ("?", "help"),
             ("q", "quit"),
         ],
@@ -956,17 +966,9 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
         }
         Module::EdgeRouter => {
             let e = &d.edge;
-            let state = if e.binary.is_none() {
-                "NOT INSTALLED"
-            } else if !e.token {
-                "NOT ENROLLED"
-            } else if e.tunnel_up {
-                "TUNNEL UP"
-            } else {
-                "ENROLLED"
-            };
+            let health = e.health();
             let mut l = vec![
-                status_field(tone, state, t),
+                status_field(tone, health.label(), t),
                 field(
                     "AGENT",
                     e.binary
@@ -1000,12 +1002,15 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     l.push(field("PLAN", p.clone(), t));
                 }
                 if !e.addresses.is_empty() {
-                    l.push(field("ADDRESS", e.addresses.join(", "), t));
+                    l.push(field("PREFIX", e.addresses.join(", "), t));
                 }
                 if let Some(h) = e.last_handshake {
                     l.push(field("HANDSHAKE", format!("{h}s ago"), t));
                 }
             }
+            l.push(Line::from(""));
+            let style = if matches!(health, edgerouter::Health::TunnelUp) { t.fg(t.dim) } else { t.bold(t.warn) };
+            l.push(Line::from(Span::styled(health.message(), style)));
             if e.binary.is_none() {
                 l.push(Line::from(""));
                 l.push(Line::from(Span::styled(
@@ -1014,7 +1019,10 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 )));
             } else {
                 l.push(Line::from(""));
-                l.push(hint(format!("e {arrow} paste the device token   c {arrow} clear it"), t));
+                l.push(hint(
+                    format!("e {arrow} token   s {arrow} start   x {arrow} stop   t {arrow} restart   c {arrow} clear"),
+                    t,
+                ));
             }
             ("EDGEROUTER", l, None)
         }
@@ -1123,6 +1131,9 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         key("x  x", "roll back to the other slot"),
         caption("EDGEROUTER", t),
         key("e", "paste the wayangi device token"),
+        key("s", "start the wayangi agent (tunnel up)"),
+        key("x", "stop the wayangi agent"),
+        key("t", "restart the wayangi agent"),
         key("c", "clear the saved token"),
         caption("SCREENS", t),
         key("q", "back to this deck (network, wifi, ssh, fw, router)"),
@@ -1475,6 +1486,26 @@ mod tests {
         // c clears (demo only)
         key(&mut app, KeyCode::Char('c'));
         assert!(app.message.as_ref().unwrap().1.contains("demo"), "{:?}", app.message);
+    }
+
+    #[test]
+    fn edgerouter_agent_keys_run_in_background_only_on_the_card() {
+        let mut app = App::new(true);
+        // not on the EDGEROUTER card (SYSTEM has no char actions): s/x/t inert
+        key(&mut app, KeyCode::Char('1'));
+        key(&mut app, KeyCode::Char('s'));
+        key(&mut app, KeyCode::Char('x'));
+        key(&mut app, KeyCode::Char('t'));
+        assert!(app.message.is_none(), "{:?}", app.message);
+
+        key(&mut app, KeyCode::Char('9'));
+        assert_eq!(app.module(), Some(Module::EdgeRouter));
+        for (c, verb) in [('s', "start"), ('x', "stop"), ('t', "restart")] {
+            key(&mut app, KeyCode::Char(c));
+            let msg = &app.message.as_ref().unwrap().1;
+            assert!(msg.contains("demo") && msg.contains(verb), "{c}: {msg}");
+            assert!(app.edge_job.is_none(), "demo never spawns a job");
+        }
     }
 
     #[test]

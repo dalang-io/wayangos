@@ -58,6 +58,9 @@ usage:
   wayang net                            runtime uplink HUD (TTY only)
   wayang wifi                           runtime wifi HUD (TTY only)
   wayang edgerouter status               wayangi EdgeRouter agent/token/tunnel state
+  wayang edgerouter start                start the wayangi agent (brings up the tunnel)
+  wayang edgerouter stop                 stop the running wayangi agent
+  wayang edgerouter restart              stop then start the wayangi agent
   wayang edgerouter enroll TOKEN         save the dashboard device token (survives updates)
   wayang edgerouter clear                forget the saved token
   wayang keygen --out DIR [--keyid NAME]
@@ -109,14 +112,22 @@ wayang edgerouter — enrol this box on the wayangi dashboard
 
 usage:
   wayang edgerouter status        show the agent, token and tunnel state
+  wayang edgerouter start         start the wayangi agent (brings up the tunnel)
+  wayang edgerouter stop          stop the running wayangi agent
+  wayang edgerouter restart       stop then start the wayangi agent
   wayang edgerouter enroll TOKEN  save the per-device token from the dashboard
   wayang edgerouter clear         forget the saved token
 
 The token is written to /data/etc/wayangi/token (mode 600) and survives OS
-updates; it is never baked into the image. `enroll` does not start the agent —
-the boot step (or `wayangi start`) brings up the wayangi0 tunnel. The agent's
-own state under /data/etc/wayangi/ is read for the last bootstrap, address and
-handshake. See docs/EDGEROUTER.md §C.";
+updates; it is never baked into the image. The agent runs with its state dir on
+/data (`--conf-dir /data/etc/wayangi`) and reads the token from the environment
+(never argv, so it can't leak through `ps`). `start`/`stop`/`restart` run in the
+background and print the resulting state. The boot step in /etc/init.d/edgerouter
+starts the same agent when both the binary and the token are present, so the
+wayangi0 tunnel comes up on its own after a reboot. Status reads the agent's own
+state under /data/etc/wayangi/ (device, plan, addresses, handshake) and reports
+a missing/rejected token or a down tunnel with a clear next step; no secrets are
+shown. See docs/EDGEROUTER.md §C.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

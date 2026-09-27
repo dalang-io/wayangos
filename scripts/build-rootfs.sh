@@ -347,8 +347,10 @@ fi
 # after the firewall and before the network, so wayang-router applies the
 # bootstrap addresses, routes and the delegated prefix onto a live wayangi0 and
 # the hub peer comes up as soon as the tunnel does. Enrol with
-# `wayang edgerouter enroll <token>`. Not wired in yet: no tunnel step runs at
-# boot for now (the kernel WireGuard/VPN options must land first).
+# `wayang edgerouter enroll <token>`. The step is a no-op unless the agent and
+# an enrolment token are both present, and it backgrounds the agent (output to
+# /var/log/wayangi.log) so boot never waits on the hub.
+/etc/init.d/edgerouter start
 
 echo "Starting network..."
 /etc/init.d/network start
@@ -431,6 +433,68 @@ case "$1" in
 esac
 FW
 chmod +x "$ROOTFS/etc/init.d/fw"
+
+# EdgeRouter boot loader (wayangi agent; optional). Starts the WireGuard tunnel
+# after the firewall and before the network (docs/EDGEROUTER.md §C). No-op
+# unless both the agent binary and /data/etc/wayangi/token are present; the
+# agent re-reads its identity from /data/etc/wayangi/ (--conf-dir) so enrolment
+# survives OS updates and no token is ever baked into the image.
+cat > "$ROOTFS/etc/init.d/edgerouter" << 'EDGEROUTER'
+#!/bin/sh
+# /etc/init.d/edgerouter — bring up the wayangi WireGuard tunnel at boot.
+#
+# Enrol a box with `wayang edgerouter enroll <token>`; the token is written to
+# /data/etc/wayangi/token (mode 600). This script is a no-op unless that token
+# and the wayangi binary are both present, so an un-enrolled image boots
+# unchanged. The agent is backgrounded (and itself daemonizes after a short
+# preflight) so boot never waits on the hub; its output goes to
+# /var/log/wayangi.log (`wayangi logs`).
+#
+# The agent is looked up in /data/bin (deployed, survives OS updates) then
+# /usr/sbin (image). Its state dir is pinned to /data so the device identity,
+# private key and last bootstrap survive updates.
+
+CONF_DIR=/data/etc/wayangi
+TOKEN_FILE=$CONF_DIR/token
+LOG=/var/log/wayangi.log
+
+find_agent() {
+    for b in /data/bin/wayangi /usr/sbin/wayangi /usr/bin/wayangi; do
+        [ -x "$b" ] && { echo "$b"; return 0; }
+    done
+    return 1
+}
+
+# The agent does not read the token file itself: hand it the enrolled token
+# through the environment (never argv, so it can't leak through `ps`) and let
+# it persist its own state.json under CONF_DIR.
+start_agent() {
+    agent="$(find_agent)" || return 0
+    [ -f "$TOKEN_FILE" ] || return 0
+    mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+    (
+        WAYANGI_TOKEN="$(cat "$TOKEN_FILE")" \
+            "$agent" start --conf-dir "$CONF_DIR" >>"$LOG" 2>&1
+    ) &
+}
+
+case "$1" in
+    start)
+        start_agent
+        ;;
+    stop)
+        agent="$(find_agent)" || exit 0
+        "$agent" stop --conf-dir "$CONF_DIR" >/dev/null 2>&1
+        ;;
+    status)
+        agent="$(find_agent)" || { echo "wayangi not installed"; exit 1; }
+        [ -f "$TOKEN_FILE" ] || { echo "not enrolled (no $TOKEN_FILE)"; exit 1; }
+        "$agent" status --conf-dir "$CONF_DIR"
+        ;;
+    *) echo "usage: $0 {start|stop|status}" >&2; exit 1 ;;
+esac
+EDGEROUTER
+chmod +x "$ROOTFS/etc/init.d/edgerouter"
 
 # Router boot loader (wayang-router; optional)
 cat > "$ROOTFS/etc/init.d/router" << 'ROUTER'

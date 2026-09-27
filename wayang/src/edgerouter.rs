@@ -1,16 +1,20 @@
-//! `wayang edgerouter` — enrol this box on the wayangi dashboard and inspect
-//! the agent/tunnel state (docs/EDGEROUTER.md §B–C).
+//! `wayang edgerouter` — enrol this box on the wayangi dashboard, drive the
+//! agent, and inspect the token/tunnel state (docs/EDGEROUTER.md §B–C).
 //!
 //! The device token lives in `/data/etc/wayangi/token` (mode 600), so enrolment
 //! survives OS updates and is never baked into the image. The bundled `wayangi`
 //! agent stores its own state (`state.json`, mode 600, holds the token and WG
-//! private key; `status.json`, mode 644, no secrets) in the same directory —
-//! here we only read it to report the tunnel and the last bootstrap. Starting
-//! the agent (the boot step) is deliberately out of scope for this command.
+//! private key; `status.json`, mode 644, no secrets) in the same directory
+//! (`--conf-dir /data/etc/wayangi`). We read it to report the tunnel and the
+//! last bootstrap, and `start`/`stop`/`restart` drive the agent in the
+//! background (bounded, captured output; never blocks a caller for long). The
+//! boot step runs the same agent (see `/etc/init.d/edgerouter`).
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -23,22 +27,35 @@ const IFACE: &str = "wayangi0";
 const TOKEN_FILE: &str = "token";
 const STATE_FILE: &str = "state.json";
 const STATUS_FILE: &str = "status.json";
+/// The agent's log (its own default path; `wayangi logs` reads it). Consulted
+/// for hub rejections the agent doesn't persist into its JSON state.
+const AGENT_LOG: &str = "/var/log/wayangi.log";
+/// How much of the agent log's tail we scan for a hub rejection.
+const LOG_TAIL_BYTES: u64 = 16 * 1024;
+/// Bounded wait for `wayangi start` (bootstrap + ~10s preflight) / `stop`.
+const START_TIMEOUT: Duration = Duration::from_secs(45);
+const STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// `/data/etc/wayangi/token` — our persisted enrolment token.
 pub fn token_path() -> PathBuf {
     paths::wayangi_dir().join(TOKEN_FILE)
 }
 
-/// The bundled agent, if present (the image installs it to `/usr/sbin`, a
-/// deployed copy lives in `/data/bin` and survives updates).
+/// The bundled agent, if present. A deployed copy in `/data/bin` (persistent,
+/// survives OS updates) wins over the image copy in `/usr/sbin`.
 pub fn agent_binary() -> Option<PathBuf> {
     [
-        PathBuf::from("/usr/sbin/wayangi"),
         paths::data_dir().join("bin/wayangi"),
+        PathBuf::from("/usr/sbin/wayangi"),
         PathBuf::from("/usr/bin/wayangi"),
     ]
     .into_iter()
     .find(|p| p.is_file())
+}
+
+/// The agent's log file (`WAYANGI_LOG` overrides it in tests).
+pub fn agent_log_path() -> PathBuf {
+    std::env::var_os("WAYANGI_LOG").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(AGENT_LOG))
 }
 
 /// Light shape check for a dashboard device token: one non-empty line of
@@ -146,6 +163,26 @@ pub struct Status {
     pub plan: Option<String>,
     pub endpoint: Option<String>,
     pub addresses: Vec<String>,
+    /// A hub/token problem reported by the agent (revoked/expired/plan), from
+    /// its JSON state or the tail of its log. No secrets are stored here.
+    pub error: Option<String>,
+}
+
+/// A one-line health verdict derived from [`Status`], used by both the CLI and
+/// the console module so they always agree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Health {
+    /// No `wayangi` binary on this OS image.
+    NotInstalled,
+    /// Agent present, but `/data/etc/wayangi/token` is missing.
+    NotEnrolled,
+    /// The agent reports the token/subscription is rejected (revoked, expired,
+    /// plan inactive). The string is already a human-safe message.
+    Blocked(String),
+    /// Enrolled and `wayangi0` is up with a live handshake.
+    TunnelUp,
+    /// Enrolled, but the tunnel is down (agent stopped, hub unreachable, …).
+    TunnelDown,
 }
 
 impl Status {
@@ -157,6 +194,60 @@ impl Status {
             || self.plan.is_some()
             || !self.addresses.is_empty()
     }
+
+    /// Classify the EdgeRouter state for display.
+    pub fn health(&self) -> Health {
+        if self.binary.is_none() {
+            return Health::NotInstalled;
+        }
+        if !self.token {
+            return Health::NotEnrolled;
+        }
+        // A live, handshaking tunnel wins over a stale log/JSON complaint.
+        if self.tunnel_up && (self.connected || self.last_handshake.is_none()) {
+            return Health::TunnelUp;
+        }
+        if let Some(e) = &self.error {
+            if !e.trim().is_empty() {
+                return Health::Blocked(e.clone());
+            }
+        }
+        if self.tunnel_up {
+            Health::TunnelUp
+        } else {
+            Health::TunnelDown
+        }
+    }
+}
+
+impl Health {
+    /// Short state label for the console card.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Health::NotInstalled => "NOT INSTALLED",
+            Health::NotEnrolled => "NOT ENROLLED",
+            Health::Blocked(_) => "TOKEN/PLAN ISSUE",
+            Health::TunnelUp => "TUNNEL UP",
+            Health::TunnelDown => "TUNNEL DOWN",
+        }
+    }
+
+    /// A clear, secret-free next step for the operator.
+    pub fn message(&self) -> String {
+        match self {
+            Health::NotInstalled => {
+                "wayangi is not on this image. Rebuild with scripts/build-wayangi.sh (or copy it to /data/bin/wayangi).".to_string()
+            }
+            Health::NotEnrolled => {
+                "No device token. Run `wayang edgerouter enroll <token>` with the token from the wayangi dashboard.".to_string()
+            }
+            Health::Blocked(m) => m.clone(),
+            Health::TunnelUp => format!("{IFACE} is up and handshaking; the delegated prefix is routed."),
+            Health::TunnelDown => {
+                format!("Enrolled, but {IFACE} is down. Start it with `wayang edgerouter start`; if it stays down the hub may be unreachable.")
+            }
+        }
+    }
 }
 
 /// Gather the current state. The persistent dir is authoritative; the agent's
@@ -164,10 +255,16 @@ impl Status {
 /// override.
 pub fn status() -> Status {
     let sys = std::env::var_os("WAYANG_SYS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/sys"));
-    status_at(&paths::wayangi_dir(), &sys)
+    status_full(&paths::wayangi_dir(), &sys, Some(&agent_log_path()))
 }
 
+/// Pure form for tests: no log scan.
+#[cfg(test)]
 fn status_at(base: &Path, sys: &Path) -> Status {
+    status_full(base, sys, None)
+}
+
+fn status_full(base: &Path, sys: &Path, log: Option<&Path>) -> Status {
     let mut st = Status {
         binary: agent_binary(),
         token: token_present_at(base),
@@ -178,6 +275,13 @@ fn status_at(base: &Path, sys: &Path) -> Status {
         merge_snapshot(&mut st, &read_json(&dir.join(STATUS_FILE)));
         if let Some(v) = read_json(&dir.join(STATE_FILE)) {
             merge_state(&mut st, &v);
+        }
+    }
+    // The agent exits after a rejected bootstrap and only records the hub's
+    // reason in its log, so consult the tail (newest-up finding wins).
+    if let Some(path) = log {
+        if let Some(text) = read_tail(path, LOG_TAIL_BYTES) {
+            merge_agent_text(&mut st, &text);
         }
     }
     st
@@ -234,6 +338,7 @@ fn merge_snapshot(st: &mut Status, v: &Option<Value>) {
     st.account = str_field(v, "account").or_else(|| st.account.clone());
     st.plan = str_field(v, "plan").or_else(|| st.plan.clone());
     st.endpoint = str_field(v, "endpoint").or_else(|| st.endpoint.clone());
+    merge_error(st, v);
     let addrs = str_list(v, "addresses");
     if !addrs.is_empty() {
         st.addresses = addrs;
@@ -244,6 +349,7 @@ fn merge_snapshot(st: &mut Status, v: &Option<Value>) {
 /// original signed response even before a snapshot exists.
 fn merge_state(st: &mut Status, v: &Value) {
     st.version = str_field(v, "version").or_else(|| st.version.clone());
+    merge_error(st, v);
     let Some(b) = v.get("bootstrap") else { return };
     st.device = str_field(b, "name").or_else(|| st.device.clone());
     st.device_id = str_field(b, "device_id").or_else(|| st.device_id.clone());
@@ -256,13 +362,97 @@ fn merge_state(st: &mut Status, v: &Value) {
     }
 }
 
+/// Pick up an agent-published error, if a build ever writes one
+/// (`error`/`last_error`/`reason`). Stored as a human message, never verbatim
+/// secrets (those live in `state.json`, mode 600, and are not logged).
+fn merge_error(st: &mut Status, v: &Value) {
+    if st.error.is_some() {
+        return;
+    }
+    for key in ["error", "last_error", "reason"] {
+        if let Some(raw) = str_field(v, key) {
+            if let Some(msg) = classify_agent_text(&raw) {
+                st.error = Some(msg);
+            }
+            return;
+        }
+    }
+}
+
+/// Read at most `max` bytes from the end of `path`, without failing on a
+/// missing/short file. Pure form for tests.
+fn read_tail(path: &Path, max: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    if len > max {
+        f.seek(SeekFrom::Start(len - max)).ok()?;
+    }
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    // A tail may start mid-UTF-8; lossy is fine for scanning ASCII markers.
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Merge a hub rejection the agent only wrote to its log. Latest line wins.
+/// Only consulted when the agent is not running: a running agent publishes an
+/// authoritative `status.json`, and its log may still hold an old rejection
+/// from a previous token.
+fn merge_agent_text(st: &mut Status, text: &str) {
+    if st.error.is_some() || st.running {
+        return;
+    }
+    for line in text.lines().rev() {
+        if let Some(msg) = classify_agent_text(line) {
+            st.error = Some(msg);
+            return;
+        }
+    }
+}
+
+/// Turn an agent line into a clear, secret-free operator message, or `None`
+/// when the line isn't a token/subscription rejection. Matched tightly (the
+/// hub writes "invalid or revoked token"; the agent wraps it as `hub attach`).
+pub fn classify_agent_text(raw: &str) -> Option<String> {
+    let l = raw.to_ascii_lowercase();
+    let hub = l.contains("hub attach") || l.contains("hub rejected") || l.contains("bootstrap") || l.contains("token");
+    if l.contains("payment required") {
+        return Some(
+            "The device's wayangi subscription is not active (payment required). Complete checkout in the dashboard, then restart the agent."
+                .into(),
+        );
+    }
+    if l.contains("revoked") || l.contains("expired token") {
+        return Some(
+            "The wayangi hub rejected this device's token (revoked or expired). Rotate it in the dashboard and run `wayang edgerouter enroll <token>`."
+                .into(),
+        );
+    }
+    if hub && (l.contains("http 401") || l.contains("http 403") || l.contains("unauthorized") || l.contains("forbidden")) {
+        return Some(
+            "The wayangi hub rejected the token (unauthorized). Check or rotate it in the dashboard, then re-enrol."
+                .into(),
+        );
+    }
+    if l.contains("re-bind") || l.contains("hub rejected device attach") {
+        return Some(
+            "The wayangi hub has this device attached to another machine. Re-run the agent with --force-rebind or rotate the token in the dashboard."
+                .into(),
+        );
+    }
+    None
+}
+
 impl Status {
     /// Human-readable `wayang edgerouter status` output.
     pub fn print_human(&self) {
         let agent = self.binary.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "not installed".into());
+        let health = self.health();
         println!("agent:     {agent}");
         println!("token:     {}", if self.token { format!("saved ({})", token_path().display()) } else { "none".into() });
         println!("tunnel:    {IFACE} {}", if self.tunnel_up { "up" } else { "down" });
+        println!("state:     {}", health.label());
+        println!("           {}", health.message());
         if self.running || self.connected || self.last_handshake.is_some() {
             let hs = self.last_handshake.map(|s| format!("{s}")).unwrap_or_else(|| "-".into());
             println!("runtime:   {} (last handshake {hs})", if self.connected { "connected" } else if self.running { "running" } else { "not running" });
@@ -291,8 +481,149 @@ impl Status {
     }
 }
 
+// ---- agent lifecycle ---------------------------------------------------
+
+/// Which lifecycle operation the console/CLI asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentOp {
+    Start,
+    Stop,
+    Restart,
+}
+
+impl AgentOp {
+    pub fn verb(self) -> &'static str {
+        match self {
+            AgentOp::Start => "start",
+            AgentOp::Stop => "stop",
+            AgentOp::Restart => "restart",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AgentOp::Start => "Starting the wayangi agent",
+            AgentOp::Stop => "Stopping the wayangi agent",
+            AgentOp::Restart => "Restarting the wayangi agent",
+        }
+    }
+
+    /// Run the operation (blocking, bounded). Suitable for a background
+    /// thread; the console polls the result.
+    pub fn run(self) -> std::result::Result<String, String> {
+        match self {
+            AgentOp::Start => start_agent(),
+            AgentOp::Stop => stop_agent(),
+            AgentOp::Restart => restart_agent(),
+        }
+    }
+}
+
+/// Start the agent, passing the saved token via the environment (never argv, so
+/// it can't leak through `ps`) and pointing `--conf-dir` at `/data` so the
+/// device identity survives OS updates. Returns once the parent exits (it
+/// daemonizes after its preflight).
+pub fn start_agent() -> std::result::Result<String, String> {
+    let bin = agent_binary().ok_or_else(|| "the wayangi agent is not installed (bundle wayangi)".to_string())?;
+    let dir = paths::wayangi_dir();
+    let token = read_token_at(&dir);
+    if token.is_none() && !dir.join(STATE_FILE).is_file() {
+        return Err("no device token: run `wayang edgerouter enroll <token>` first".into());
+    }
+    let dir = dir.to_string_lossy().to_string();
+    let args = ["start", "--conf-dir", dir.as_str()];
+    let (code, output) = run_agent(&bin, &args, token.as_deref(), START_TIMEOUT)?;
+    if code == Some(0) {
+        Ok(format!("wayangi agent started; {IFACE} is coming up (log: {AGENT_LOG})."))
+    } else {
+        Err(agent_failure(code, &output))
+    }
+}
+
+/// Stop the running agent (a no-op when none is running).
+pub fn stop_agent() -> std::result::Result<String, String> {
+    let bin = agent_binary().ok_or_else(|| "the wayangi agent is not installed (bundle wayangi)".to_string())?;
+    let dir = paths::wayangi_dir().to_string_lossy().to_string();
+    let args = ["stop", "--conf-dir", dir.as_str()];
+    let (code, output) = run_agent(&bin, &args, None, STOP_TIMEOUT)?;
+    if code == Some(0) {
+        Ok("wayangi agent stopped.".into())
+    } else {
+        Err(agent_failure(code, &output))
+    }
+}
+
+/// Best-effort stop, then start.
+pub fn restart_agent() -> std::result::Result<String, String> {
+    let stop = stop_agent().unwrap_or_else(|e| format!("(stop skipped: {e})"));
+    let start = start_agent()?;
+    Ok(format!("{stop} {start}"))
+}
+
+/// Build the operator-facing failure message from the agent's captured output,
+/// preferring a specific hub rejection over the bare exit code.
+fn agent_failure(code: Option<i32>, output: &str) -> String {
+    if let Some(msg) = classify_agent_text(output).or_else(|| merge_find(output)) {
+        return msg;
+    }
+    let how = code.map(|c| format!("exit code {c}")).unwrap_or_else(|| "timeout".into());
+    format!("wayangi agent failed ({how}); see {AGENT_LOG}.")
+}
+
+/// Scan captured output newest-line-first for a rejection marker.
+fn merge_find(output: &str) -> Option<String> {
+    output.lines().rev().find_map(classify_agent_text)
+}
+
+/// Spawn the agent, capture stdout/stderr to a temp file and wait up to
+/// `timeout` (polling, so a wedged preflight can't hang the caller forever).
+/// Returns the exit code (`None` on timeout) and the captured output.
+fn run_agent(
+    bin: &Path,
+    args: &[&str],
+    token: Option<&str>,
+    timeout: Duration,
+) -> std::result::Result<(Option<i32>, String), String> {
+    let log = std::env::temp_dir().join(format!("wayang-edgerouter-{}.log", std::process::id()));
+    let out = fs::File::create(&log).map_err(|e| format!("{}: {e}", log.display()))?;
+    let err = out.try_clone().map_err(|e| format!("{}: {e}", log.display()))?;
+    let mut cmd = Command::new(bin);
+    cmd.args(args).stdin(Stdio::null()).stdout(out).stderr(err);
+    if let Some(t) = token {
+        cmd.env("WAYANGI_TOKEN", t);
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", bin.display()))?;
+    let deadline = Instant::now() + timeout;
+    let mut code = None;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                code = status.code().or(Some(-1));
+                break;
+            }
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(e) => return Err(format!("{}: {e}", bin.display())),
+        }
+    }
+    let text = fs::read_to_string(&log).unwrap_or_default();
+    let _ = fs::remove_file(&log);
+    Ok((code, text))
+}
+
 /// Dispatch the parsed `edgerouter` action (help is printed by `main`).
 pub fn run(action: EdgeRouterAction) -> Result<i32> {
+    // Resolve the lifecycle op up front, before `action` is consumed.
+    let agent_op = match &action {
+        EdgeRouterAction::Start => Some(AgentOp::Start),
+        EdgeRouterAction::Stop => Some(AgentOp::Stop),
+        EdgeRouterAction::Restart => Some(AgentOp::Restart),
+        _ => None,
+    };
     match action {
         EdgeRouterAction::Status => {
             status().print_human();
@@ -301,7 +632,7 @@ pub fn run(action: EdgeRouterAction) -> Result<i32> {
         EdgeRouterAction::Enroll(token) => {
             enroll(&token).map_err(AppError::err)?;
             println!("Saved the device token to {}.", token_path().display());
-            println!("The agent will pick it up on the next boot (or run `wayangi start`).");
+            println!("The agent will pick it up on the next boot (or run `wayang edgerouter start`).");
             Ok(0)
         }
         EdgeRouterAction::Clear => {
@@ -312,6 +643,24 @@ pub fn run(action: EdgeRouterAction) -> Result<i32> {
                 println!("No saved token to clear.");
             }
             Ok(0)
+        }
+        EdgeRouterAction::Start | EdgeRouterAction::Stop | EdgeRouterAction::Restart => {
+            let op = agent_op.expect("lifecycle op resolved above");
+            // Always show the resulting state, so a failure is actionable
+            // (tunnel down, token revoked) — but exit non-zero so scripts and
+            // the console can tell.
+            let code = match op.run() {
+                Ok(msg) => {
+                    println!("{msg}");
+                    0
+                }
+                Err(msg) => {
+                    eprintln!("wayang: {msg}");
+                    1
+                }
+            };
+            status().print_human();
+            Ok(code)
         }
         EdgeRouterAction::Help => Ok(0),
     }
@@ -441,6 +790,97 @@ mod tests {
         fs::write(dir.join(STATE_FILE), "{broken").unwrap();
         let st = status_at(&dir, &sys);
         assert!(!st.running && !st.connected && !st.known());
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&sys);
+    }
+
+    #[test]
+    fn classify_agent_text_matches_only_token_failures() {
+        // the hub's exact revocation wording, wrapped by the agent
+        let a = classify_agent_text(
+            r#"wayangi: hub attach: HTTP 401: {"error":"invalid or revoked token"}"#,
+        )
+        .expect("revoked");
+        assert!(a.to_lowercase().contains("revoked"), "{a}");
+        assert!(classify_agent_text("payment required — checkout at https://x").is_some());
+        assert!(classify_agent_text("hub attach: HTTP 401 unauthorized").is_some());
+        assert!(classify_agent_text("hub rejected device attach: conflict (re-run with --force-rebind)").is_some());
+        // benign agent lines must not be classified (avoid false positives)
+        assert!(classify_agent_text("awaitTunDeviceCleared(wayangi0): budget expired").is_none());
+        assert!(classify_agent_text("preflight OK · transport=udp").is_none());
+        assert!(classify_agent_text("hub registered device \"naga\"").is_none());
+    }
+
+    fn edge_status(token: bool, tunnel_up: bool) -> Status {
+        Status {
+            binary: Some(PathBuf::from("/usr/sbin/wayangi")),
+            token,
+            tunnel_up,
+            connected: tunnel_up,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn health_classifies_lifecycle_without_secrets() {
+        assert_eq!(Status::default().health(), Health::NotInstalled);
+        assert_eq!(edge_status(false, false).health(), Health::NotEnrolled);
+
+        let mut blocked = edge_status(true, false);
+        blocked.error = Some(classify_agent_text("hub attach: HTTP 401 invalid or revoked token").unwrap());
+        match blocked.health() {
+            Health::Blocked(m) => {
+                assert!(m.contains("revoked"));
+                assert!(!m.contains("HTTP 401"), "raw hub text is not surfaced");
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+
+        assert_eq!(edge_status(true, true).health(), Health::TunnelUp);
+        assert_eq!(edge_status(true, false).health(), Health::TunnelDown);
+        // a live tunnel wins over a stale log complaint
+        let mut stale = edge_status(true, true);
+        stale.error = Some("revoked".into());
+        assert_eq!(stale.health(), Health::TunnelUp);
+    }
+
+    #[test]
+    fn status_reads_the_agent_log_tail_for_a_revocation() {
+        let dir = tmp();
+        let sys = tmp();
+        let log = tmp().join("wayangi.log");
+        enroll_at(&dir, "0123456789abcdef0123456789abcdef").unwrap();
+        fs::write(&log, "banner\nhub attach: HTTP 401: {\"error\":\"invalid or revoked token\"}\n").unwrap();
+
+        let clean = status_at(&dir, &sys);
+        assert!(clean.error.is_none(), "no log scan in the pure form");
+
+        let st = status_full(&dir, &sys, Some(&log));
+        assert!(st.error.as_deref().unwrap().contains("revoked"));
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&sys);
+    }
+
+    #[test]
+    fn read_tail_reads_the_end_and_tolerates_missing_files() {
+        let dir = tmp();
+        let p = dir.join("log");
+        fs::write(&p, "0123456789").unwrap();
+        assert_eq!(read_tail(&p, 4).as_deref(), Some("6789"));
+        assert_eq!(read_tail(&p, 100).as_deref(), Some("0123456789"));
+        assert!(read_tail(&dir.join("nope"), 4).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn error_field_from_agent_state_is_classified() {
+        let dir = tmp();
+        let sys = tmp();
+        enroll_at(&dir, "0123456789abcdef0123456789abcdef").unwrap();
+        fs::write(dir.join(STATUS_FILE), r#"{"running":false,"error":"invalid or revoked token"}"#).unwrap();
+        let st = status_at(&dir, &sys);
+        assert!(st.error.as_deref().unwrap().contains("revoked"));
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&sys);
     }

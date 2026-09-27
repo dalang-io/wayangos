@@ -23,6 +23,12 @@ pub enum EdgeRouterAction {
     Status,
     Enroll(String),
     Clear,
+    /// Bring the wayangi agent up (background; the tunnel comes up after).
+    Start,
+    /// Stop the running wayangi agent.
+    Stop,
+    /// Stop then start the wayangi agent.
+    Restart,
     Help,
 }
 
@@ -151,7 +157,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     }
                     Ok(Command::EdgeRouter(EdgeRouterAction::Clear))
                 }
-                Some(other) => Err(format!("unknown edgerouter action '{other}' (status|enroll|clear)")),
+                Some(action @ ("start" | "stop" | "restart")) => {
+                    if let Some(extra) = rest.get(1) {
+                        return Err(format!("unknown option for `edgerouter {action}`: {extra}"));
+                    }
+                    Ok(Command::EdgeRouter(match action {
+                        "start" => EdgeRouterAction::Start,
+                        "stop" => EdgeRouterAction::Stop,
+                        _ => EdgeRouterAction::Restart,
+                    }))
+                }
+                Some(other) => Err(format!("unknown edgerouter action '{other}' (status|start|stop|restart|enroll|clear)")),
             }
         }
         "keygen" => {
@@ -355,11 +371,24 @@ mod tests {
             Command::EdgeRouter(EdgeRouterAction::Clear)
         ));
         assert!(matches!(
+            parse(&v(&["edgerouter", "start"])).unwrap(),
+            Command::EdgeRouter(EdgeRouterAction::Start)
+        ));
+        assert!(matches!(
+            parse(&v(&["edgerouter", "stop"])).unwrap(),
+            Command::EdgeRouter(EdgeRouterAction::Stop)
+        ));
+        assert!(matches!(
+            parse(&v(&["edgerouter", "restart"])).unwrap(),
+            Command::EdgeRouter(EdgeRouterAction::Restart)
+        ));
+        assert!(matches!(
             parse(&v(&["edgerouter", "--help"])).unwrap(),
             Command::EdgeRouter(EdgeRouterAction::Help)
         ));
         assert!(parse(&v(&["edgerouter", "enroll"])).is_err(), "token required");
         assert!(parse(&v(&["edgerouter", "bogus"])).is_err());
+        assert!(parse(&v(&["edgerouter", "start", "now"])).is_err());
         assert!(parse(&v(&["edgerouter", "status", "extra"])).is_err());
     }
 }
