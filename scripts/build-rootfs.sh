@@ -343,6 +343,13 @@ fi
 # only runs when a confirmed router config exists).
 [ -x /data/bin/wayang-router ] && ln -sf /data/bin/wayang-router /usr/bin/wayang-router 2>/dev/null || true
 
+# EdgeRouter (docs/EDGEROUTER.md §C): the wayangi WireGuard tunnel belongs here —
+# after the firewall and before the network, so wayang-router applies the
+# bootstrap addresses, routes and the delegated prefix onto a live wayangi0 and
+# the hub peer comes up as soon as the tunnel does. Enrol with
+# `wayang edgerouter enroll <token>`. Not wired in yet: no tunnel step runs at
+# boot for now (the kernel WireGuard/VPN options must land first).
+
 echo "Starting network..."
 /etc/init.d/network start
 

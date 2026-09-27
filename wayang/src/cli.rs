@@ -17,6 +17,15 @@ pub struct UpdateArgs {
     pub fallback: bool,
 }
 
+/// `wayang edgerouter` actions (docs/EDGEROUTER.md §C).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EdgeRouterAction {
+    Status,
+    Enroll(String),
+    Clear,
+    Help,
+}
+
 #[derive(Debug)]
 pub enum Command {
     Version,
@@ -26,6 +35,7 @@ pub enum Command {
     Net,
     Wifi,
     WifiDetect { json: bool },
+    EdgeRouter(EdgeRouterAction),
     Keygen { out: PathBuf, keyid: String },
     Sign { key: PathBuf, keyid: Option<String>, manifest: PathBuf },
     Verify { bundle: PathBuf, esp: Option<String> },
@@ -112,6 +122,36 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 Ok(Command::Net)
             } else {
                 Ok(Command::Wifi)
+            }
+        }
+        "edgerouter" => {
+            if rest.iter().any(|a| a == "--help" || a == "-h") {
+                return Ok(Command::EdgeRouter(EdgeRouterAction::Help));
+            }
+            match rest.first().map(String::as_str) {
+                None | Some("status") => {
+                    if let Some(extra) = rest.get(1) {
+                        return Err(format!("unknown option for `edgerouter status`: {extra}"));
+                    }
+                    Ok(Command::EdgeRouter(EdgeRouterAction::Status))
+                }
+                Some("enroll") => {
+                    let token = rest
+                        .get(1)
+                        .cloned()
+                        .ok_or_else(|| "edgerouter enroll needs the device token".to_string())?;
+                    if let Some(extra) = rest.get(2) {
+                        return Err(format!("unknown option for `edgerouter enroll`: {extra}"));
+                    }
+                    Ok(Command::EdgeRouter(EdgeRouterAction::Enroll(token)))
+                }
+                Some("clear") => {
+                    if let Some(extra) = rest.get(1) {
+                        return Err(format!("unknown option for `edgerouter clear`: {extra}"));
+                    }
+                    Ok(Command::EdgeRouter(EdgeRouterAction::Clear))
+                }
+                Some(other) => Err(format!("unknown edgerouter action '{other}' (status|enroll|clear)")),
             }
         }
         "keygen" => {
@@ -294,5 +334,32 @@ mod tests {
             Command::WifiDetect { json: true }
         ));
         assert!(parse(&v(&["wifi", "detect", "--bogus"])).is_err());
+    }
+
+    #[test]
+    fn parses_edgerouter() {
+        assert!(matches!(
+            parse(&v(&["edgerouter"])).unwrap(),
+            Command::EdgeRouter(EdgeRouterAction::Status)
+        ));
+        assert!(matches!(
+            parse(&v(&["edgerouter", "status"])).unwrap(),
+            Command::EdgeRouter(EdgeRouterAction::Status)
+        ));
+        match parse(&v(&["edgerouter", "enroll", "abc123def456"])).unwrap() {
+            Command::EdgeRouter(EdgeRouterAction::Enroll(t)) => assert_eq!(t, "abc123def456"),
+            _ => panic!("wrong command"),
+        }
+        assert!(matches!(
+            parse(&v(&["edgerouter", "clear"])).unwrap(),
+            Command::EdgeRouter(EdgeRouterAction::Clear)
+        ));
+        assert!(matches!(
+            parse(&v(&["edgerouter", "--help"])).unwrap(),
+            Command::EdgeRouter(EdgeRouterAction::Help)
+        ));
+        assert!(parse(&v(&["edgerouter", "enroll"])).is_err(), "token required");
+        assert!(parse(&v(&["edgerouter", "bogus"])).is_err());
+        assert!(parse(&v(&["edgerouter", "status", "extra"])).is_err());
     }
 }

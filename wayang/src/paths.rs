@@ -54,6 +54,13 @@ pub fn wpa_conf_file() -> PathBuf {
     data_dir().join("etc/wpa_supplicant.conf")
 }
 
+/// `/data/etc/wayangi` — persisted EdgeRouter enrolment (device token and the
+/// agent's own state), created mode 700 at first boot and never baked into the
+/// image (docs/EDGEROUTER.md §B).
+pub fn wayangi_dir() -> PathBuf {
+    data_dir().join("etc/wayangi")
+}
+
 /// `/data/etc/ssh` — root's persisted SSH keys (survives updates).
 pub fn ssh_dir() -> PathBuf {
     data_dir().join("etc/ssh")
