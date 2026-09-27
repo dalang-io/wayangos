@@ -52,26 +52,30 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 - [ ] **Enrol**: how a box becomes a device on the dashboard — dashboard
       creates a device + token (see `internal/web/install.go` `--token=`), the
       operator pastes the token on the box.
-- [ ] **TUI/CLI** on WayangOS to paste the token and run bootstrap (like the
-      installer SSH-key step / `wayang addkey`): a new `wayang edgerouter`
-      command + a console module showing tunnel state, handed prefix, handshake,
-      account/plan (from the informational bootstrap fields).
+- [x] **TUI/CLI** on WayangOS to paste the token: `wayang edgerouter
+      status|enroll <token>|clear` + the **09 EDGEROUTER** console module (token
+      written to `/data/etc/wayangi/token`, mode 0600; shows agent/token/tunnel
+      and last bootstrap). Running the agent / bootstrap itself is still open.
 - [ ] Boot order: `/data` → firewall → **WireGuard tunnel up (bootstrap)** →
       router applies addresses/routes/prefix → network; the hub peer comes up
-      as soon as the tunnel does.
+      as soon as the tunnel does. (A commented marker is in rcS where this goes.)
 - [ ] Token lifecycle: renewal/revocation (`internal/web/renewal.go` drops the
       peer on expiry) — surface "token expired / device revoked" clearly.
 
 ## D. Prefix delegation → LAN (EdgeRouter role)
 
 - [ ] Receive the delegated prefix from bootstrap; install it (AnyIP or routed)
-      on the WG/TUN device.
-- [ ] **Advertise to the LAN**: router advertisements (SLAAC) + RDNSS, or
-      DHCPv6-PD downstream. Needs an RA daemon (radvd or implement in
-      `wayang-router`) — none bundled yet.
+      on the WG/TUN device. (The agent does this; `wayang` can carry it via
+      `wayang-router` `delegated_prefix`/`prefix_from`.)
+- [x] **Advertise to the LAN**: `wayang-router` renders SLAAC/RDNSS/DNSSL via
+      `/etc/radvd.conf` and drives `radvd` (warn-and-no-op when `radvd` is
+      absent — it is not bundled yet).
 - [ ] IPv6 forwarding + a default route toward the hub (inbound-only by
-      default; `full_duplex` only when the hub grants enterprise).
-- [ ] Firewall zones/policies for the delegated prefix (wayang-fw IPv6).
+      default; `full_duplex` only when the hub grants enterprise). (Router sets
+      `ipv6_forwarding` when RA/delegation is on; the tunnel default route is
+      the agent's.)
+- [x] Firewall zones/policies for the delegated prefix: `wayang-fw` IPv6
+      objects/policies + per-family NAT (NAT66) are in.
 - [ ] (optional) NAT66 if the LAN is meant to be hidden; reverse DNS is
       out of scope (wayangi support ticket).
 

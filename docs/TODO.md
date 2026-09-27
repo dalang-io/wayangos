@@ -66,15 +66,17 @@ release: **1.0.17** (see `docs/HANDOVER.md`).
 See `docs/ROADMAP.md` (v0.2+). Remaining:
 
 - [ ] per-zone DHCP/DNS (dnsmasq — not bundled yet);
-- [ ] nft sets / FQDN objects;
 - [ ] interface config from the HUD.
 - [ ] Firewall enforcement is **QEMU-tested only** — run the lab
       `tests/lab/lab.py` and then validate on real hardware.
-- [x] live conntrack / drop-log views → **DROPS** screen (module 08) reads the
-      `wfw:` counters + kernel drop log, grouped by source/service.
-- [x] rule **schedules** (time windows, `meta day`/`meta hour`) and **hairpin
-      NAT** (port-forward reflection + masquerade) as config + render, with TUI
-      fields.
+- [x] live conntrack / drop-log views → **DROPS** screen reads the `wfw:`
+      counters + kernel drop log, grouped by source/service.
+- [x] rule **schedules** (time windows) and **hairpin NAT** as config + render,
+      with TUI fields.
+- [x] **nft sets + FQDN objects** (named interval sets; the engine resolves
+      FQDNs itself and updates a dynamic set atomically; FortiOS import).
+- [x] per-family NAT incl. **NAT66** for a delegated IPv6 prefix; ip6
+      objects/policies.
 
 ## wayang-router (dalang-io/wayang-router)
 
@@ -84,12 +86,13 @@ static v4/v6, DHCP client, forwarding, static routes):
 - [x] **netlink backend** for addresses/links/VLAN/bridge (rtnetlink via raw
       `libc`, no new crate), falling back to `ip`/`vconfig`/`brctl`; `ip route`
       stays command-based for now.
-- [ ] WireGuard (generic-netlink; `wg` is in the image for operators), then
-      IPsec IKEv2;
-- [ ] VRF, policy routing, ECMP, multi-WAN failover;
-- [ ] QoS (HTB + fq_codel / CAKE) per subnet/host/VLAN — via `/usr/sbin/tc`;
-- [ ] BGP/OSPF/BFD — render `/data/etc/router/bird.conf`, drive
-      `/var/run/bird.ctl`; PPPoE; Wi-Fi AP.
+- [x] **WireGuard** (config + `wg` bundled), **QoS** (CAKE/HTB + simple queues
+      via `tc`), **BGP/OSPF** via BIRD (`bird` bundled), **VRF + weighted
+      ECMP**, **multi-WAN failover + policy routing**, **delegated IPv6 prefix +
+      SLAAC router advertisements** (radvd; warn-and-noop when absent).
+      *All gated on the kernel bisect above — the options are off in shipped
+      images, present in the QEMU lab kernel.*
+- [ ] IPsec IKEv2; PPPoE; bridge port-level VLANs; Wi-Fi AP.
 - Lab: `/tmp/wayang-tools/{bzImage-lab,initramfs-lab.img}` on the builder
   (QEMU only; all router kernel options on).
 - Kernel side for most of the above is gated on the bisect item above.
