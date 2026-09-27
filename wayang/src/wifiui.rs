@@ -9,16 +9,10 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::hud::{self, Theme};
-use crate::input::{self, Input, Outcome};
+use crate::input::{self, Input, Outcome, Pick, Picker};
 use crate::sys;
 use crate::tui::Tone;
 use crate::wifi;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Field {
-    Passphrase,
-    Country,
-}
 
 pub struct App {
     pub t: Theme,
@@ -30,7 +24,8 @@ pub struct App {
     pub bss: Vec<wifi::Bss>,
     pub bss_sel: usize,
     pub country: String,
-    input: Option<(Field, Input)>,
+    input: Option<Input>,
+    picker: Option<Picker>,
     pub message: Option<(Tone, String)>,
     tick: usize,
     pub exit: bool,
@@ -49,6 +44,7 @@ impl App {
             bss_sel: 0,
             country: String::new(),
             input: None,
+            picker: None,
             message: None,
             tick: 0,
             exit: false,
@@ -120,27 +116,52 @@ impl App {
             self.message = Some((Tone::Bad, "Scan and pick a network first.".into()));
             return;
         };
-        self.input = Some((
-            Field::Passphrase,
+        self.input = Some(
             Input::new(
                 format!("PASSPHRASE — {}", bss.ssid),
                 "WPA-PSK passphrase:",
                 "8-63 characters (or 64 hex); hidden as you type",
             )
             .masked(),
-        ));
+        );
     }
 
     fn open_country(&mut self) {
-        self.input = Some((
-            Field::Country,
-            Input::new(
-                "COUNTRY",
-                "Regulatory country code (optional, e.g. GB):",
-                "applied with `iw reg set` before connecting",
-            )
-            .value(self.country.clone()),
+        let mut items = vec!["(not set)".to_string()];
+        items.extend(wifi::REGIONS.iter().map(|(code, name)| format!("{code}  {name}")));
+        self.picker = Some(Picker::new(
+            "COUNTRY",
+            "Regulatory domain for the wireless radio:",
+            items,
         ));
+        if let Some(i) = wifi::REGIONS.iter().position(|(c, _)| *c == self.country) {
+            if let Some(p) = self.picker.as_mut() {
+                p.sel = i + 1;
+            }
+        }
+    }
+
+    fn on_picker_key(&mut self, key: KeyEvent) {
+        let outcome = match self.picker.as_mut() {
+            Some(p) => p.on_key(key),
+            None => return,
+        };
+        match outcome {
+            Pick::None => {}
+            Pick::Cancel => self.picker = None,
+            Pick::Choose(i) => {
+                self.country = if i == 0 { String::new() } else { wifi::REGIONS[i - 1].0.to_string() };
+                self.picker = None;
+                self.message = Some((
+                    Tone::Ok,
+                    if self.country.is_empty() {
+                        "Country: not set.".into()
+                    } else {
+                        format!("Country: {}.", self.country)
+                    },
+                ));
+            }
+        }
     }
 
     fn connect(&mut self, psk: &str) {
@@ -161,6 +182,10 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        if self.picker.is_some() {
+            self.on_picker_key(key);
+            return;
+        }
         if self.input.is_some() {
             self.on_input_key(key);
             return;
@@ -196,34 +221,20 @@ impl App {
     }
 
     fn on_input_key(&mut self, key: KeyEvent) {
-        let Some((field, input)) = self.input.as_mut() else { return };
-        let field = *field;
+        let Some(input) = self.input.as_mut() else { return };
         match input.on_key(key) {
             Outcome::None => {}
             Outcome::Cancel => self.input = None,
-            Outcome::Submit(value) => match field {
-                Field::Country => {
-                    if value.is_empty() {
-                        self.country.clear();
-                        self.input = None;
-                    } else if value.len() == 2 && value.chars().all(|c| c.is_ascii_alphabetic()) {
-                        self.country = value.to_uppercase();
-                        self.input = None;
-                    } else if let Some((_, i)) = self.input.as_mut() {
-                        i.error = Some("two letters, e.g. GB".into());
+            Outcome::Submit(value) => match wifi::valid_credentials("placeholder", &value) {
+                Err(e) => {
+                    if let Some(i) = self.input.as_mut() {
+                        i.error = Some(e);
                     }
                 }
-                Field::Passphrase => match wifi::valid_credentials("placeholder", &value) {
-                    Err(e) => {
-                        if let Some((_, i)) = self.input.as_mut() {
-                            i.error = Some(e);
-                        }
-                    }
-                    Ok(()) => {
-                        self.input = None;
-                        self.connect(&value);
-                    }
-                },
+                Ok(()) => {
+                    self.input = None;
+                    self.connect(&value);
+                }
             },
         }
     }
@@ -254,6 +265,13 @@ fn demo_ifaces() -> Vec<wifi::WifiIface> {
         driver: "rtl8xxxu".into(),
         mac: "00:e0:4c:68:01:23".into(),
     }]
+}
+
+/// Demo app with the country picker open, for snapshots.
+pub fn demo_country() -> App {
+    let mut app = App::new(true);
+    app.open_country();
+    app
 }
 
 // ---- drawing -----------------------------------------------------------
@@ -302,8 +320,11 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     keys.spans.insert(0, Span::raw(" "));
     f.render_widget(Paragraph::new(keys), rows[3]);
 
-    if let Some((_, input)) = &app.input {
+    if let Some(input) = &app.input {
         input::draw(f, area, t, input, tick);
+    }
+    if let Some(picker) = &app.picker {
+        input::draw_picker(f, area, t, picker);
     }
 }
 
@@ -437,7 +458,7 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::raw(""));
     lines.push(hud::field(
         "COUNTRY",
-        8,
+        10,
         vec![Span::styled(
             if app.country.is_empty() { "-".into() } else { app.country.clone() },
             t.fg(t.fg),
@@ -445,7 +466,7 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
         t,
     ));
     lines.push(Line::from(Span::styled(
-        "c edits country, enter enters the passphrase",
+        "c picks country, enter enters the passphrase",
         t.fg(t.dim),
     )));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
@@ -488,7 +509,7 @@ mod tests {
         app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(app.input.is_some(), "passphrase modal opens");
         app.on_key(KeyEvent::from(KeyCode::Enter));
-        assert!(app.input.as_ref().unwrap().1.error.is_some());
+        assert!(app.input.as_ref().unwrap().error.is_some());
         assert!(app.input.is_some());
     }
 
@@ -505,14 +526,40 @@ mod tests {
     }
 
     #[test]
-    fn country_validates_two_letters() {
+    fn country_picker_selects_and_clears() {
+        let mut app = App::new(true);
+        app.country = "GB".into();
+        app.on_key(KeyEvent::from(KeyCode::Char('c')));
+        let p = app.picker.as_ref().unwrap();
+        let gb = wifi::REGIONS.iter().position(|(c, _)| *c == "GB").unwrap() + 1;
+        assert_eq!(p.sel, gb, "the current country is preselected");
+        app.on_key(KeyEvent::from(KeyCode::Home));
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(app.picker.is_none());
+        assert!(app.country.is_empty(), "the first entry clears the country");
+    }
+
+    #[test]
+    fn country_picker_renders_and_cancels() {
         let mut app = App::new(true);
         app.on_key(KeyEvent::from(KeyCode::Char('c')));
-        for c in "GB".chars() {
-            app.on_key(KeyEvent::from(KeyCode::Char(c)));
+        let text = crate::screen::render_text(&app, 60, 20, draw).unwrap();
+        assert!(text.contains("COUNTRY"), "{text}");
+        assert!(text.contains("Andorra"), "{text}");
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert!(app.picker.is_none());
+    }
+
+    #[test]
+    fn country_picker_windows_to_the_selection() {
+        let mut app = App::new(true);
+        app.on_key(KeyEvent::from(KeyCode::Char('c')));
+        if let Some(p) = app.picker.as_mut() {
+            p.sel = p.items.len() - 1;
         }
-        app.on_key(KeyEvent::from(KeyCode::Enter));
-        assert_eq!(app.country, "GB");
+        let text = crate::screen::render_text(&app, 60, 20, draw).unwrap();
+        assert!(text.contains("Zimbabwe"), "the list scrolls to the selection:\n{text}");
+        assert!(!text.contains("Andorra"), "the top has scrolled away:\n{text}");
     }
 
     #[test]

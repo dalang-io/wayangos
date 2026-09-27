@@ -1020,9 +1020,21 @@ pub fn demo_states() -> Vec<DemoState> {
             }),
         ),
         (
+            "wifi-country",
+            Box::new(|app: &mut App| {
+                app.sub = Some(Sub::Wifi(wifiui::demo_country()));
+            }),
+        ),
+        (
             "ssh",
             Box::new(|app: &mut App| {
                 app.sub = Some(Sub::Ssh(sshkeysui::App::new(true)));
+            }),
+        ),
+        (
+            "ssh-add",
+            Box::new(|app: &mut App| {
+                app.sub = Some(Sub::Ssh(sshkeysui::demo_add()));
             }),
         ),
     ]

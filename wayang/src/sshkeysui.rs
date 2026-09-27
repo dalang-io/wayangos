@@ -16,16 +16,25 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::hud::{self, Theme};
-use crate::input::{self, Input, Outcome};
+use crate::input::{self, Input, Outcome, Pick, Picker};
 use crate::sshkeys::{self, SshKey};
 use crate::tui::Tone;
+
+/// What the open text input is for: paste a key line, or type the username
+/// behind a GitHub/GitLab fetch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddMode {
+    Paste,
+    Remote(&'static str),
+}
 
 pub struct App {
     pub t: Theme,
     pub demo: bool,
     pub keys: Vec<SshKey>,
     pub sel: usize,
-    input: Option<Input>,
+    input: Option<(AddMode, Input)>,
+    picker: Option<Picker>,
     pub message: Option<(Tone, String)>,
     /// Background GitHub/GitLab fetch; polled each tick.
     job: Option<Receiver<Result<Vec<SshKey>, String>>>,
@@ -41,6 +50,7 @@ impl App {
             keys,
             sel: 0,
             input: None,
+            picker: None,
             message: None,
             job: None,
             exit: false,
@@ -59,11 +69,61 @@ impl App {
         self.sel = keep.and_then(|b| self.keys.iter().position(|k| k.blob == b)).unwrap_or(0);
     }
 
-    fn open_add(&mut self) {
-        self.input = Some(Input::new(
+    fn open_add_menu(&mut self) {
+        self.picker = Some(Picker::new(
             "ADD SSH KEY",
-            "Paste an ssh-ed25519/ssh-rsa/ecdsa-... line, or github:USER / gitlab:USER:",
-            "a public key (.pub), never a private key",
+            "Where does the key come from?",
+            vec![
+                "Paste a public key".to_string(),
+                "GitHub (github.com/USER.keys)".to_string(),
+                "GitLab (gitlab.com/USER.keys)".to_string(),
+            ],
+        ));
+    }
+
+    fn on_picker_key(&mut self, key: KeyEvent) {
+        let outcome = match self.picker.as_mut() {
+            Some(p) => p.on_key(key),
+            None => return,
+        };
+        match outcome {
+            Pick::None => {}
+            Pick::Cancel => self.picker = None,
+            Pick::Choose(0) => {
+                self.picker = None;
+                self.open_add();
+            }
+            Pick::Choose(1) => {
+                self.picker = None;
+                self.open_remote("github", "GitHub");
+            }
+            Pick::Choose(2) => {
+                self.picker = None;
+                self.open_remote("gitlab", "GitLab");
+            }
+            Pick::Choose(_) => self.picker = None,
+        }
+    }
+
+    fn open_add(&mut self) {
+        self.input = Some((
+            AddMode::Paste,
+            Input::new(
+                "ADD SSH KEY",
+                "Paste an ssh-ed25519/ssh-rsa/ecdsa-... line:",
+                "a public key (.pub), never a private key",
+            ),
+        ));
+    }
+
+    fn open_remote(&mut self, host: &'static str, name: &str) {
+        self.input = Some((
+            AddMode::Remote(host),
+            Input::new(
+                format!("ADD FROM {name}"),
+                format!("{name} username:"),
+                format!("fetch https://{host}.com/USER.keys"),
+            ),
         ));
     }
 
@@ -147,6 +207,10 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        if self.picker.is_some() {
+            self.on_picker_key(key);
+            return;
+        }
         if self.input.is_some() {
             self.on_input_key(key);
             return;
@@ -164,7 +228,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab if rows > 0 => {
                 self.sel = (self.sel + 1) % rows;
             }
-            KeyCode::Char('a') => self.open_add(),
+            KeyCode::Char('a') => self.open_add_menu(),
             KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => self.remove(),
             KeyCode::Char('r') => {
                 self.refresh();
@@ -176,23 +240,48 @@ impl App {
     }
 
     fn on_input_key(&mut self, key: KeyEvent) {
-        let Some(input) = self.input.as_mut() else { return };
+        let Some((mode, input)) = self.input.as_mut() else { return };
+        let mode = *mode;
         match input.on_key(key) {
             Outcome::None => {}
             Outcome::Cancel => self.input = None,
-            Outcome::Submit(value) => {
-                if let Some(k) = SshKey::parse(&value, "typed") {
-                    self.input = None;
-                    self.finish_add(vec![k]);
-                } else if sshkeys::remote_spec(&value).is_ok() {
-                    self.input = None;
-                    self.start_fetch(value);
-                } else if let Some(i) = self.input.as_mut() {
-                    i.error = Some("not an SSH public key, and not github:USER / gitlab:USER".into());
+            Outcome::Submit(value) => match mode {
+                AddMode::Remote(host) => {
+                    if value.is_empty() {
+                        if let Some((_, i)) = self.input.as_mut() {
+                            i.error = Some("enter a username".into());
+                        }
+                        return;
+                    }
+                    let spec = format!("{host}:{value}");
+                    if sshkeys::remote_spec(&spec).is_ok() {
+                        self.input = None;
+                        self.start_fetch(spec);
+                    } else if let Some((_, i)) = self.input.as_mut() {
+                        i.error = Some("letters, digits, - _ and . only".into());
+                    }
                 }
-            }
+                AddMode::Paste => {
+                    if let Some(k) = SshKey::parse(&value, "typed") {
+                        self.input = None;
+                        self.finish_add(vec![k]);
+                    } else if sshkeys::remote_spec(&value).is_ok() {
+                        self.input = None;
+                        self.start_fetch(value);
+                    } else if let Some((_, i)) = self.input.as_mut() {
+                        i.error = Some("not an SSH public key (ssh-ed25519 AAAA... comment)".into());
+                    }
+                }
+            },
         }
     }
+}
+
+/// Demo app with the add-key source picker open, for snapshots.
+pub fn demo_add() -> App {
+    let mut app = App::new(true);
+    app.open_add_menu();
+    app
 }
 
 // ---- drawing -----------------------------------------------------------
@@ -225,7 +314,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
     let keys = hud::keycaps(
         &[
-            ("\u{2191}\u{2193}", "pick"),
+            ("↑↓", "pick"),
             ("a", "add"),
             ("d", "remove"),
             ("r", "reload"),
@@ -237,8 +326,11 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     keys.spans.insert(0, Span::raw(" "));
     f.render_widget(Paragraph::new(keys), rows[3]);
 
-    if let Some(input) = &app.input {
+    if let Some((_, input)) = &app.input {
         input::draw(f, area, t, input, tick);
+    }
+    if let Some(picker) = &app.picker {
+        input::draw_picker(f, area, t, picker);
     }
 }
 
@@ -305,7 +397,7 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from(Span::styled("/data/etc/ssh/authorized_keys", t.fg(t.accent))));
     lines.push(Line::from(Span::styled("and appended to /root/.ssh/authorized_keys.", t.fg(t.dim))));
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("a pastes a key or github:USER", t.fg(t.dim))));
+    lines.push(Line::from(Span::styled("a adds a key (paste, GitHub or GitLab)", t.fg(t.dim))));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
@@ -335,10 +427,13 @@ mod tests {
     }
 
     #[test]
-    fn add_pasted_key_then_remove() {
+    fn add_menu_pastes_a_key_then_remove() {
         let mut app = App::new(true);
         let before = app.keys.len();
         key(&mut app, KeyCode::Char('a'));
+        assert!(app.picker.is_some(), "a opens the source picker");
+        key(&mut app, KeyCode::Enter); // "Paste a public key"
+        assert!(app.picker.is_none());
         assert!(app.input.is_some());
         type_str(&mut app, ED);
         key(&mut app, KeyCode::Enter);
@@ -352,20 +447,47 @@ mod tests {
     }
 
     #[test]
+    fn add_menu_can_be_cancelled() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('a'));
+        key(&mut app, KeyCode::Esc);
+        assert!(app.picker.is_none() && app.input.is_none());
+    }
+
+    #[test]
     fn rejects_junk_input() {
         let mut app = App::new(true);
         key(&mut app, KeyCode::Char('a'));
+        key(&mut app, KeyCode::Enter);
         type_str(&mut app, "not a key");
         key(&mut app, KeyCode::Enter);
         assert!(app.input.is_some(), "invalid input keeps the modal open");
-        assert!(app.input.as_ref().unwrap().error.is_some());
+        assert!(app.input.as_ref().unwrap().1.error.is_some());
+    }
+
+    #[test]
+    fn remote_picker_builds_the_spec_and_needs_a_username() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('a'));
+        key(&mut app, KeyCode::Down); // "GitHub"
+        key(&mut app, KeyCode::Enter);
+        assert!(app.picker.is_none() && app.input.is_some());
+        key(&mut app, KeyCode::Enter); // empty user
+        assert!(app.input.as_ref().unwrap().1.error.is_some());
+        assert!(app.job.is_none(), "nothing is fetched without a username");
+        type_str(&mut app, "alice");
+        key(&mut app, KeyCode::Enter);
+        assert!(app.job.is_some(), "the fetch is a background job");
+        assert!(app.input.is_none());
     }
 
     #[test]
     fn remote_fetch_runs_in_the_background() {
         let mut app = App::new(true);
         key(&mut app, KeyCode::Char('a'));
-        type_str(&mut app, "github:alice");
+        key(&mut app, KeyCode::Down); // "GitHub"
+        key(&mut app, KeyCode::Enter);
+        type_str(&mut app, "alice");
         key(&mut app, KeyCode::Enter);
         assert!(app.job.is_some(), "the fetch is a background job");
         assert!(app.input.is_none(), "the modal closes while the fetch runs");
