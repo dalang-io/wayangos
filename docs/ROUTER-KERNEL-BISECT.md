@@ -35,7 +35,7 @@ the device, the trigger is a driver/crypto path rather than a stray interface.
 |---|-------|---------|-------------|----------------|
 | 1 | `veth-macvlan-tun` | `VETH`, `MACVLAN`, `TUN` | none | virtual links used by router tunnels/namespaces; created only on demand |
 | 2 | `wireguard` | `WIREGUARD` + `CRYPTO_LIB_CHACHA{,_ARCH}`, `CRYPTO_LIB_POLY1305{,_ARCH}`, `CRYPTO_LIB_CURVE25519{,_ARCH}` | none | the x86 arch assembly crypto is a prime suspect for a hard lockup |
-| 3 | `vrf-multipath` | `NET_VRF`, `IPV6_MULTIPLE_TABLES`, `IPV6_SUBTREES`, `IP_ROUTE_MULTIPATH`, `IP_MULTIPLE_TABLES` | none | policy routing / ECMP / VRF lookup; `IP_MULTIPLE_TABLES` and `IP_ROUTE_MULTIPATH` are already on in the base config |
+| 3 | `vrf-multipath` | `NET_L3_MASTER_DEV`, `NET_VRF`, `IPV6_MULTIPLE_TABLES`, `IPV6_SUBTREES`, `IP_ROUTE_MULTIPATH`, `IP_MULTIPLE_TABLES` | none | policy routing / ECMP / VRF lookup; `IP_MULTIPLE_TABLES` and `IP_ROUTE_MULTIPATH` are already on in the base config; `NET_VRF` needs `NET_L3_MASTER_DEV` (without it `olddefconfig` drops VRF silently — 1.0.13 never had VRF) |
 | 4 | `ipsec` | `INET_ESP`, `XFRM_INTERFACE` | none | ESP / xfrm; interfaces are created explicitly |
 | 5 | `dummy-bonding` | `DUMMY`, `BONDING` | `dummy0`, `bond0` | dummy + link aggregation devices |
 | 6 | `gre-ipip` | `NET_IPIP`, `NET_IPGRE_DEMUX`, `NET_IPGRE`, `NET_UDP_TUNNEL` | `gre0`, `gretap0`, `erspan0`, `tunl0` | IP tunnels |
@@ -144,3 +144,30 @@ hardware before publishing:
 
 `WAYANG_KEY` is the release key; the matching public key is baked into the
 rootfs (`wayang/trusted_keys`), so only a bundle signed with it is accepted.
+
+## QEMU lab kernel (never shipped)
+
+`scripts/build-lab-kernel.sh` builds, **on the build box**, `defconfig-intel`
+plus every group above (`scripts/bisect-router-opts.sh --print-opts all`) into
+`bzImage-lab`, in a `/tmp` dir with a copy of the kernel tree. It is for QEMU
+only — wayang-router develops WireGuard / QoS / VRF / tunnels against it while
+the hardware bisect is pending. **Never stage it on the device or ship it.**
+
+There is no `configs/defconfig-intel-lab` on purpose: `defconfig-intel` is
+already a fragment and `build-kernel.sh` resolves one level only. The script
+writes a temporary fragment, builds, and checks that every requested option
+survived `olddefconfig`.
+
+```sh
+# on root@10.0.0.251, from a /tmp checkout of this repo
+scripts/build-lab-kernel.sh --out /tmp/wayang-tools/bzImage-lab
+BUILD_DIR=/tmp/wayang-lab SSH_AUTHORIZED_KEYS=/tmp/wayangos-tb/testkey.pub \
+    scripts/build-rootfs.sh   # with wg/, iproute2/, bird/ staged in /tmp/wayang-lab
+qemu-system-x86_64 -enable-kvm -m 1024 -kernel /tmp/wayang-tools/bzImage-lab \
+  -initrd /tmp/wayang-tools/initramfs-lab.img -append "console=ttyS0" -display none \
+  -netdev user,id=n,hostfwd=tcp:127.0.0.1:2377-:22 -device virtio-net-pci,netdev=n ...
+```
+
+Checked in QEMU: `ip link add wg0 type wireguard` + `wg set/show`; `tc` htb +
+fq_codel + u32/fw filters, cake, ingress + `police` + `mirred` to `ifb0`;
+`bird` starts with a BGP config and opens `/var/run/bird.ctl`.

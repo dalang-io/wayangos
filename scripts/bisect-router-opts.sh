@@ -21,6 +21,9 @@
 #   --shared DIR       existing source cache on the builder
 #                      (default: /root/wayangos-build; never written to)
 #   --key FILE         release signing key (default: $WAYANG_KEY, else unsigned)
+#   --print-opts [G]   print the config lines for group G (default: all router
+#                      groups) and exit; used by
+#                      scripts/build-lab-kernel.sh
 #   --dry-run          print what would run; touch nothing
 #   -h, --help         this help
 #
@@ -38,6 +41,7 @@ WAYANG_KEY="${WAYANG_KEY:-}"
 GROUP=""
 DRY_RUN=0
 LIST=0
+PRINT_OPTS=""
 
 # One group at a time. Safe first: the groups that do NOT create a netdev at
 # boot can't be confused with a boot-time netdev problem (bond0/dummy0/
@@ -53,7 +57,7 @@ BISECT_GROUPS=(
 )
 
 usage() {
-    sed -n '2,30s/^# \{0,1\}//p' "$0"
+    sed -n '2,34s/^# \{0,1\}//p' "$0"
     exit "${1:-0}"
 }
 
@@ -87,6 +91,9 @@ group_opts() {
             echo "CONFIG_CRYPTO_LIB_CURVE25519_ARCH=y"
             ;;
         vrf-multipath)
+            # NET_VRF depends on NET_L3_MASTER_DEV; without it olddefconfig
+            # silently drops VRF (1.0.13 never actually had it)
+            echo "CONFIG_NET_L3_MASTER_DEV=y"
             echo "CONFIG_NET_VRF=y"
             echo "CONFIG_IPV6_MULTIPLE_TABLES=y"
             echo "CONFIG_IPV6_SUBTREES=y"
@@ -262,6 +269,15 @@ echo "--- kernel ($TMPCONFIG) ---"
 ARCH=x86_64 BUILD_DIR="$BUILD" KDIR="$KDIR" \
     ./scripts/build-kernel.sh "$TMPCONFIG" "bzImage-bisect-$GROUP"
 
+# every requested =y option must survive olddefconfig (a dropped dependency
+# would make the group test something else than it claims)
+missing=0
+while IFS= read -r opt; do
+    grep -qxF "$opt" "$KDIR/.config" || { echo "WARNING: $opt not in the resolved .config" >&2; missing=1; }
+done < <(grep -E '^CONFIG_[A-Z0-9_]+=(y|".*")$' "configs/$TMPCONFIG")
+[ "$missing" = 0 ] && echo "  all requested options resolved"
+cp "$KDIR/.config" "$OUT/config-$GROUP"
+
 echo "--- rootfs ---"
 BUILD_DIR="$BUILD" WAYANG_VERSION="$VERSION" ./scripts/build-rootfs.sh
 
@@ -381,6 +397,9 @@ while [ $# -gt 0 ]; do
         --key)
             [ $# -ge 2 ] || { echo "ERROR: --key needs a file" >&2; exit 1; }
             WAYANG_KEY="$2"; shift ;;
+        --print-opts)
+            PRINT_OPTS=all
+            if [ $# -ge 2 ] && [ "${2#--}" = "$2" ]; then PRINT_OPTS="$2"; shift; fi ;;
         --dry-run) DRY_RUN=1 ;;
         -h|--help) usage 0 ;;
         --*) echo "ERROR: unknown option: $1" >&2; usage 1 ;;
@@ -391,6 +410,16 @@ done
 
 if [ "$LIST" = 1 ]; then
     list_groups
+    exit 0
+fi
+
+if [ -n "$PRINT_OPTS" ]; then
+    if [ "$PRINT_OPTS" = all ]; then
+        for g in "${BISECT_GROUPS[@]}"; do group_opts "$g"; done
+    else
+        is_group "$PRINT_OPTS" || { echo "ERROR: unknown group '$PRINT_OPTS' (try --list)" >&2; exit 1; }
+        group_opts "$PRINT_OPTS"
+    fi
     exit 0
 fi
 
