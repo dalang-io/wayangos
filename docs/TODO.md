@@ -28,15 +28,22 @@ release: **1.0.17** (see `docs/HANDOVER.md`).
       `baseline` group supervised on the device first
       (docs/ROUTER-KERNEL-BISECT.md → "Remote bisect (unattended)").
 - [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle
-      and creates the GitHub release, but `wayang.dalang.io/channel` is
-      published by hand (`scripts/publish-channel.sh`). Wired into the tag path
-      of `.github/workflows/installer-iso.yml` (best-effort, tag-only); it stays
-      dormant until the deploy secrets exist. Required repo secrets:
-      `WAYANG_DEPLOY_HOST` (ssh target, e.g. the `root@10.0.0.251` default in
-      `publish-channel.sh`) and `WAYANG_DEPLOY_KEY` (private key authorised on
-      that host). Optional overrides: `WAYANG_DEPLOY_REMOTE_DIR`,
-      `WAYANG_DEPLOY_CHANNEL_SUBDIR`. Still to do: provision the secrets and
-      verify a real tag publishes.
+      and creates the GitHub release; the tag path of
+      `.github/workflows/installer-iso.yml` now also publishes the channel in a
+      dedicated best-effort `publish-channel` job (after the signed `.wup`, with
+      `continue-on-error`, skipped with a `::notice::` until the deploy secrets
+      exist). A `workflow_dispatch` input `publish_channel_version` (re)publishes
+      an already-released version's channel without rebuilding, and
+      `scripts/publish-channel.sh` gained `--dry-run` plus fully env-parameterised
+      destination (`WAYANG_DEPLOY_HOST`, `WAYANG_DEPLOY_REMOTE_DIR`,
+      `WAYANG_DEPLOY_CHANNEL_SUBDIR`; legacy `HOST`/`REMOTE_DIR`/`CHANNEL_SUBDIR`
+      still accepted). Required repo secrets: `WAYANG_DEPLOY_HOST` (ssh target,
+      e.g. the `root@10.0.0.251` default in `publish-channel.sh`) and
+      `WAYANG_DEPLOY_KEY` (private key authorised on that host). Optional
+      overrides: `WAYANG_DEPLOY_REMOTE_DIR`, `WAYANG_DEPLOY_CHANNEL_SUBDIR`.
+      Layout, device consumption, manual publish and the one-time key setup are
+      documented in [docs/CHANNEL.md](CHANNEL.md). Still to do: provision the
+      secrets and verify a real tag publishes.
 - [x] **Landing page: drop the removed POS build commands.**
       `landing-page/download.html` no longer references `scripts/build-pos.sh` /
       `build-pos-iso.sh` / `wayangos-pos` (deleted). POS is a separate project now.
@@ -55,8 +62,10 @@ release: **1.0.17** (see `docs/HANDOVER.md`).
       `/data/etc/router/bird.conf`; QEMU-only lab kernel
       (`scripts/build-lab-kernel.sh`). `birdc` not built (no static readline on
       the builder) — build readline from source if an operator CLI is wanted.
-- [ ] Pin + verify sha256 in `scripts/build-nft.sh` too (the new tool scripts
-      do; nft still trusts the download).
+- [x] Pin + verify sha256 in every tool-fetch script (`build-nft.sh`,
+      `build-wg.sh`, `build-iproute2.sh`, `build-bird.sh`, and the
+      `build-wayangi.sh` release fallback); `ALLOW_UNVERIFIED=1` is the
+      explicit opt-out and a mismatch always aborts.
 - [ ] **`wayang.slot` on first install.** Older installers wrote grub.cfg
       without `wayang.slot=`; `mark-ok` now refreshes it, verify on a fresh
       install.

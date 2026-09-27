@@ -171,6 +171,14 @@ wayang-router when they are installed. Number keys only jump, `?` lists every
 key and `q` goes back. `wayang --screens DIR --svg` renders every screen from
 demo data.
 
+## Updates
+
+Updates are signed A/B bundles (`wayang update`, with automatic rollback), served
+from `https://wayang.dalang.io/channel`. The channel layout, how a device
+consumes it, manual publishing, and the CI publish path + required secrets are in
+[`docs/CHANNEL.md`](docs/CHANNEL.md); the frozen interface is
+[`docs/UPDATE-DESIGN.md`](docs/UPDATE-DESIGN.md).
+
 ## Quick Start
 
 ```bash

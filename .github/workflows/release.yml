@@ -30,10 +30,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: ShellCheck release scripts
-        run: shellcheck scripts/release-wayang.sh scripts/build-bundle.sh
+        run: shellcheck scripts/release-wayang.sh scripts/build-bundle.sh scripts/publish-channel.sh
 
       - name: Bash syntax check
-        run: bash -n scripts/release-wayang.sh scripts/build-bundle.sh
+        run: bash -n scripts/release-wayang.sh scripts/build-bundle.sh scripts/publish-channel.sh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
