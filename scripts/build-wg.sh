@@ -10,6 +10,8 @@
 #
 # Usage: ./scripts/build-wg.sh
 # Env:   BUILD_DIR   (default: $HOME/wayangos-build)
+#        WG_VERSION / WG_SHA256  override the pin (bump both together)
+#        ALLOW_UNVERIFIED=1      skip the sha256 check (explicit opt-out only)
 set -euo pipefail
 
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
@@ -17,8 +19,8 @@ BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
 # snapshot tarball whose detached signature (…/wireguard-tools-$V.tar.asc, over
 # the uncompressed tar) was verified against Jason A. Donenfeld's key
 # AB9942E6D4A4CFC3412620A749FC7012A5DE03AE when the pin was set.
-WG_VERSION="1.0.20260223"
-WG_SHA256="af459827b80bfd31b83b08077f4b5843acb7d18ad9a33a2ef532d3090f291fbf"
+WG_VERSION="${WG_VERSION:-1.0.20260223}"
+WG_SHA256="${WG_SHA256:-af459827b80bfd31b83b08077f4b5843acb7d18ad9a33a2ef532d3090f291fbf}"
 WG_URL="https://git.zx2c4.com/wireguard-tools/snapshot/wireguard-tools-$WG_VERSION.tar.xz"
 
 SRC="$BUILD/wg-src"
@@ -39,7 +41,9 @@ fetch() {
         curl -fsSL -A "Mozilla/5.0" -o "$2.part" "$1"
         mv -f "$2.part" "$2"
     fi
-    if ! echo "$3  $2" | sha256sum -c --quiet -; then
+    if [ "${ALLOW_UNVERIFIED:-0}" = 1 ]; then
+        echo "WARNING: ALLOW_UNVERIFIED=1 — skipping sha256 check for $2" >&2
+    elif ! echo "$3  $2" | sha256sum -c --quiet -; then
         echo "ERROR: sha256 mismatch for $2 (expected $3)" >&2
         rm -f "$2"
         exit 1

@@ -23,6 +23,27 @@ only cover per-component details.
 BUILD_DIR=/path/to/build ./scripts/build-kernel.sh defconfig-qemu bzImage-qemu
 ```
 
+## Router tool binaries
+
+`build-rootfs.sh` installs optional static `nft`, `wg`, `tc`, `bird` and
+`wayangi` binaries from `$BUILD_DIR`. Each `scripts/build-*.sh` downloads its
+upstream tarball and **verifies a pinned sha256 before extracting** (checked on
+every run, including cached tarballs):
+
+| Script | Tool | Pinned version |
+|--------|------|----------------|
+| `scripts/build-nft.sh` | libmnl / libnftnl / nftables | 1.0.5 / 1.2.8 / 1.1.1 |
+| `scripts/build-wg.sh` | wireguard-tools `wg` | 1.0.20260223 |
+| `scripts/build-iproute2.sh` | iproute2 `tc` (+ libmnl) | 7.2.0 (libmnl 1.0.5) |
+| `scripts/build-bird.sh` | BIRD | 2.19.2 |
+| `scripts/build-wayangi.sh` | wayangi (channel release) | `WAYANGI_VERSION` / channel manifest |
+
+Bump a version and its `*_SHA256` together. Set `ALLOW_UNVERIFIED=1` to skip
+verification for a rebuilt/mirrored tarball (warns and continues); a **checksum
+mismatch always aborts**. `build-wayangi.sh` verifies against `WAYANGI_SHA256`
+or the channel's `SHA256SUMS` / `manifest.json`, and hard-fails on a mismatch
+even though it is otherwise best-effort. Full hashes: [`../BUILDING.md`](../BUILDING.md#5-router-tool-binaries-optional).
+
 ## Kernel
 
 ```bash

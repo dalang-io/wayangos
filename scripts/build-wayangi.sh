@@ -21,6 +21,9 @@
 #   WAYANGI_HOST      Linux builder for cross-builds (default: root@10.0.0.251)
 #   WAYANGI_BASE_URL  release channel base, e.g. https://wayangi.dalang.io/downloads
 #   WAYANGI_VERSION   release version, optional (used with WAYANGI_BASE_URL)
+#   WAYANGI_SHA256    expected sha256 of the fetched binary (optional; when
+#                     unset the channel's manifest.json / SHA256SUMS is used)
+#   ALLOW_UNVERIFIED=1  install a release binary that has no checksum at all
 #   WAYANGI_FORCE=1   rebuild even if a binary is already staged
 set -uo pipefail
 
@@ -29,6 +32,7 @@ OUT="$BUILD/wayangi/wayangi"
 SRC="${WAYANGI_SRC:-$HOME/dev/wayangi}"
 HOST="${WAYANGI_HOST:-root@10.0.0.251}"
 TARGET="${WAYANGI_TARGET:-linux-amd64}"
+WAYANGI_SHA256="${WAYANGI_SHA256:-}"
 OS="$(uname -s)"
 
 mkdir -p "$BUILD/wayangi"
@@ -78,12 +82,17 @@ if [ -d "$SRC/cmd/wayangi" ]; then
 fi
 
 # (b) pinned release from the wayangi download channel (e.g. the hub serves
-#     wayangi-linux-amd64). Only attempted when a base URL is provided.
+#     wayangi-linux-amd64). Only attempted when a base URL is provided. The
+#     binary is always verified: WAYANGI_SHA256 if set, else the channel's
+#     SHA256SUMS or manifest.json. A mismatch is fatal; an artifact for which
+#     no checksum can be found is only installed with ALLOW_UNVERIFIED=1.
 if [ "$staged" = 0 ] && [ -n "${WAYANGI_BASE_URL:-}" ]; then
     BASE="${WAYANGI_BASE_URL%/}"
     TMP="$BUILD/wayangi/.dl"
     rm -rf "$TMP" && mkdir -p "$TMP"
     urls=()
+    # prefer the versioned path when a version is given: the bare
+    # `wayangi-<target>` name is a floating pointer into the channel.
     if [ -n "${WAYANGI_VERSION:-}" ]; then
         v="${WAYANGI_VERSION#v}"
         urls+=("$BASE/v$v/wayangi-$TARGET" "$BASE/wayangi-$v-$TARGET")
@@ -92,30 +101,54 @@ if [ "$staged" = 0 ] && [ -n "${WAYANGI_BASE_URL:-}" ]; then
     if ! command -v curl >/dev/null 2>&1; then
         echo "build-wayangi: curl not available for $BASE — falling back" >&2
     else
-        echo "=== wayangi: fetching pinned release from $BASE ==="
+        echo "=== wayangi: fetching release from $BASE ==="
+        manifest_done=0
         for u in "${urls[@]}"; do
-            if curl -fsSL --retry 3 -o "$TMP/wayangi" "$u"; then
-                name="${u##*/}"
+            if ! curl -fsSL --retry 3 -o "$TMP/wayangi" "$u"; then
+                continue
+            fi
+            name="${u##*/}"
+            want="${WAYANGI_SHA256:-}"
+            if [ -z "$want" ]; then
+                # legacy per-version checksums next to the artifact
                 if curl -fsSL --retry 2 -o "$TMP/SHA256SUMS" "${u%/*}/SHA256SUMS" 2>/dev/null; then
                     want="$(grep " $name\$" "$TMP/SHA256SUMS" | awk '{print $1}' | head -1)"
-                    if [ -n "$want" ]; then
-                        if command -v sha256sum >/dev/null 2>&1; then
-                            got="$(sha256sum "$TMP/wayangi" | cut -d' ' -f1)"
-                        else
-                            got="$(shasum -a 256 "$TMP/wayangi" | cut -d' ' -f1)"
-                        fi
-                        if [ "$got" != "$want" ]; then
-                            echo "build-wayangi: sha256 mismatch for $name — skipping" >&2
-                            continue
-                        fi
-                    fi
                 fi
-                cp -f "$TMP/wayangi" "$OUT" && chmod 755 "$OUT" && staged=1
-                echo "  fetched: $u"
-                break
             fi
+            if [ -z "$want" ]; then
+                # rolling channel: manifest.json carries {name, sha256, url}
+                if [ "$manifest_done" = 0 ]; then
+                    curl -fsSL --retry 2 -o "$TMP/manifest.json" "$BASE/manifest.json" 2>/dev/null || true
+                    manifest_done=1
+                fi
+                if [ -f "$TMP/manifest.json" ]; then
+                    want="$(grep -o "{[^}]*\"name\"[[:space:]]*:[[:space:]]*\"$name\"[^}]*}" "$TMP/manifest.json" \
+                        | grep -o '"sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]\{64\}"' | head -1 | cut -d'"' -f4)"
+                fi
+            fi
+            if [ -z "$want" ]; then
+                if [ "${ALLOW_UNVERIFIED:-0}" = 1 ]; then
+                    echo "build-wayangi: WARNING: ALLOW_UNVERIFIED=1 — installing unverified $name" >&2
+                else
+                    echo "build-wayangi: no checksum for $name (set WAYANGI_SHA256 or ALLOW_UNVERIFIED=1) — skipping" >&2
+                    continue
+                fi
+            else
+                if command -v sha256sum >/dev/null 2>&1; then
+                    got="$(sha256sum "$TMP/wayangi" | cut -d' ' -f1)"
+                else
+                    got="$(shasum -a 256 "$TMP/wayangi" | cut -d' ' -f1)"
+                fi
+                if [ "$got" != "$want" ]; then
+                    echo "ERROR: sha256 mismatch for $name (expected $want, got $got)" >&2
+                    exit 1
+                fi
+            fi
+            cp -f "$TMP/wayangi" "$OUT" && chmod 755 "$OUT" && staged=1
+            echo "  fetched: $u"
+            break
         done
-        [ "$staged" = 0 ] && echo "build-wayangi: no release binary at $BASE — falling back" >&2
+        [ "$staged" = 0 ] && echo "build-wayangi: no verified release binary at $BASE — falling back" >&2
     fi
 fi
 

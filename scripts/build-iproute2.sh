@@ -15,15 +15,19 @@
 #
 # Usage: ./scripts/build-iproute2.sh
 # Env:   BUILD_DIR   (default: $HOME/wayangos-build)
+#        IPROUTE2_SHA256 / LIBMNL_SHA256
+#                    override the pins (bump version + hash together)
+#        ALLOW_UNVERIFIED=1
+#                    skip the sha256 check (explicit opt-out only)
 set -euo pipefail
 
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
-# Pinned: bump version + sha256 together (sha256sums.asc next to each tarball
-# on kernel.org / netfilter.org).
-IPROUTE2_VERSION="7.2.0"
-IPROUTE2_SHA256="4c2fa124c2cf0afd7ca34d1eeacba6ba048a56f6374e2aab93dafbdbd4eea9c0"
-LIBMNL_VERSION="1.0.5"
-LIBMNL_SHA256="274b9b919ef3152bfb3da3a13c950dd60d6e2bcd54230ffeca298d03b40d0525"
+# Pinned: bump version + sha256 together (recorded from the upstream tarballs;
+# netfilter.org publishes a .sha256sum next to each libmnl release).
+IPROUTE2_VERSION="${IPROUTE2_VERSION:-7.2.0}"
+IPROUTE2_SHA256="${IPROUTE2_SHA256:-4c2fa124c2cf0afd7ca34d1eeacba6ba048a56f6374e2aab93dafbdbd4eea9c0}"
+LIBMNL_VERSION="${LIBMNL_VERSION:-1.0.5}"
+LIBMNL_SHA256="${LIBMNL_SHA256:-274b9b919ef3152bfb3da3a13c950dd60d6e2bcd54230ffeca298d03b40d0525}"
 
 SRC="$BUILD/iproute2-src"
 PREFIX="$SRC/prefix"
@@ -44,7 +48,9 @@ fetch() {
         curl -fsSL -o "$2.part" "$1"
         mv -f "$2.part" "$2"
     fi
-    if ! echo "$3  $2" | sha256sum -c --quiet -; then
+    if [ "${ALLOW_UNVERIFIED:-0}" = 1 ]; then
+        echo "WARNING: ALLOW_UNVERIFIED=1 — skipping sha256 check for $2" >&2
+    elif ! echo "$3  $2" | sha256sum -c --quiet -; then
         echo "ERROR: sha256 mismatch for $2 (expected $3)" >&2
         rm -f "$2"
         exit 1

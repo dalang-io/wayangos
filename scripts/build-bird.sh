@@ -13,14 +13,16 @@
 # Usage: ./scripts/build-bird.sh
 # Env:   BUILD_DIR    (default: $HOME/wayangos-build)
 #        BIRD_CLIENT  auto | yes | no   (default: auto)
+#        BIRD_VERSION / BIRD_SHA256  override the pin (bump both together)
+#        ALLOW_UNVERIFIED=1          skip the sha256 check (explicit opt-out only)
 set -euo pipefail
 
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
 # Pinned: bump version + sha256 together. Latest BIRD 2.x stable when pinned
 # (upstream publishes no checksum file; sha256 recorded from the release
 # tarball at https://bird.nic.cz/download/).
-BIRD_VERSION="2.19.2"
-BIRD_SHA256="aff89abba3b92b7637bd57e0168b8d7ae887747f160ada4973378ad72f5f3660"
+BIRD_VERSION="${BIRD_VERSION:-2.19.2}"
+BIRD_SHA256="${BIRD_SHA256:-aff89abba3b92b7637bd57e0168b8d7ae887747f160ada4973378ad72f5f3660}"
 BIRD_URL="https://bird.nic.cz/download/bird-$BIRD_VERSION.tar.gz"
 BIRD_CLIENT="${BIRD_CLIENT:-auto}"
 
@@ -43,7 +45,9 @@ fetch() {
         curl -fsSL -o "$2.part" "$1"
         mv -f "$2.part" "$2"
     fi
-    if ! echo "$3  $2" | sha256sum -c --quiet -; then
+    if [ "${ALLOW_UNVERIFIED:-0}" = 1 ]; then
+        echo "WARNING: ALLOW_UNVERIFIED=1 — skipping sha256 check for $2" >&2
+    elif ! echo "$3  $2" | sha256sum -c --quiet -; then
         echo "ERROR: sha256 mismatch for $2 (expected $3)" >&2
         rm -f "$2"
         exit 1
