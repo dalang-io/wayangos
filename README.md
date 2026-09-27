@@ -33,9 +33,12 @@ the base kernel (`7.2.7`).
 | `docs/` | Architecture and per-component build notes |
 | `landing-page/` | Static website (wayang.dalang.io) |
 
-The rootfs ships exactly **3 static binaries**: BusyBox, `dropbearmulti`, and
-curl. Everything else is deployed as a static binary via `scp` — there is no
-package manager.
+The rootfs is built around BusyBox, `dropbearmulti` and curl, plus a few
+static tools bundled when their build script has staged them: `nft`
+(`scripts/build-nft.sh`), `wg` (`build-wg.sh`), `tc` from iproute2
+(`build-iproute2.sh`), `bird` (BIRD 2, `build-bird.sh`) and `dcheck`
+(`fetch-dcheck.sh`). Everything else is deployed as a static binary via `scp` —
+there is no package manager.
 
 ## Hardware Target
 
@@ -147,6 +150,13 @@ wayang-router plan site.toml && wayang-router commit site.toml --confirm 120
 Once a config is confirmed, `/etc/init.d/network` hands every interface to
 `wayang-router boot` (`/etc/init.d/router`) instead of its automatic DHCP
 uplink detection. Without a confirmed config nothing changes.
+
+The rootfs also carries the userspace for the next router features: static
+`wg` (WireGuard), `tc` (HTB/fq_codel/CAKE/ingress, u32/fw, police/mirred) and
+`bird` (BGP/OSPF/BFD). `/etc/init.d/router` starts `bird` after
+`wayang-router boot` only when `/data/etc/router/bird.conf` exists (control
+socket `/var/run/bird.ctl`). Their kernel options are still bisect-gated;
+`scripts/build-lab-kernel.sh` builds a QEMU-only kernel with all of them.
 
 ## The `wayang` console
 

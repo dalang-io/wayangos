@@ -15,8 +15,14 @@ release: **1.0.17** (see `docs/HANDOVER.md`).
       `docs/ROUTER-KERNEL-BISECT.md` (device procedure + recovery). **Needs a
       supervised hardware session** — booting each group on the device and
       confirming keyboard + SSH, recovering via GRUB slot A / power-cycle.
-      Groups, safest first: veth-macvlan-tun, wireguard, vrf-multipath, ipsec,
-      dummy-bonding, gre-ipip, qos.
+      Groups, safest first: baseline (safety net only), veth-macvlan-tun,
+      wireguard, vrf-multipath, ipsec, dummy-bonding, gre-ipip, qos.
+      **Remote option now prepared**: every bisect kernel carries a safety net
+      (TCO watchdog, lockup panics, `panic=10`) and `--unattended SECS` adds
+      `wayang.selftest` (self-test → mark-ok, or `wayang update --fallback` +
+      reboot). QEMU-proven (nonet/hang/panic all return to A); validate the
+      `baseline` group supervised on the device first
+      (docs/ROUTER-KERNEL-BISECT.md → "Remote bisect (unattended)").
 - [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle
       and creates the GitHub release, but `wayang.dalang.io/channel` is
       published by hand (`scripts/publish-channel.sh`). Wired into the tag path
@@ -40,6 +46,13 @@ release: **1.0.17** (see `docs/HANDOVER.md`).
       `/data/etc/network/also` (`wayang-net also [<iface> on|off]`), leased
       address-only at boot on top of the one-shot secondary pass, plus a TUI
       toggle (`l`) in `wayang net`.
+- [x] **Router userspace**: static `wg`, `tc`, `bird` bundled (optional,
+      pinned + sha256), bird started by `/etc/init.d/router` only with
+      `/data/etc/router/bird.conf`; QEMU-only lab kernel
+      (`scripts/build-lab-kernel.sh`). `birdc` not built (no static readline on
+      the builder) — build readline from source if an operator CLI is wanted.
+- [ ] Pin + verify sha256 in `scripts/build-nft.sh` too (the new tool scripts
+      do; nft still trusts the download).
 - [ ] **`wayang.slot` on first install.** Older installers wrote grub.cfg
       without `wayang.slot=`; `mark-ok` now refreshes it, verify on a fresh
       install.
@@ -67,10 +80,14 @@ static v4/v6, DHCP client, forwarding, static routes):
 - [x] **netlink backend** for addresses/links/VLAN/bridge (rtnetlink via raw
       `libc`, no new crate), falling back to `ip`/`vconfig`/`brctl`; `ip route`
       stays command-based for now.
-- [ ] WireGuard (generic-netlink, no `wg` binary), then IPsec IKEv2;
+- [ ] WireGuard (generic-netlink; `wg` is in the image for operators), then
+      IPsec IKEv2;
 - [ ] VRF, policy routing, ECMP, multi-WAN failover;
-- [ ] QoS (HTB + fq_codel) per subnet/host/VLAN;
-- [ ] BGP/OSPF/BFD; PPPoE; Wi-Fi AP.
+- [ ] QoS (HTB + fq_codel / CAKE) per subnet/host/VLAN — via `/usr/sbin/tc`;
+- [ ] BGP/OSPF/BFD — render `/data/etc/router/bird.conf`, drive
+      `/var/run/bird.ctl`; PPPoE; Wi-Fi AP.
+- Lab: `/tmp/wayang-tools/{bzImage-lab,initramfs-lab.img}` on the builder
+  (QEMU only; all router kernel options on).
 - Kernel side for most of the above is gated on the bisect item above.
 
 ## dcheck (dalang-io/dcheck)
