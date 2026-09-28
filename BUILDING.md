@@ -199,11 +199,12 @@ qemu-system-x86_64 -machine q35 -m 2G \
 
 ### 5. Router tool binaries (optional)
 
-`build-rootfs.sh` installs static `nft`, `wg`, `tc`, `bird` and `wayangi` from
-`$BUILD_DIR` **when present**; each `scripts/build-*.sh` downloads its upstream
-tarball and **verifies a pinned sha256 before extracting**. The pins are
-recorded from the upstream release (netfilter.org publishes a `.sha256sum`
-next to each tarball; the others are pinned from the release bytes):
+`build-rootfs.sh` installs static `nft`, `wg`, `tc`, `bird`, `radvd` and
+`wayangi` from `$BUILD_DIR` **when present**; each `scripts/build-*.sh`
+downloads its upstream tarball and **verifies a pinned sha256 before
+extracting**. The pins are recorded from the upstream release (netfilter.org
+publishes a `.sha256sum` next to each tarball; radvd ships a `.sha256` beside
+its release asset; the others are pinned from the release bytes):
 
 | Script | Artifact | Version | sha256 |
 |--------|----------|---------|--------|
@@ -214,12 +215,18 @@ next to each tarball; the others are pinned from the release bytes):
 | `build-iproute2.sh` | iproute2 | 7.2.0 | `4c2fa124c2cf0afd7ca34d1eeacba6ba048a56f6374e2aab93dafbdbd4eea9c0` |
 | `build-iproute2.sh` | libmnl | 1.0.5 | `274b9b919ef3152bfb3da3a13c950dd60d6e2bcd54230ffeca298d03b40d0525` |
 | `build-bird.sh` | BIRD | 2.19.2 | `aff89abba3b92b7637bd57e0168b8d7ae887747f160ada4973378ad72f5f3660` |
+| `build-radvd.sh` | radvd | 2.21 | `91df2ed7faca0716bbd726a17d6467ed92fcb2b6e45b57d9e619f9686ab99e1b` |
 
 Bump a version and its `*_SHA256` together; the download is checked on **every**
 run (a cached tarball is re-verified). To deliberately skip verification (for a
 rebuilt or mirrored tarball) set `ALLOW_UNVERIFIED=1` — the script warns and
 continues. A **checksum mismatch always aborts**, even in the best-effort
 `build-wayangi.sh` release fallback.
+
+`build-radvd.sh` is best-effort like `build-wayangi.sh`: it needs `flex`/`bison`
+and a static libc, and warns + exits 0 (so the image just ships without IPv6
+RA) when they are missing. `wayang-router` still installs the delegated prefix
+and warns that no advertisements are sent.
 
 `build-wayangi.sh` fetches the binary from the wayangi channel when
 `WAYANGI_BASE_URL` is set. It verifies against `WAYANGI_SHA256` if given,

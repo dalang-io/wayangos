@@ -1450,7 +1450,8 @@ else
 fi
 
 # Router data-plane tools (static; optional, like nft). wayang-router uses
-# them for WireGuard (wg: operator/debug CLI), QoS (tc) and BGP/OSPF (bird).
+# them for WireGuard (wg: operator/debug CLI), QoS (tc), BGP/OSPF (bird) and
+# IPv6 router advertisements (radvd, for the delegated /64 → LAN SLAAC).
 # The matching kernel options are still under hardware bisect
 # (docs/ROUTER-KERNEL-BISECT.md); the binaries are harmless without them.
 install_tool() { # <staged file> <rootfs path> <build script>
@@ -1465,6 +1466,7 @@ install_tool wg/wg /usr/bin/wg build-wg.sh
 install_tool iproute2/tc /usr/sbin/tc build-iproute2.sh
 install_tool bird/bird /usr/sbin/bird build-bird.sh
 [ -f "$BUILD/bird/birdc" ] && install_tool bird/birdc /usr/sbin/birdc build-bird.sh
+install_tool radvd/radvd /usr/sbin/radvd build-radvd.sh
 
 # wayangi EdgeRouter agent (static; scripts/build-wayangi.sh). Optional: the
 # image ships without it if the script skipped. Enrolment state (token, device

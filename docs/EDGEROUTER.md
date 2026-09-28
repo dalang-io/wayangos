@@ -91,8 +91,10 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
       on the WG/TUN device. (The agent does this; `wayang` can carry it via
       `wayang-router` `delegated_prefix`/`prefix_from`.)
 - [x] **Advertise to the LAN**: `wayang-router` renders SLAAC/RDNSS/DNSSL via
-      `/etc/radvd.conf` and drives `radvd` (warn-and-no-op when `radvd` is
-      absent — it is not bundled yet).
+      `/etc/radvd.conf` and drives `radvd`. The image bundles a static `radvd`
+      at `/usr/sbin/radvd` (`scripts/build-radvd.sh`, optional/best-effort);
+      without it the prefix and addresses are still installed and
+      `wayang-router` warns instead (warn-and-no-op).
 - [ ] IPv6 forwarding + a default route toward the hub (inbound-only by
       default; `full_duplex` only when the hub grants enterprise). (Router sets
       `ipv6_forwarding` when RA/delegation is on; the tunnel default route is

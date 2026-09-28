@@ -160,6 +160,22 @@ inspect an offline image. Devices already bound to a driver (e.g. a Bluetooth
 At boot the network init starts `wpa_supplicant` on the primary wifi interface
 when `/data/etc/wpa_supplicant.conf` exists.
 
+## IPv6 router advertisements to the LAN (wayang-router + radvd)
+
+The uplink uses SLAAC as a *client* (step 2 above). The LAN side is the mirror
+image: `wayang-router` advertises a delegated `/64` (and any global `/64` on an
+interface with `ra = true`) so LAN clients get a global address by SLAAC
+(RFC 4862). It renders a deterministic `/etc/radvd.conf` (with RDNSS/DNSSL) and
+runs `radvd -C /etc/radvd.conf -p /var/run/radvd.pid`; the file is written only
+when at least one enabled interface has `ra = true` and a `/64` to advertise.
+
+The image bundles a static `radvd` at `/usr/sbin/radvd`
+([`scripts/build-radvd.sh`](../scripts/build-radvd.sh)) — optional and
+best-effort: the build warns and skips it when flex/bison or a static libc are
+missing, and the image still boots. Without `radvd` the delegated prefix and
+addresses are still installed but no advertisements are sent; `wayang-router`
+reports that as a warning (`caps::issues`).
+
 ## Persistent firewall / router monitoring
 
 When `wayang-fw` / `wayang-router` are installed **and** have a confirmed config,

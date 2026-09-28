@@ -36,9 +36,9 @@ the base kernel (`7.2.7`).
 The rootfs is built around BusyBox, `dropbearmulti` and curl, plus a few
 static tools bundled when their build script has staged them: `nft`
 (`scripts/build-nft.sh`), `wg` (`build-wg.sh`), `tc` from iproute2
-(`build-iproute2.sh`), `bird` (BIRD 2, `build-bird.sh`) and `dcheck`
-(`fetch-dcheck.sh`). Everything else is deployed as a static binary via `scp` —
-there is no package manager.
+(`build-iproute2.sh`), `bird` (BIRD 2, `build-bird.sh`), `radvd`
+(`build-radvd.sh`, IPv6 RA) and `dcheck` (`fetch-dcheck.sh`). Everything else
+is deployed as a static binary via `scp` — there is no package manager.
 
 ## Hardware Target
 

@@ -156,6 +156,13 @@ jobs:
           ./scripts/build-iproute2.sh
           ./scripts/build-bird.sh
 
+      # radvd (IPv6 router advertisements for the delegated /64) is optional:
+      # the script warns and exits 0 when flex/bison or a static libc is
+      # missing, so the image simply ships without it (wayang-router then
+      # warns that no RAs are sent).
+      - name: Build radvd (static, IPv6 RA; best-effort)
+        run: ./scripts/build-radvd.sh || true
+
       # wayangi EdgeRouter agent (docs/EDGEROUTER.md). Best-effort: the script
       # exits 0 with a warning when no source checkout or release base URL is
       # available, so the image simply ships without it. Provide
