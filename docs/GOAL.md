@@ -54,6 +54,10 @@ interaction. See [ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md),
 
 ## TODO toward the goal (owner-visible)
 
+- [~] **Unblock M7 — multi-agent plan**: [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)
+      (T1 DHCP resilience · T2 shipped safety net · T3 boot-count harness ·
+      T4 hardware session · T5 docs). The "decide M7 path" item below is
+      superseded by that plan's decision rule.
 - [ ] **Decide M7 path** (owner): (a) ship a test release with the block + a
       safety-net grub cmdline (`wayang.selftest` + `panic=10 …`) and cold-boot
       soak on the device; (b) investigate the cold-boot USB-NIC/DHCP stall

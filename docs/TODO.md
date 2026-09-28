@@ -4,7 +4,9 @@ Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
 release: **1.0.21** (see `docs/HANDOVER.md`). **Product goal + roadmap:
-[docs/GOAL.md](GOAL.md).**
+[docs/GOAL.md](GOAL.md).** **Execution plan to unblock M7 (multi-agent,
+do this before touching the kernel block):
+[docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).**
 
 ## wayangos (this repo)
 
