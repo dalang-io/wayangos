@@ -292,3 +292,148 @@ and **passed** (3 boots + 30-min soak); the halves pass too — see
 No failing subset was found, so the router block stays off pending a reproducer;
 the 1.0.20 freeze looks like an intermittent USB-uplink/DHCP stall. The combo
 harness (`--groups`, `--opts-file`, `--combo-name`) is in `bisect-router-opts.sh`.
+With no failing subset to find, the next step is not another bisect but a
+**boot-count soak** — see the next section.
+
+## Boot-count soak (T3, needs owner OK)
+
+Three boots cannot distinguish a deterministic failure from a ~25% stochastic
+one, and the combo bisects found no failing subset: the 1.0.20 signature is a
+network stall (`gw=''`, clean dmesg) that any kernel can hit. The M7 decision
+therefore needs **boot counts**: the block kernel and a safe kernel, each
+booted N≥10 times, failure rates compared. `scripts/boot-soak.sh` does this
+autonomously — it stages one bundle on the device and lets the safety net
+recover every failed boot by itself (selftest FAIL → `wayang update
+--fallback` → reboot; watchdog/panic resets burn GRUB's 3-attempt budget), so
+an overnight run needs no human unless a stall survives a reboot.
+
+It is a separate script from `bisect-router-opts.sh` on purpose: the bisect
+harness's ground rule is "never touches the device", while the soak's whole
+job is driving the device over SSH for hours. The soak consumes the bundles
+the bisect harness builds, so bundle tags line up.
+
+### How it works
+
+**Owner-measured timings on this device (2026-09-28):** the OS is up after a
+few seconds and SSH becomes active after **~120–200 s**; waiting longer than
+that on a broken OS is a waste of time. The soak is sized around them:
+
+- Bundles are built with `wayang.selftest=120` — the route must appear inside
+  that window, so the selftest writes its PASS/FAIL verdict at ~120 s uptime,
+  *before* SSH is even up.
+- The harness's own liveness bound is `--ssh-bound 240` (a little headroom
+  over 200 s): past it the boot is broken and is not waited on further.
+- Boots resolve **as soon as their evidence exists** — the selftest PASS/FAIL
+  line, a second `armed:` line (the GRUB budget already refired the bundle
+  slot: the previous attempt reset before any verdict), or the SSH bound —
+  never a fixed long deadline.
+- The only fixed deadline is the per-boot **silence cap**
+  `ssh-bound + selftest + recovery-margin` = 240 + 120 + 120 = **480 s**,
+  reached only when no designed recovery produces evidence: it bounds the
+  wait for the `up+no-route` recovery chain (FAIL at ~126 s → fallback →
+  reboot → good-slot SSH by ~120–200 s, all readable then) and the GRUB
+  3-attempt budget. A pass costs ≲5 min per boot; worst case (broken boot
+  resolved by the cap) is ~8 min + reboot overhead.
+
+Per boot: wait for SSH (settle) → copy `/data/debug/*` (when present) to
+`/data/soak/<tag>/` for the boot that just ended →
+`wayang update --from /data/soak.wup` (stages the **idle slot only**, aborts
+the run if staging fails) → `sync; reboot` → poll SSH every 15 s, resolving
+on evidence or the bounds above. Each boot
+is classified from its `/data/selftest.log` window (a byte-offset cursor, so
+lines are attributed to exactly one boot), the running slot and `wayang
+status`:
+
+| outcome | meaning | evidence |
+|---|---|---|
+| `up+route` | bundle kernel ran the window with routing up | `PASS: reachable after 120s` (a `mark-ok FAILED` variant is kept as a note) |
+| `up+no-route` | the `gw=''` network stall: box alive, no route at the verdict; self-recovers via fallback | `FAIL: ... (host='' gw='', ever seen: N)` + `rebooting (reboot -f)`; time-to-failure = the FAIL line's `up=` |
+| `watchdog-reset` | reset before the verdict (watchdog/panic → GRUB refires the bundle slot) | `armed:` line(s) with no verdict, then either the box back on another slot or a second `armed:` line — resolved immediately on either |
+| `unreachable>deadline` | no SSH within the 240 s liveness bound (with a note if SSH answered but the selftest never wrote a verdict — a hung selftest) | the run stops after 2 in a row and prints the **power-cycle** instruction |
+
+Every boot is recorded locally (`dist/boot-soak/<tag>-<ts>/journal.tsv`,
+`boots/boot-NNN/` with the raw selftest window and snapshot) **and on the
+device** (`/data/soak/<tag>/boot-NNN.txt`, debug copies, `soak-summary.txt`),
+so the report can be rebuilt from the device alone. Boot 1 additionally
+verifies `wayang.selftest=` is really in the bundle kernel's cmdline and
+aborts safely (`--boot-other` + reboot) if it is not — a soak without the
+safety net is not a soak. Note `/data/boots.log` exists only in the QEMU test
+harness (`scripts/test-selftest-qemu.sh`); on the real device the per-boot
+marker is the `armed:` line in `/data/selftest.log`.
+
+### The two runs the M7 decision needs
+
+**All device steps below need the owner's OK** (docs/TODO-M7-UNBLOCK.md).
+Order matters: the safe kernel goes first, and its boot 1 is supervised — it
+doubles as the supervised `baseline` validation the "Remote bisect" section
+asks for.
+
+```sh
+# 0. Pre-flight (harmless, no reboot): one SSH contact, snapshot + cursor check
+scripts/boot-soak.sh --probe
+
+# 1. Build both bundles on the build box (signed; safety net + wayang.selftest=120)
+WAYANG_KEY=/path/to/release.key scripts/bisect-router-opts.sh \
+    --groups baseline --combo-name soak-safe --unattended 120
+WAYANG_KEY=/path/to/release.key scripts/bisect-router-opts.sh \
+    --groups veth-macvlan-tun,wireguard,vrf-multipath,ipsec,dummy-bonding,gre-ipip,qos \
+    --combo-name soak-block --unattended 120
+#   -> dist/router-bisect/bisect-soak-{safe,block}-1.0.99-x86_64.wup
+
+# 2. SAFE arm (control), N=12 boots, ~1 h if all pass:
+#    stay near the console for boot 1 (supervised baseline validation)
+scripts/boot-soak.sh --bundle dist/router-bisect/bisect-soak-safe-1.0.99-x86_64.wup \
+    --tag soak-safe --boots 12
+
+# 3. BLOCK arm (suspect = the full accumulated router set), N=12 boots:
+scripts/boot-soak.sh --bundle dist/router-bisect/bisect-soak-block-1.0.99-x86_64.wup \
+    --tag soak-block --boots 12
+
+# 4. Report + decision matrix (local evidence, or --from-device to rebuild
+#    everything from the device after the fact)
+scripts/boot-soak.sh --report
+```
+
+Operational notes for the runs:
+
+- **Keep the laptop awake**: `caffeinate -ims scripts/boot-soak.sh ...` — the
+  SSH driver must survive the night. The device recovers failed boots by
+  itself; the harness only issues reboots while it is reachable.
+- **Polling cadence**: default 15 s (`--poll`); the liveness bound is 240 s
+  (`--ssh-bound`), and the silence cap (480 s) is only hit when no designed
+  recovery produces evidence. A full pass costs ≲5 min, so N=12 ≈ 1 h per
+  arm if all pass; a stall boot resolves in ~4–8 min by evidence, never by a
+  fixed long deadline.
+- **Probe target**: the selftest already probes the gateway *and* `1.1.1.1`
+  (the `/32` uplink gateway does not answer ICMP). Pin it with
+  `--selftest-host 1.1.1.1` if the gateway behaviour should be excluded.
+- **Evidence capture**: after the runs, `--report` reads the local evidence
+  dirs; `--report --from-device` re-pulls `/data/soak/<tag>/boot-*.txt`,
+  `selftest.log` and `boots.log`. Copy `/data/debug/*` off the box for any
+  failed boot before it is overwritten by the next bundle boot.
+- **Restore**: without `--restore-bundle FILE` the script only prints the
+  restore instruction — stage the released image again
+  (`wayang update` from the channel) and reboot. After enough `up+route`
+  boots both slots hold bundle copies, so do not skip this.
+- **Residual risk** (from "Remote bisect → Limits"): only the selftest window
+  is covered. A stall that appears *after* a PASS leaves the box marked good
+  and unreachable until a power-cycle — expect one walk if it happens; the
+  harness stops on `unreachable>deadline` and says so.
+
+The decision itself is the table in
+[TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md#decision-rule-replaces-abc): compare
+the two arms' failure rates (`bundle × boots × outcomes` matrix printed by
+`--report`); N=12 per arm separates a deterministic failure from a ~25%
+stochastic one.
+
+### QEMU proof
+
+The harness logic is smoke-tested without a device: `--selftest` runs 36
+classifier assertions against fixtures in the exact `wayang-selftest` log
+formats (PASS, FAIL with `gw=''`, late stall with `ever seen: 1`, armed ×2 =
+GRUB refire resolved immediately, never-armed, cap-with/without-contact
+notes, straggler verdicts across the cursor boundary, device record +
+`boots.log` parsing, rate math); `--dry-run` prints the full plan for any
+mode; `--probe` was verified against a live QEMU VM (real BusyBox snapshot,
+`tail -c +N` cursor exactness, boots.log read, `--report --from-device` over
+real SSH with seeded `/data/soak/` records).
