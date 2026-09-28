@@ -558,6 +558,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: wayangos-release
+          # The artifact's LCA is wayangos-build/, so its members are stored as
+          # channel/... + SHA256SUMS; download back under wayangos-build/ so
+          # publish-channel.sh's "wayangos-build/channel" source exists.
+          path: wayangos-build
 
       # Republish: reassemble the on-disk tree from the published release
       # (release assets are uploaded flat, so rename back into the layout).
