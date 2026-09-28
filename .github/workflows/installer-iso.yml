@@ -134,13 +134,22 @@ jobs:
         run: ./scripts/fetch-sources.sh
 
       - name: Build kernel (${{ env.KERNEL_CONFIG }})
-        run: ./scripts/build-kernel.sh "$KERNEL_CONFIG" bzImage-installer
+        run: |
+          ./scripts/build-kernel.sh "$KERNEL_CONFIG" bzImage-installer
+          # A second top-level file keeps the artifact's LCA at the workspace
+          # root, so the kernel keeps its wayangos-build/ path on download
+          # (v4 flattens single-file artifacts to their parent dir).
+          printf '%s %s\n' "$KERNEL_CONFIG" \
+            "$(sha256sum "$BUILD_DIR/bzImage-installer" | cut -d' ' -f1)" \
+            > kernel-provenance.txt
 
       - name: Upload kernel
         uses: actions/upload-artifact@v4
         with:
           name: wayangos-kernel
-          path: wayangos-build/bzImage-installer
+          path: |
+            wayangos-build/bzImage-installer
+            kernel-provenance.txt
           retention-days: 3
 
   tools:
@@ -294,9 +303,12 @@ jobs:
           pattern: wayangos-{kernel,tools}
           merge-multiple: true
 
-      # upload/download artifacts do not preserve the exec bits — restore them.
+      # Defensive: v4 flattens single-file artifacts to their parent dir; if an
+      # older upload left the kernel at the workspace root, put it back.
       - name: Restore exec bits
         run: |
+          [ -f bzImage-installer ] && [ ! -f wayangos-build/bzImage-installer ] \
+            && mv bzImage-installer wayangos-build/ || true
           find wayangos-build/nft wayangos-build/wg wayangos-build/iproute2 \
                wayangos-build/bird wayangos-build/radvd wayangos-build/wayangi dist \
                -maxdepth 3 -type f -exec chmod +x {} + 2>/dev/null || true
