@@ -13,6 +13,13 @@
 #
 # Build options:
 #   --group NAME       build only this group (default: all groups, in order)
+#   --groups A,B,C     build ONE combined bundle from these groups (combo;
+#                      pairwise/cumulative bisect). Cannot be used with --group.
+#   --opts-file FILE   extra CONFIG_*=y lines appended to a combo; use alone
+#                      (with --groups or without) for an option-level subset,
+#                      e.g. WIREGUARD without the *_ARCH crypto
+#   --combo-name NAME  bundle tag for --groups/--opts-file (default: derived,
+#                      "combo-<g1>+<g2>...")
 #   --out DIR          local dir for the copied .wup (default: dist/router-bisect)
 #   --version VER      bundle version (default: 1.0.99)
 #   --kernel-version V kernel source version on the builder (default: 7.2.7)
@@ -50,6 +57,9 @@ VERSION="${BISECT_VERSION:-1.0.99}"
 KERNEL_VERSION="${KERNEL_VERSION:-7.2.7}"
 WAYANG_KEY="${WAYANG_KEY:-}"
 GROUP=""
+GROUP_LIST=""
+OPTS_FILE=""
+COMBO_NAME=""
 DRY_RUN=0
 LIST=0
 SAFETY=1
@@ -71,7 +81,7 @@ BISECT_GROUPS=(
 )
 
 usage() {
-    sed -n '2,42s/^# \{0,1\}//p' "$0"
+    sed -n '2,/^# Env:/p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -216,6 +226,50 @@ write_config() {
     } >> "$dest"
 }
 
+# A stack of groups and/or an extra option file, in one kernel fragment, for
+# cumulative/pairwise bisect. The tag must stay filename-safe (used for the
+# remote build dir, the bzImage, the config fragment and the .wup name).
+sanitize_tag() {
+    printf '%s' "$1" | tr -c 'A-Za-z0-9._+-' '_'
+}
+
+combo_tag() {
+    local tag
+    if [ -n "$COMBO_NAME" ]; then
+        tag="$COMBO_NAME"
+    else
+        tag="combo-${GROUP_LIST//,/+}"
+        [ -z "$GROUP_LIST" ] && tag="opts"
+        if [ -n "$OPTS_FILE" ]; then
+            tag="$tag-$(basename "$OPTS_FILE" | sed 's/\.[^.]*$//')"
+        fi
+    fi
+    sanitize_tag "$tag"
+}
+
+write_config_combo() {
+    local dest="$1" tag="$2" g
+    cp "$REPO_DIR/configs/defconfig-intel" "$dest"
+    {
+        printf '\n# --- router bisect combo: %s ---\n' "$tag"
+        if [ -n "$GROUP_LIST" ]; then
+            while IFS= read -r g; do
+                [ -n "$g" ] || continue
+                printf '# group %s\n' "$g"
+                group_opts "$g"
+            done < <(printf '%s\n' "$GROUP_LIST" | tr ',' '\n')
+        fi
+        if [ -n "$OPTS_FILE" ]; then
+            printf '\n# --- combo extra options: %s ---\n' "$OPTS_FILE"
+            cat "$OPTS_FILE"
+        fi
+        if [ "$SAFETY" = 1 ]; then
+            printf '\n# --- remote-bisect safety net (never shipped) ---\n'
+            safety_opts
+        fi
+    } >> "$dest"
+}
+
 device_procedure() {
     local wup="$1" group="$2"
     if [ -n "$UNATTENDED" ]; then
@@ -343,17 +397,19 @@ done < <(grep -E '^CONFIG_[A-Z0-9_]+=(y|".*")$' "configs/$TMPCONFIG")
 [ "$missing" = 0 ] && echo "  all requested options resolved"
 cp "$KDIR/.config" "$OUT/config-$GROUP"
 
+echo "--- wayang CLI (used by the rootfs; also needed to sign) ---"
+export PATH="$HOME/.cargo/bin:$PATH"
+if ! ls "$REPO"/dist/wayang-x86_64-unknown-linux-musl >/dev/null 2>&1; then
+    echo "  building wayang CLI..."
+    TARGET=x86_64-unknown-linux-musl ./scripts/build-wayang.sh
+fi
+
 echo "--- rootfs ---"
 BUILD_DIR="$BUILD" WAYANG_VERSION="$VERSION" ./scripts/build-rootfs.sh
 
 echo "--- bundle ---"
 KEYARG=()
 if [ -n "$KEY" ] && [ -f "$KEY" ]; then
-    export PATH="$HOME/.cargo/bin:$PATH"
-    if ! ls "$REPO"/dist/wayang-x86_64-unknown-linux-musl >/dev/null 2>&1; then
-        echo "  building wayang CLI for signing..."
-        TARGET=x86_64-unknown-linux-musl ./scripts/build-wayang.sh
-    fi
     KEYARG=(--key "$KEY" --keyid release)
 else
     echo "WARNING: no signing key (set WAYANG_KEY) -> UNSIGNED bundle;" >&2
@@ -379,38 +435,34 @@ rsh() {
     ssh -o BatchMode=yes "$HOST" "$@"
 }
 
-build_group() {
-    local group="$1"
+build_bundle() {
+    local tag="$1" note="$2" local_cfg="$3"
     local remote_repo="$REMOTE_WORK/repo"
     local remote_out="$REMOTE_WORK/out"
     local remote_script="$REMOTE_WORK/bisect-remote.sh"
     local remote_key="$REMOTE_WORK/release.key"
-    local local_cfg="$TMP/config-$group"
-    local local_wup="$OUT_DIR/bisect-$group-$VERSION-x86_64.wup"
-    local remote_wup="$remote_out/bisect-$group-$VERSION-x86_64.wup"
+    local local_wup="$OUT_DIR/bisect-$tag-$VERSION-x86_64.wup"
+    local remote_wup="$remote_out/bisect-$tag-$VERSION-x86_64.wup"
 
     echo ""
-    echo "=== group: $group ==="
-    echo "  $(group_note "$group")"
-    while IFS= read -r opt; do echo "    $opt"; done < <(group_opts "$group")
-
-    write_config "$group" "$local_cfg"
+    echo "=== $tag ==="
+    echo "  $note"
 
     if [ "$DRY_RUN" = 1 ]; then
         echo "  DRY-RUN: rsync repo -> $HOST:$remote_repo"
-        echo "  DRY-RUN: copy $local_cfg -> $HOST:$remote_repo/configs/.bisect-$group"
+        echo "  DRY-RUN: copy $local_cfg -> $HOST:$remote_repo/configs/.bisect-$tag"
         echo "  DRY-RUN: copy remote driver -> $HOST:$remote_script"
-        echo "  DRY-RUN: ssh $HOST BISECT_GROUP=$group ... bash $remote_script"
+        echo "  DRY-RUN: ssh $HOST BISECT_GROUP=$tag ... bash $remote_script"
         echo "  DRY-RUN: copy $HOST:$remote_wup -> $local_wup"
-        device_procedure "$local_wup" "$group"
+        device_procedure "$local_wup" "$tag"
         return 0
     fi
 
     # The config fragment name must be valid on the builder's configs/ dir.
-    scp -q "$local_cfg" "$HOST:$remote_repo/configs/.bisect-$group"
+    scp -q "$local_cfg" "$HOST:$remote_repo/configs/.bisect-$tag"
 
     local cmd
-    cmd="BISECT_GROUP='$group' BISECT_REPO='$remote_repo' BISECT_TMPCONFIG='.bisect-$group' \
+    cmd="BISECT_GROUP='$tag' BISECT_REPO='$remote_repo' BISECT_TMPCONFIG='.bisect-$tag' \
 BISECT_VERSION='$VERSION' BISECT_KEY='$remote_key' BISECT_WORK='$REMOTE_WORK' \
 BISECT_SHARED='$SHARED' BISECT_KERNEL_VERSION='$KERNEL_VERSION' \
 bash '$remote_script'"
@@ -423,7 +475,41 @@ bash '$remote_script'"
     echo ""
     echo "Built: $local_wup"
     echo "  sha256: $(sha256_of "$local_wup")"
-    device_procedure "$local_wup" "$group"
+    device_procedure "$local_wup" "$tag"
+}
+
+build_group() {
+    local group="$1"
+    local local_cfg="$TMP/config-$group"
+
+    echo ""
+    echo "=== group: $group ==="
+    echo "  $(group_note "$group")"
+    while IFS= read -r opt; do echo "    $opt"; done < <(group_opts "$group")
+
+    write_config "$group" "$local_cfg"
+    build_bundle "$group" "group: $group — $(group_note "$group")" "$local_cfg"
+}
+
+build_combo() {
+    local tag local_cfg
+    tag="$(combo_tag)"
+    local_cfg="$TMP/config-$tag"
+
+    echo ""
+    echo "=== combo: $tag ==="
+    if [ -n "$GROUP_LIST" ]; then
+        echo "  groups: $GROUP_LIST"
+        while IFS= read -r opt; do echo "    $opt"; done \
+            < <(printf '%s\n' "$GROUP_LIST" | tr ',' '\n' | while read -r g; do group_opts "$g"; done)
+    fi
+    if [ -n "$OPTS_FILE" ]; then
+        echo "  opts-file: $OPTS_FILE"
+        while IFS= read -r opt; do echo "    $opt"; done < "$OPTS_FILE"
+    fi
+
+    write_config_combo "$local_cfg" "$tag"
+    build_bundle "$tag" "combo: ${GROUP_LIST:-}${OPTS_FILE:+ opts=$OPTS_FILE}" "$local_cfg"
 }
 
 sha256_of() {
@@ -441,6 +527,15 @@ while [ $# -gt 0 ]; do
         --group)
             [ $# -ge 2 ] || { echo "ERROR: --group needs a name" >&2; exit 1; }
             GROUP="$2"; shift ;;
+        --groups)
+            [ $# -ge 2 ] || { echo "ERROR: --groups needs a comma-separated list" >&2; exit 1; }
+            GROUP_LIST="$2"; shift ;;
+        --opts-file)
+            [ $# -ge 2 ] || { echo "ERROR: --opts-file needs a file" >&2; exit 1; }
+            OPTS_FILE="$2"; shift ;;
+        --combo-name)
+            [ $# -ge 2 ] || { echo "ERROR: --combo-name needs a name" >&2; exit 1; }
+            COMBO_NAME="$2"; shift ;;
         --out)
             [ $# -ge 2 ] || { echo "ERROR: --out needs a directory" >&2; exit 1; }
             OUT_DIR="$2"; shift ;;
@@ -517,6 +612,24 @@ else
     selected=("${BISECT_GROUPS[@]}")
 fi
 
+COMBO=0
+if [ -n "$GROUP_LIST" ] || [ -n "$OPTS_FILE" ]; then
+    if [ -n "$GROUP" ]; then
+        echo "ERROR: --group cannot be mixed with --groups/--opts-file" >&2
+        exit 1
+    fi
+    COMBO=1
+    if [ -n "$GROUP_LIST" ]; then
+        while IFS= read -r g; do
+            [ -n "$g" ] || continue
+            is_group "$g" || { echo "ERROR: unknown group '$g' in --groups (try --list)" >&2; exit 1; }
+        done < <(printf '%s\n' "$GROUP_LIST" | tr ',' '\n')
+    fi
+    if [ -n "$OPTS_FILE" ]; then
+        [ -f "$OPTS_FILE" ] || { echo "ERROR: --opts-file not found: $OPTS_FILE" >&2; exit 1; }
+    fi
+fi
+
 if [ -z "$WAYANG_KEY" ]; then
     echo "WARNING: WAYANG_KEY is unset -> bundles will be UNSIGNED and the" >&2
     echo "         device will reject them unless a matching key is trusted." >&2
@@ -546,9 +659,13 @@ if [ "$DRY_RUN" != 1 ]; then
     fi
 fi
 
-for g in "${selected[@]}"; do
-    build_group "$g"
-done
+if [ "$COMBO" = 1 ]; then
+    build_combo
+else
+    for g in "${selected[@]}"; do
+        build_group "$g"
+    done
+fi
 
 echo ""
-echo "=== done. One group at a time: boot each on the device and check keyboard + SSH. ==="
+echo "=== done. One group/combo at a time: boot each on the device and check keyboard + SSH. ==="
