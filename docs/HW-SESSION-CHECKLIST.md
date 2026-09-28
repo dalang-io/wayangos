@@ -154,8 +154,8 @@ To restore afterwards: move the cable back, then
 
 ## 4. Running the boot-count matrix
 
-The soak harness (`scripts/boot-soak.sh` / `--boots N` mode of
-`scripts/bisect-router-opts.sh` — see
+The soak harness (`scripts/boot-soak.sh`, standalone on purpose — the bisect
+harness never touches the device; see
 [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)) stages a bundle and boots
 autonomously; with the safety net each failure self-recovers (self-test fail →
 `wayang update --fallback` → reboot; hard hangs → watchdog reset ×3 → GRUB falls
@@ -223,7 +223,7 @@ the same ~240 s per-boot deadline.
 
 PASS for the whole matrix = both kernels' failure rates indistinguishable
 (e.g. both 0/10, or both ~2/10 with the same cold/warm pattern) → per the
-[decision rule](TODO-M7-UNBLOCK.md#decision-rule-replaces-ab) the "freeze" is
+[decision rule](TODO-M7-UNBLOCK.md#decision-rule-replaces-abc) the "freeze" is
 environmental and the router block ships with the net. Only-block-stalls →
 keep the block off, resume
 [ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md) with the new

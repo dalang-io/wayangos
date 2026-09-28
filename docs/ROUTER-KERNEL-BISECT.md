@@ -279,10 +279,11 @@ Kernel: `defconfig-intel` + safety net + `wayang.selftest=60`; final grubenv
 All **8 groups PASS individually** on the real device (no lockup, watchdog never
 fired, SSH alive throughout): baseline, veth-macvlan-tun, wireguard,
 vrf-multipath, ipsec, dummy-bonding, gre-ipip, qos. No single group reproduced
-the 1.0.13 lockup, so the trigger is an **interaction** (or not only these
-options). The full set (plus the Intel TCO / i6300esb watchdog) is now enabled in
-`configs/defconfig-intel` and **must be soak-tested as one bundle on the device**
-before publishing.
+the 1.0.13 lockup, and the accumulated set later **passed** (3 boots + 30-min
+soak) — there is no failing subset. The router block stays **off** in
+`configs/defconfig-intel` (only the watchdog + safety-net cmdline landed);
+whether to ship it is decided by boot-count runs (`scripts/boot-soak.sh`),
+not by another combo bisect.
 
 ## Interaction check (2026-09-28)
 
@@ -428,7 +429,7 @@ stochastic one.
 
 ### QEMU proof
 
-The harness logic is smoke-tested without a device: `--selftest` runs 36
+The harness logic is smoke-tested without a device: `--selftest` runs 34
 classifier assertions against fixtures in the exact `wayang-selftest` log
 formats (PASS, FAIL with `gw=''`, late stall with `ever seen: 1`, armed ×2 =
 GRUB refire resolved immediately, never-armed, cap-with/without-contact
