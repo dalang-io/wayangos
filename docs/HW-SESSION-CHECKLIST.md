@@ -162,7 +162,7 @@ Two runs, each **N ≥ 10 boots** (3 boots cannot distinguish deterministic from
 | Run | Kernel | Boots |
 |---|---|---|
 | A | router-block kernel (bundle from `scripts/bisect-router-opts.sh`, full set) | ≥ 10 |
-| B | safe kernel (current 1.0.21 baseline) | ≥ 10 |
+| B | safe kernel (current 1.0.22 baseline) | ≥ 10 |
 
 **Record cold vs warm for every boot.** A stall that only appears on cold boots
 (SR9700 link-up after power-on is slow) needs power-cycle access to reproduce;

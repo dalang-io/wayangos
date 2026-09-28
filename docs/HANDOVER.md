@@ -8,9 +8,16 @@ building and the milestones). This file is *where things stand* across the repos
 
 | | |
 |---|---|
-| WayangOS release | **1.0.21** (tag `v1.0.21`; channel live `https://wayang.dalang.io/channel/stable/x86_64`) |
-| Test device `root@163.128.55.3` | **1.0.21** (slot A, active/good), stable 6+ min, USB uplink works |
-| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+| WayangOS release | **1.0.22** (tag `v1.0.22`; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.22) |
+| Test device `root@163.128.55.3` | **1.0.22** (slot B active/good after the pre-tag boot test + selftest PASS, route up; slot A holds 1.0.21) |
+| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+
+1.0.22 = 1.0.21 + the **shipped safety net** (watchdog + lockup/panic detectors +
+`wayang.selftest=120 panic=10 …` baked into `configs/defconfig-intel`
+`CONFIG_CMDLINE`) and the **DHCP-resilience fix** (primary NIC `udhcpc -b`, no
+retry give-up; bounded wait-for-carrier). QEMU-proved (`test-selftest-qemu.sh`
+nonet/hang/panic) and device-tested before tagging. The router kernel block stays
+**off** (VLAN/bridge MVP). CI (see below) now builds on the box itself.
 
 1.0.21 ships the **safe kernel** (VLAN/bridge router MVP only) plus all the new
 userspace: `radvd` (IPv6 RA), persistent monitoring daemons, the `wayang` console
@@ -80,7 +87,7 @@ config** (no wayangi agent on the box).
   WayangOS box connected to both hubs, served a public `/32` to a LAN host,
   inbound+outbound, failover JKT→MLB, hubs restored.
 - **Caveat**: this needs the WireGuard/VRF kernel options, which are **gated by
-  the open router-kernel question above** — so it does not run on shipped 1.0.21 yet.
+  the open router-kernel question above** — so it does not run on shipped 1.0.22 yet.
 
 ## Persistent monitoring (forensics)
 
@@ -89,11 +96,27 @@ config** (no wayangi agent on the box).
   replay it on open instead of resetting. `/etc/init.d/{fw,router}` start them at
   boot when a confirmed config exists. See `docs/MONITORING.md`.
 
+## CI / release (self-hosted)
+
+- Tagging `v*` (or `workflow_dispatch`) runs `.github/workflows/installer-iso.yml`
+  **on the build box** via two self-hosted runners (`wosbuild-a`/`wosbuild-b`,
+  user `wosrunner`, label `[self-hosted, wosbuild]`) — ~5 min warm. Three jobs:
+  `kernel` ∥ `tools` (10 builds concurrently) → `installer` (fan-in: rootfs →
+  ISO → signed `.wup` → release). `SKIP_KERNEL=1` keeps the installer job from
+  re-downloading the kernel source it never compiles.
+- CI stages wifi tools + firmware (`stage-firmware.sh` from
+  `/home/wosrunner/firmware-src`) and `dcheck`, so CI artifacts match manual
+  builds. Cache keys are hash-of-inputs. The runner has no sudo (apt step no-op).
+- Channel publish is **best-effort in CI** and still needs repo secrets
+  `WAYANG_DEPLOY_HOST` + `WAYANG_DEPLOY_KEY`; until then publish by hand
+  (`rsync` the `channel/stable/x86_64/{manifest.json,wayang-*.wup}` into
+  `/root/wayang.dalang.io/public/channel/stable/x86_64/`). See `docs/CHANNEL.md`.
+
 ## Repos & tags
 
 | Repo | HEAD / tag | Notes |
 |---|---|---|
-| `dalang-io/wayangos` (this) | `master` `61c768f`, tag `v1.0.21` — **5 commits ahead of origin, unpushed; nothing after 1.0.21 is tagged** | 1.0.21 = kernel reverted, radvd, monitoring, edgerouter apply. Post-1.0.21 commits (unreleased): DHCP resilience `765ee81`, shipped safety net `61c768f`, boot-soak harness `17ecaf0`, HW session checklist `4a00b2e`; T5 docs consolidation uncommitted at write time |
+| `dalang-io/wayangos` (this) | `master` @ 1.0.22, tag `v1.0.22` | released 1.0.22 (safety net + DHCP resilience); CI is self-hosted on the build box |
 | `dalang-io/wayang-fw` | `master` `a8518fc`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, `docs/NFT-REF.md`, monitor |
 | `dalang-io/wayang-router` | `master` `3027eed`, tag `v0.2.0` | self-managed WG, tunnel-as-uplink (`onlink`), weighted ECMP, VRF, BGP/OSPF, radvd, multi-WAN, `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
 | `dalang-io/dcheck` | `master` `33dc1af` | health list + Prometheus + undelete/macOS |
@@ -119,7 +142,7 @@ config** (no wayangi agent on the box).
    (`765ee81`) + the shipped safety net (`61c768f`) — they fix a real product
    risk (a headless box stranded by a ~15 s DHCP race) independent of the M7
    decision ([docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)). Nothing after
-   1.0.21 is tagged; never tag without a device boot test (gotcha below).
+   1.0.22 is tagged; never tag without a device boot test (gotcha below).
 3. `radvd` is bundled but RA was only tool-checked, not seen on a device with a
    WG kernel — re-verify once WireGuard ships.
 4. EdgeRouter: the box's own-traffic coverage / endpoint recursion / DHCP single

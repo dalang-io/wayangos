@@ -3,7 +3,7 @@
 Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
-release: **1.0.21** (see `docs/HANDOVER.md`). **Product goal + roadmap:
+release: **1.0.22** (see `docs/HANDOVER.md`). **Product goal + roadmap:
 [docs/GOAL.md](GOAL.md).** **Execution plan to unblock M7 (multi-agent, do this before touching the
 kernel block): [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)** — T1–T4 landed
 2026-09-28 (see that file for hashes); the device runs need owner OK.
@@ -178,9 +178,9 @@ static v4/v6, DHCP client, forwarding, static routes):
       `/var/log/wayang-{fw,router}-monitor.log`; `status` prints the collector
       line. **Retention: the newest 20 000 records per collector are kept
       (trimmed at boot).** See [docs/MONITORING.md](MONITORING.md).
-- [x] Released **1.0.18 / 1.0.19 / 1.0.21** (tag + channel + device). **1.0.20
-      was never released** (its kernel froze). 1.0.21 = safe kernel + radvd +
-      monitoring + edgerouter.
+- [x] Released **1.0.18 / 1.0.19 / 1.0.21 / 1.0.22** (tag + channel + device).
+      **1.0.20 was never released** (its kernel froze). 1.0.22 = shipped safety
+      net (watchdog + selftest cmdline) + DHCP resilience.
 - [x] `radvd` bundled (`scripts/build-radvd.sh`, `/usr/sbin/radvd`) for IPv6
       RA/SLAAC.
 - [x] Tech references written: wayang-router `docs/ROUTING-TECH.md`,

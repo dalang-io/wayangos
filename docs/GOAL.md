@@ -51,7 +51,7 @@ subset** — and the freeze's signature is a **network/USB-uplink stall** (`gw='
 clean dmesg), not a CPU lockup. Leading (unconfirmed) hypothesis: the old
 synchronous primary-NIC DHCP give-up (`udhcpc -n -q -t 5 -T 3`, ~15 s) over the
 flaky SR9700 USB uplink. Both mitigations are landed on `master`, unreleased
-(1.0.21 remains the release): primary DHCP now retries forever (`udhcpc -b` +
+(1.0.22 is the release): primary DHCP now retries forever (`udhcpc -b` +
 bounded wait-carrier, `765ee81`) and the safety net (watchdogs + lockup/hung-task
 detectors + `wayang.selftest=120`) is baked into the shipped kernel (`61c768f`).
 The M7 decision is now data-driven, not a path pick: run the boot-count matrix

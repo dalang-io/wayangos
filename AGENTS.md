@@ -85,7 +85,11 @@ bundled; UI reference for all TUIs).
 
 ## Current state
 
-**Released: 1.0.21** (tag + channel; device on it). Router MVP (VLAN/bridge) is
+**Released: 1.0.22** (tag + channel + GitHub release; device on it). 1.0.22 =
+exactly the 1.0.21 image **plus the shipped safety net** (watchdogs + lockup
+detectors + `wayang.selftest=120`/`panic=10` baked into the kernel cmdline) and
+the DHCP-resilience fix (primary NIC `udhcpc -b`, no 15 s give-up) — it does NOT
+enable the router kernel block. Router MVP (VLAN/bridge) is
 on; the rest of the router kernel block is **off** — every group passes the
 bisect alone but the **accumulated set passed on retest** (3 boots + 30-min
 soak; no failing subset) — the 04:48 stall's signature is a network/USB-uplink
