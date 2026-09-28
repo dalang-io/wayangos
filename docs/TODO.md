@@ -3,7 +3,8 @@
 Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
-release: **1.0.21** (see `docs/HANDOVER.md`).
+release: **1.0.21** (see `docs/HANDOVER.md`). **Product goal + roadmap:
+[docs/GOAL.md](GOAL.md).**
 
 ## wayangos (this repo)
 
@@ -14,13 +15,15 @@ release: **1.0.21** (see `docs/HANDOVER.md`).
       QEMU-proven against the production hubs. See
       [docs/EDGEROUTER.md](EDGEROUTER.md) + wayangi's `docs/edge-wayangos.md`,
       `docs/EDGE-PARITY.md`. **Runs only once the kernel below is fixed.**
-- [~] **Router kernel block — INTERACTION lockup.** Every group PASSES the
-      bisect **individually** (veth-macvlan-tun, wireguard, vrf-multipath,
-      ipsec, dummy-bonding, gre-ipip, qos), but the **accumulated set froze the
-      device** (1.0.13 and 1.0.20). Reverted to the VLAN/bridge MVP. Next: find
-      the minimal failing subset by delta-debugging on the hardware
-      (`scripts/bisect-router-opts.sh`; extend to combo groups) and research the
-      culprit (`docs/ROUTER-KERNEL-INTERACTION.md`, expected). See
+- [~] **Router kernel block — freeze NOT reproduced (decision pending).**
+      Every group passes the bisect individually, and a 2026-09-28 delta-debug
+      showed the **full accumulated block passes too** (3 boots + 30-min soak);
+      the 1.0.20 freeze's signature is a **network/USB-uplink stall** (`gw=''`,
+      clean dmesg), not a CPU lockup → likely intermittent/environmental. The
+      block stays **off** (VLAN/bridge MVP) until the owner picks a path (ship a
+      test release with a safety-net grub + cold-boot soak; investigate the
+      cold-boot stall; or keep off). See [docs/GOAL.md](GOAL.md) (M7),
+      [docs/ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md),
       [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
       [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md).
 - [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle

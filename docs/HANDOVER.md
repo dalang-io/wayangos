@@ -1,7 +1,8 @@
 # HANDOVER — WayangOS state (2026-09-28)
 
 Read `AGENTS.md` first (rules, boot order, build). `docs/TODO.md` is the
-pending-work index. This file is *where things stand* across the repos.
+pending-work index. **`docs/GOAL.md` is the product goal + roadmap** (what we are
+building and the milestones). This file is *where things stand* across the repos.
 
 ## Releases / channel / device
 
@@ -15,24 +16,23 @@ pending-work index. This file is *where things stand* across the repos.
 userspace: `radvd` (IPv6 RA), persistent monitoring daemons, the `wayang` console
 (09 EDGEROUTER), `wayang edgerouter apply`, `dcheck`, `nft`/`wg`/`tc`/`bird`.
 
-## ⚠️ Open: router-kernel interaction lockup (the main blocker)
+## ⚠️ Open: router-kernel block (goal-critical) + the freeze is NOT reproduced
 
-- 1.0.13 added a big "router" kernel block and **froze the device** (keyboard +
-  USB uplink dead). See `docs/INCIDENT-1.0.13.md`.
-- Every group was bisected **individually on the real device and PASSED**
-  (`docs/ROUTER-KERNEL-BISECT.md`): veth-macvlan-tun, wireguard, vrf-multipath,
-  ipsec, dummy-bonding, gre-ipip, qos.
-- The **accumulated set froze it again** in 1.0.20 (same symptom) → the trigger
-  is an **interaction of ≥2 groups**, not a single option.
-- Current state: the block is **reverted** in `configs/defconfig-intel` to the
-  VLAN/bridge MVP. The lab kernel (`scripts/build-lab-kernel.sh`) still has the
-  full block for QEMU-only work.
-- **In flight / next**: find the minimal failing subset with delta-debugging on
-  the hardware, and research likely culprits (arch crypto `*_ARCH`, VRF,
-  WireGuard+tunnel interactions). Two summary docs are expected:
-  `docs/ROUTER-KERNEL-INTERACTION.md` (culprit research) and the bisect result.
-  Until then, the advanced router features (WireGuard/VRF/ECMP/BGP) run **only
-  in the QEMU lab kernel**, not on shipped images.
+- 1.0.13 and 1.0.20 (both with the big "router" kernel block) **froze the
+  device**. See `docs/INCIDENT-1.0.13.md`.
+- But a **delta-debug on 2026-09-28 did NOT reproduce it**: the full accumulated
+  block (all 7 groups + watchdog) **passed 3 boots + a 30-min soak**; both halves
+  pass too, so there is **no failing subset**. The freeze's `dmesg.boot` is clean
+  and its selftest failed with **`gw=''` (no default route)`** → the signature is
+  a **network/USB-uplink stall**, not a CPU lockup. The shipped 1.0.20 differed
+  only by lacking the safety-net cmdline (no auto-recovery).
+- Working conclusion: **intermittent/environmental** (cold-boot USB-NIC/DHCP
+  stall), not a deterministic kernel-option interaction.
+- Current state: the block is **off** in `configs/defconfig-intel` (VLAN/bridge
+  MVP). Advanced router features (WireGuard/VRF/ECMP/BGP) run **only in the QEMU
+  lab kernel** until this is decided. Details + the decision to make:
+  `docs/ROUTER-KERNEL-INTERACTION.md`, `docs/ROUTER-KERNEL-BISECT.md`, and the
+  goal/roadmap `docs/GOAL.md` (M7/M8).
 
 ## WayangOS as a wayangi "Edge" unit type (dashboard)
 
