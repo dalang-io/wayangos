@@ -155,3 +155,12 @@ run:
   `/etc/init.d/network` hands every interface to `wayang-router`; an interface
   not named in the config is left unconfigured. Keep the management path on a
   configured port.
+- **A sole uplink must not be flapped by its health check (real-hardware
+  finding, 2026-09-29).** On the test device the bundle's default WAN probe
+  (`check = ["1.1.1.1"]`) intermittently false-failed under ISP jitter (and
+  `8.8.8.8` is filtered there), so `wan-monitor` marked the **only** uplink down
+  and moved the default route — the box lost its own SSH/management for ~30 s,
+  repeatedly. Workaround: point the WAN probe at the ISP gateway (always up
+  while the link is up). Tracked as a wayang-router bug: a sole/last uplink
+  should keep the last-known-good default rather than strand the box, and the
+  wayangi renderer should not hard-code `1.1.1.1` as the probe.
