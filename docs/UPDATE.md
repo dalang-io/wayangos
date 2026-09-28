@@ -18,7 +18,9 @@ kerja ada di [`UPDATE-TODO.md`](UPDATE-TODO.md).
   dari slot baru.
 - Update **selalu butuh reboot** (rootfs di RAM). Tanpa `--reboot`, `wayang`
   hanya menyiapkan dan mencetak pesan; reboot manual untuk menerapkan.
-- Anti-brick: `rcS` menjalankan `wayang mark-ok` setelah sistem siap. Kalau
+- Anti-brick: `rcS` menjalankan `wayang mark-ok` setelah sistem siap — dengan
+  jaring pengaman kernel (`wayang.selftest=120`), penandaan itu ditunda ke
+  self-test boot (±2 menit; lihat *Jaring pengaman boot* di bawah). Kalau
   slot baru gagal boot beberapa kali (`attempts`), GRUB otomatis kembali ke
   slot terakhir yang sukses (`good`). Lihat *Rollback*.
 
@@ -203,6 +205,34 @@ melewati channel tetapi **tetap memverifikasi** tanda tangan terhadap
   wayang update --rollback --reboot   # langsung pindah + reboot
   ```
 - Cek kondisi slot: `wayang status`.
+
+## Jaring pengaman boot (watchdog + self-test)
+
+Sejak net pengaman dibawa ke kernel rilis (`configs/defconfig-intel`, T2 di
+[TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)), setiap boot sudah membawa, tanpa arg
+tambahan dari GRUB:
+
+- **Watchdog hardware** (`/dev/watchdog`): Intel TCO (`iTCO_wdt`) di Lenovo
+  ThinkStation P320 Tiny & sejenisnya, `i6300esb` untuk pembuktian QEMU, dan
+  `softdog` sebagai cadangan universal. Selama self-test aktif, `wayang-selftest`
+  memelihara watchdog (BusyBox `watchdog -T 60 -t 10`) — hang/panic berujung
+  reset hardware, bukan box beku.
+- **Detektor lockup + panic-and-reboot** (baked-in cmdline
+  `panic=10 oops=panic softlockup_panic=1 hardlockup_panic=1
+  hung_task_panic=1 nmi_watchdog=1`): kernel yang macet mengakhir dirinya dengan
+  reset; GRUB menghitung upaya (3×) lalu kembali ke slot `good`.
+- **Self-test boot otomatis** (`wayang.selftest=120`): `rcS` menunda
+  `wayang mark-ok` dan menjalankan `wayang-selftest`, yang memeriksa konektivitas
+  (gateway/`1.1.1.1`, override lewat `wayang.selftest_host=` atau
+  `/data/etc/selftest.host`) setiap 5 s sampai detik ke-120. Lolos → slot
+  ditandai `good`; gagal → `wayang update --fallback` + reboot. Slot yang tetap
+  tidak sehat jatuh kembali ke slot `good` lewat anggaran 3 upaya GRUB.
+  Log: `/data/selftest.log`. Detail: [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)
+  dan [UPDATE-DESIGN.md](UPDATE-DESIGN.md).
+
+Artinya: boot normal sehat tetap ditandai `good` (hanya ditunda ±2 menit), dan
+box headless yang uplink-nya mati saat boot akan kembali sendiri ke slot yang
+dahulu baik, bukan beku tak terjangkau.
 
 ## Catatan keamanan
 
