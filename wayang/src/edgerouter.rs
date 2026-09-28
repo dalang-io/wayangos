@@ -643,6 +643,9 @@ pub struct ApplyReport {
     pub fw_backup: Option<PathBuf>,
     /// A token from the bundle was enrolled.
     pub enrolled: bool,
+    /// WireGuard private keys written next to the router config
+    /// (`<router_dir>/keys/<hub>.key`, 0600) — extracted from the bundle.
+    pub keys_written: Vec<PathBuf>,
 }
 
 impl ApplyReport {
@@ -656,6 +659,12 @@ impl ApplyReport {
         }
         if let Some(b) = &self.fw_backup {
             println!("fw backup:     {} (previous config kept)", b.display());
+        }
+        if !self.keys_written.is_empty() {
+            println!("wg keys:       {} written (0600)", self.keys_written.len());
+            for k in &self.keys_written {
+                println!("               {}", k.display());
+            }
         }
         if self.enrolled {
             println!("token:         enrolled (this box now shows on the wayangi dashboard)");
@@ -725,8 +734,14 @@ fn apply_into(
     validate_config(ROUTER_CONF, &router_raw, ROUTER_MARKERS)?;
     validate_config(FW_CONF, &fw_raw, FW_MARKERS)?;
 
-    // Refuse to clobber an existing config unless forced (checked for both up
-    // front, so the pair is replaced together or not at all).
+    // WireGuard private keys carried by the bundle (the canonical wayangi
+    // bundle embeds them in install.sh; a keys/ directory is also accepted).
+    // Written next to the router config so wayang-router reads keys/<hub>.key.
+    let keys = bundle_wg_keys(&root);
+    let keys_dir = router_dest.parent().map(|p| p.join("keys"));
+
+    // Refuse to clobber an existing config or key unless forced (checked up
+    // front, so the whole set is replaced together or not at all).
     if !force {
         for dest in [router_dest, fw_dest] {
             if dest.exists() {
@@ -737,10 +752,30 @@ fn apply_into(
                 ));
             }
         }
+        if let Some(kd) = &keys_dir {
+            for (name, _) in &keys {
+                let k = kd.join(name);
+                if k.exists() {
+                    return Err(format!(
+                        "{} already exists; re-run with --force to replace it",
+                        k.display()
+                    ));
+                }
+            }
+        }
     }
 
     let router_backup = write_config(router_dest, &router_raw, force)?;
     let fw_backup = write_config(fw_dest, &fw_raw, force)?;
+
+    let mut keys_written = Vec::new();
+    if let Some(kd) = &keys_dir {
+        for (name, val) in &keys {
+            let dest = kd.join(name);
+            write_key(&dest, val, force)?;
+            keys_written.push(dest);
+        }
+    }
 
     // Enrol the token, if any. Never print it or echo the bundle file.
     let enrolled = match bundle_token(&root) {
@@ -758,6 +793,7 @@ fn apply_into(
         router_backup,
         fw_backup,
         enrolled,
+        keys_written,
     })
 }
 
@@ -895,6 +931,135 @@ fn write_config(dest: &Path, contents: &str, force: bool) -> std::result::Result
         let _ = fs::set_permissions(dest, fs::Permissions::from_mode(0o644));
     }
     Ok(backup)
+}
+
+/// Write a WireGuard private key mode 0600 (no `.bak`: keys are re-derivable
+/// from the bundle).
+fn write_key(dest: &Path, key: &str, force: bool) -> std::result::Result<(), String> {
+    if dest.exists() && !force {
+        return Err(format!(
+            "{} already exists; re-run with --force to replace it",
+            dest.display()
+        ));
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+        }
+    }
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    f.write_all(key.as_bytes()).map_err(|e| format!("{}: {e}", dest.display()))?;
+    if !key.ends_with('\n') {
+        f.write_all(b"\n").map_err(|e| format!("{}: {e}", dest.display()))?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(dest, fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
+/// WireGuard private keys carried by a bundle: a `keys/*.key` directory, else
+/// the `printf '%s\n' '<key>' > "$NAME_KEY"` lines embedded in `install.sh`
+/// (the canonical wayangi format — it embeds the private keys there).
+fn bundle_wg_keys(root: &Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if let Ok(rd) = fs::read_dir(root.join("keys")) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("key") {
+                if let (Some(name), Ok(raw)) =
+                    (p.file_name().and_then(|s| s.to_str()), fs::read_to_string(&p))
+                {
+                    let val = raw.trim();
+                    if is_wg_key(val) {
+                        out.push((name.to_string(), val.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    if !out.is_empty() {
+        return out;
+    }
+    if let Ok(text) = fs::read_to_string(root.join(INSTALL_SH)) {
+        out = keys_from_install(&text);
+    }
+    out
+}
+
+/// Extract `(filename, key)` pairs from a generated `install.sh`: map each
+/// `NAME_KEY=$DIR/<file>.key` assignment to its variable, then read the key out
+/// of the matching `printf '%s\n' '<key>' > "$NAME_KEY"`.
+fn keys_from_install(text: &str) -> Vec<(String, String)> {
+    use std::collections::HashMap;
+    let mut files: HashMap<String, String> = HashMap::new();
+    for line in text.lines() {
+        let l = line.trim().strip_prefix("export ").unwrap_or(line.trim());
+        if let Some((var, val)) = l.split_once('=') {
+            let var = var.trim();
+            let val = val.trim().trim_matches('"').trim_matches('\'');
+            if var.ends_with("_KEY") && val.ends_with(".key") {
+                if let Some(base) = val.rsplit('/').next() {
+                    files.insert(var.to_string(), base.trim().to_string());
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let l = line.trim();
+        let rest = match l.strip_prefix("printf ") {
+            Some(r) => r,
+            None => continue,
+        };
+        let gt = match rest.find('>') {
+            Some(i) => i,
+            None => continue,
+        };
+        let var = rest[gt + 1..].trim().trim_matches('"').trim();
+        let var = var
+            .trim_start_matches('$')
+            .trim_matches('{')
+            .trim_matches('}')
+            .trim();
+        let val = match last_single_quoted(&rest[..gt]) {
+            Some(v) => v,
+            None => continue,
+        };
+        if let Some(name) = files.get(var) {
+            if is_wg_key(val) {
+                out.push((name.clone(), val.to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// The value of the last `'...'` segment in `s` (the key literal of a printf).
+fn last_single_quoted(s: &str) -> Option<&str> {
+    let end = s.rfind('\'')?;
+    let start = s[..end].rfind('\'')?;
+    Some(&s[start + 1..end])
+}
+
+/// A 32-byte Curve25519 private key, base64 (44 chars, trailing `=`).
+fn is_wg_key(s: &str) -> bool {
+    s.len() == 44
+        && s.ends_with('=')
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
 }
 
 /// The bundle's enrolment token: a `token` file, else one parsed out of
@@ -1288,6 +1453,57 @@ mod tests {
             assert_eq!(mode_of(&router), 0o644, "configs are world-readable, not secret");
             assert_eq!(mode_of(&fw), 0o644);
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn keys_from_install_reads_the_printf_pairs() {
+        let text = "#!/bin/sh\nset -eu\n\
+ROUTER_DIR=/data/etc/router\nKEY_DIR=$ROUTER_DIR/keys\n\
+JKT_KEY=$KEY_DIR/jkt.key\nMLB_KEY=$KEY_DIR/mlb.key\n\
+printf '%s\\n' 'KHay+Y2BwQVy6zH1cQ2A90fXyq79IG6jHG2Q9OQQLF8=' > \"$JKT_KEY\"\n\
+printf '%s\\n' 'YLMjy1psM/eCx7U5yQqyg1G7uZyq08l4+BwYy4aDjHI=' > \"$MLB_KEY\"\n";
+        let ks = keys_from_install(text);
+        assert_eq!(ks.len(), 2, "{ks:?}");
+        assert_eq!(ks[0].0, "jkt.key");
+        assert_eq!(ks[0].1, "KHay+Y2BwQVy6zH1cQ2A90fXyq79IG6jHG2Q9OQQLF8=");
+        assert_eq!(ks[1].0, "mlb.key");
+    }
+
+    #[test]
+    fn apply_installs_wireguard_keys_from_install_sh() {
+        // The canonical wayangi bundle embeds the WG private keys in install.sh
+        // (no keys/ dir); apply must write them 0600 next to the router config.
+        let dir = tmp();
+        let b = bundle_dir(&dir, "bundle");
+        let jkt = "KHay+Y2BwQVy6zH1cQ2A90fXyq79IG6jHG2Q9OQQLF8=";
+        let mlb = "YLMjy1psM/eCx7U5yQqyg1G7uZyq08l4+BwYy4aDjHI=";
+        fs::write(
+            b.join(INSTALL_SH),
+            format!(
+                "#!/bin/sh\nset -eu\nROUTER_DIR=/data/etc/router\nKEY_DIR=$ROUTER_DIR/keys\n\
+JKT_KEY=$KEY_DIR/jkt.key\nMLB_KEY=$KEY_DIR/mlb.key\n\
+printf '%s\\n' '{jkt}' > \"$JKT_KEY\"\nprintf '%s\\n' '{mlb}' > \"$MLB_KEY\"\n"
+            ),
+        )
+        .unwrap();
+
+        let router = dir.join("out/router/config.toml");
+        let fw = dir.join("out/fw/config.toml");
+        let base = dir.join("out/wayangi");
+        let rep = apply_into(&b, &router, &fw, &base, false).unwrap();
+        assert_eq!(rep.keys_written.len(), 2, "{:?}", rep.keys_written);
+        let kj = router.parent().unwrap().join("keys/jkt.key");
+        let km = router.parent().unwrap().join("keys/mlb.key");
+        assert_eq!(fs::read_to_string(&kj).unwrap().trim(), jkt);
+        assert_eq!(fs::read_to_string(&km).unwrap().trim(), mlb);
+        #[cfg(unix)]
+        {
+            assert_eq!(mode_of(&kj), 0o600, "private keys are 0600");
+            assert_eq!(mode_of(&km), 0o600);
+        }
+        // Without --force, a second apply refuses (configs and keys both).
+        assert!(apply_into(&b, &router, &fw, &base, false).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 
