@@ -56,6 +56,13 @@ ssh root@10.0.0.251 'cd /tmp/wayangos-dev/wayang && ~/.cargo/bin/cargo test'
 ./scripts/build-remote.sh      # full ISO + .wup on the box (uses /root/wayangos-build)
 ```
 
+Tagging `v*` builds via CI **on the box itself**: two self-hosted runners
+(`wosbuild-a/b`, user `wosrunner`, label `[self-hosted, wosbuild]`) run the
+3-job workflow (kernel ∥ tools → assemble) in ~5 min, with wifi tools,
+firmware and dcheck staged so CI artifacts match the manual builds. The
+runner user has **no sudo** (the apt step is a guarded no-op there); keep
+build deps installed for it when adding tool scripts.
+
 QEMU checks: direct-kernel boot with `-kernel bzImage -initrd initramfs.img`;
 `vga=0x318` gives a framebuffer with the intel kernel; a `/data` disk is an
 ext4 image with `-L WAYANGDATA` plus `wayang.data=LABEL=WAYANGDATA` on the
