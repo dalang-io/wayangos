@@ -126,7 +126,9 @@ jobs:
       - name: Cache kernel tree
         uses: actions/cache@v4
         with:
-          path: wayangos-build/linux-7.2.7
+          path: |
+            wayangos-build/linux-7.2.7
+            wayangos-build/linux-7.2.7.tar.xz
           key: wos-kernel-7.2.7-${{ hashFiles('scripts/build-kernel.sh', 'scripts/fetch-sources.sh', 'configs/defconfig-*') }}
           restore-keys: wos-kernel-7.2.7-
 
@@ -294,8 +296,10 @@ jobs:
           key: wos-base-7.2.7-${{ hashFiles('scripts/fetch-sources.sh') }}
           restore-keys: wos-base-7.2.7-
 
+      # SKIP_KERNEL: the installer job gets the bzImage as an artifact and
+      # never compiles — skip the ~130 MB kernel download + extract here.
       - name: Fetch external sources
-        run: ./scripts/fetch-sources.sh
+        run: SKIP_KERNEL=1 ./scripts/fetch-sources.sh
 
       - name: Download kernel + tools
         uses: actions/download-artifact@v4

@@ -72,7 +72,12 @@ echo ""
 # ============================================
 # 1. Linux kernel
 # ============================================
-if [ -d "$KERNEL_DIR" ]; then
+# SKIP_KERNEL=1: skip the kernel source entirely (the installer job gets the
+# bzImage as a CI artifact and never compiles) — saves the ~130 MB download
+# and the extract on every run.
+if [ "${SKIP_KERNEL:-0}" = 1 ]; then
+    echo "[1/5] Kernel skipped (SKIP_KERNEL=1)"
+elif [ -d "$KERNEL_DIR" ]; then
     echo "[1/5] Kernel $KERNEL_DIR already present"
 elif [ "$KERNEL_FLAVOR" = "rt" ]; then
     echo "[1/5] Downloading Linux $KERNEL_VERSION + PREEMPT_RT patch..."

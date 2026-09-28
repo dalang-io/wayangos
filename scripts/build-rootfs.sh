@@ -126,7 +126,7 @@ elif [ -f "$ROOTFS/usr/bin/curl" ]; then
     echo "  curl already present"
 else
     CURL_URL="https://github.com/moparisthebest/static-curl/releases/latest/download/curl-amd64"
-    wget -q "$CURL_URL" -O "$ROOTFS/usr/bin/curl"
+    wget -q --timeout=30 --tries=3 "$CURL_URL" -O "$ROOTFS/usr/bin/curl"
     chmod 755 "$ROOTFS/usr/bin/curl"
 fi
 if [ -f "$ROOTFS/usr/bin/curl" ]; then
@@ -134,7 +134,7 @@ if [ -f "$ROOTFS/usr/bin/curl" ]; then
 fi
 # CA certificates for HTTPS (the static curl has none built in); used by the
 # installer and wayang-addkey to fetch keys from GitHub/GitLab
-[ -f "$BUILD/cacert.pem" ] || wget -q https://curl.se/ca/cacert.pem -O "$BUILD/cacert.pem"
+[ -f "$BUILD/cacert.pem" ] || wget -q --timeout=30 --tries=3 https://curl.se/ca/cacert.pem -O "$BUILD/cacert.pem"
 mkdir -p "$ROOTFS/etc/ssl/certs"
 cp "$BUILD/cacert.pem" "$ROOTFS/etc/ssl/certs/ca-certificates.crt"
 
