@@ -71,8 +71,9 @@ router/firewall load their confirmed config; the monitor daemons start too (see
 wg show                       # wg-jkt / wg-mlb: latest handshake, rx/tx
 ip -4 route; ip -6 route      # default (v4+v6) via the tunnel group; ISP routes for the private seg
 ip rule                       # policy: public srcs -> tunnel table, private srcs -> ISP table
-ip -4 route show table 401    # weighted ECMP: nexthop via <hub> dev wg-… weight …
-wc -c </data/var/wayang-router/history.jsonl   # monitoring is collecting
+ip -4 route show table 402    # public ECMP: nexthop via <hub> dev wg-… weight …
+                              # (tables: 401 = private/ISP, 402 = public v4, 403 = public6)
+wc -c </data/var/wayang-router/history.jsonl   # monitoring is collecting (starts at boot, not at commit)
 ```
 
 On a **LAN host**: it should DHCP the public `/32` (option 121 gives the default
@@ -85,7 +86,7 @@ box/LAN host (inbound).
 ```sh
 ip link set wg-jkt down            # on the box
 # within a few seconds the monitor moves the group + main default to wg-mlb:
-ip route show table 401 ; ip rule
+ip route show table 402 ; ip rule
 # a LAN host keeps working:
 #   ping -c3 1.1.1.1  (0% loss)
 ip link set wg-jkt up              # it rejoins and the default returns
@@ -108,7 +109,7 @@ data for post-incident analysis is on `/data`. See [docs/MONITORING.md](MONITORI
 | Symptom | Check |
 |---|---|
 | No handshake | `wg show`; is the hub endpoint reachable on the WAN (UDP 51940)? Is the box's pubkey a peer on **both** hubs (dashboard site page / `edgeProvision`)? |
-| Tunnel up but no internet | `ip rule` (policy route present?); `ip route show table 401` (ECMP default?); `check` warns if the kernel lacks WireGuard/multipath |
+| Tunnel up but no internet | `ip rule` (policy route present?); `ip route show table 402` (public ECMP default?); `check` warns if the kernel lacks WireGuard/multipath |
 | LAN host has no address | `udhcpd` running? fw has `lan → self` `dhcp` policy? option 121 present in `/data/etc/router/udhcpd/<iface>.conf` (BusyBox wants raw hex, no `0x`)? |
 | IPv6 `RA` missing | `radvd` installed (`/usr/sbin/radvd`) and `ra = true`; `diagnostics` in the router log |
 | Public `/32` unreachable inbound | the `/32` must be routed to the hub upstream and the hub must route it to the box's peer (the dashboard adds this) — verify `ip route get <pub>` on the hub |
@@ -122,3 +123,35 @@ data for post-incident analysis is on `/data`. See [docs/MONITORING.md](MONITORI
   SSH require the commit-confirm window (auto-rollback).
 - The box's management access must survive interface/prefix changes — keep the
   `[management] allow_from` RFC1918 list in the generated `fw.toml`.
+
+## 8. Verified end-to-end (QEMU, 2026-09-29)
+
+The whole flow was proven in QEMU against a 4-NIC `wos-x86-4` bundle
+(`sim-wayangos`): `apply` (now also installs the WG keys 0600, so `check` is
+clean immediately) → `commit`/`confirm` both configs → the box self-configures at
+boot from the confirmed revision. Verified: `wg-jkt`/`wg-mlb` created,
+weighted-ECMP policy routing (tables 401 private / 402 public / 403 public6),
+`radvd` RA + RDNSS and `udhcpd` option-121 reaching a LAN host, the `wayang_fw`
+nftables ruleset actually filtering, and persistent monitoring. Notes from the
+run:
+
+- **Live hub handshakes need real provisioning** — the dev-sim bundle ships the
+  all-zero placeholder hub public key and is not provisioned on the production
+  hubs, so no handshake/failover can happen with it (the failover engine itself
+  is covered by wayang-router `tests/lab/edge_wg.py`, 41/41, against real hub VMs).
+- **wayang-router must be ≥ master** — the Edge fields (`routed_prefixes`,
+  `proxy_arp`, `ra`, `ra_rdnss`, …) were added after the v0.2.0 tag; a released
+  v0.2.0 binary fails to parse the bundle config (`unknown field`). Ship a
+  wayang-router built from master. (No-arg `wayang-router check` also used to
+  swallow a parse error and print "no interfaces: nothing is managed" + exit 0 —
+  fixed on wayang-router master by making an existing-but-unparseable config an
+  error.)
+- **`wayang-fw check` before the router commit** warns `interface wg-jkt/wg-mlb
+  does not exist` (expected ordering; the router creates them on commit).
+- **Anti-leak is conditional** — public-source traffic stays off the local ISP
+  only while **≥1 tunnel is healthy**; with every tunnel down the group route is
+  removed and it falls through to the main default.
+- **Interface ownership** — once a router config is confirmed,
+  `/etc/init.d/network` hands every interface to `wayang-router`; an interface
+  not named in the config is left unconfigured. Keep the management path on a
+  configured port.
