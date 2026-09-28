@@ -28,6 +28,11 @@
 #   --shared DIR       existing source cache on the builder
 #                      (default: /root/wayangos-build; never written to)
 #   --key FILE         release signing key (default: $WAYANG_KEY, else unsigned)
+#   --trusted FILE     trusted_keys file (lines "<keyid> <64-hex-ed25519-pub>")
+#                      to bake into the bundle's rootfs /etc/wayang/trusted_keys.
+#                      Without it the bundle ships an EMPTY trusted_keys, so its
+#                      own updater rejects the next re-stage ("no trusted key
+#                      for keyid ..."). Always pass the file matching --key.
 #   --unattended SECS  embed wayang.selftest=SECS in the kernel's built-in
 #                      cmdline: the box confirms the slot only if its gateway
 #                      still answers after SECS, else falls back + reboots
@@ -60,6 +65,7 @@ GROUP=""
 GROUP_LIST=""
 OPTS_FILE=""
 COMBO_NAME=""
+TRUSTED=""
 DRY_RUN=0
 LIST=0
 SAFETY=1
@@ -337,6 +343,7 @@ KEY="${BISECT_KEY:-}"
 WORK="${BISECT_WORK:?missing BISECT_WORK}"
 SHARED="${BISECT_SHARED:?missing BISECT_SHARED}"
 KV="${BISECT_KERNEL_VERSION:?missing BISECT_KERNEL_VERSION}"
+TRUSTED="${BISECT_TRUSTED:-}"
 
 BUILD="$WORK/build-$GROUP"
 OUT="$WORK/out"
@@ -405,7 +412,7 @@ if ! ls "$REPO"/dist/wayang-x86_64-unknown-linux-musl >/dev/null 2>&1; then
 fi
 
 echo "--- rootfs ---"
-BUILD_DIR="$BUILD" WAYANG_VERSION="$VERSION" ./scripts/build-rootfs.sh
+BUILD_DIR="$BUILD" WAYANG_VERSION="$VERSION" WAYANG_TRUSTED_KEYS="$TRUSTED" ./scripts/build-rootfs.sh
 
 echo "--- bundle ---"
 KEYARG=()
@@ -441,6 +448,7 @@ build_bundle() {
     local remote_out="$REMOTE_WORK/out"
     local remote_script="$REMOTE_WORK/bisect-remote.sh"
     local remote_key="$REMOTE_WORK/release.key"
+    local remote_trusted="$REMOTE_WORK/trusted_keys"
     local local_wup="$OUT_DIR/bisect-$tag-$VERSION-x86_64.wup"
     local remote_wup="$remote_out/bisect-$tag-$VERSION-x86_64.wup"
 
@@ -464,7 +472,7 @@ build_bundle() {
     local cmd
     cmd="BISECT_GROUP='$tag' BISECT_REPO='$remote_repo' BISECT_TMPCONFIG='.bisect-$tag' \
 BISECT_VERSION='$VERSION' BISECT_KEY='$remote_key' BISECT_WORK='$REMOTE_WORK' \
-BISECT_SHARED='$SHARED' BISECT_KERNEL_VERSION='$KERNEL_VERSION' \
+BISECT_SHARED='$SHARED' BISECT_KERNEL_VERSION='$KERNEL_VERSION' BISECT_TRUSTED='$remote_trusted' \
 bash '$remote_script'"
 
     rsh "$cmd"
@@ -557,6 +565,9 @@ while [ $# -gt 0 ]; do
         --key)
             [ $# -ge 2 ] || { echo "ERROR: --key needs a file" >&2; exit 1; }
             WAYANG_KEY="$2"; shift ;;
+        --trusted)
+            [ $# -ge 2 ] || { echo "ERROR: --trusted needs a trusted_keys file" >&2; exit 1; }
+            TRUSTED="$2"; shift ;;
         --unattended)
             [ $# -ge 2 ] || { echo "ERROR: --unattended needs SECONDS" >&2; exit 1; }
             case "$2" in ''|*[!0-9]*) echo "ERROR: --unattended needs SECONDS" >&2; exit 1 ;; esac
@@ -632,10 +643,15 @@ fi
 
 if [ -z "$WAYANG_KEY" ]; then
     echo "WARNING: WAYANG_KEY is unset -> bundles will be UNSIGNED and the" >&2
-    echo "         device will reject them unless a matching key is trusted." >&2
+    echo "         device will reject them unless a matching key is trusted" >&2
+    echo "         (pass --trusted FILE matching the signing key)." >&2
 fi
 if [ -n "$WAYANG_KEY" ] && [ ! -f "$WAYANG_KEY" ]; then
     echo "ERROR: WAYANG_KEY not found: $WAYANG_KEY" >&2
+    exit 1
+fi
+if [ -n "$TRUSTED" ] && [ ! -f "$TRUSTED" ]; then
+    echo "ERROR: --trusted file not found: $TRUSTED" >&2
     exit 1
 fi
 
@@ -656,6 +672,9 @@ if [ "$DRY_RUN" != 1 ]; then
     scp -q "$TMP/bisect-remote.sh" "$HOST:$REMOTE_WORK/bisect-remote.sh"
     if [ -n "$WAYANG_KEY" ]; then
         scp -q "$WAYANG_KEY" "$HOST:$REMOTE_WORK/release.key"
+    fi
+    if [ -n "$TRUSTED" ]; then
+        scp -q "$TRUSTED" "$HOST:$REMOTE_WORK/trusted_keys"
     fi
 fi
 
