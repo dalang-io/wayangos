@@ -16,29 +16,20 @@ kernel block): [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)** — T1–T4 lande
       09 EDGEROUTER console module; prod hub deployed with `WAYANGI_EDGE_WOS=1`;
       QEMU-proven against the production hubs. See
       [docs/EDGEROUTER.md](EDGEROUTER.md) + wayangi's `docs/edge-wayangos.md`,
-      `docs/EDGE-PARITY.md`. **Runs only once the kernel below is fixed.**
-- [~] **Router kernel block — no failing subset; decision pending = boot-count
-      runs.** Every group passes the bisect individually, and a 2026-09-28
-      delta-debug showed the **full accumulated block passes too** (3 boots +
-      30-min soak) — there is **no failing subset**. The 1.0.20 freeze's
-      signature is a **network/USB-uplink stall** (`gw=''`, clean dmesg), not
-      a CPU lockup. Leading (unconfirmed) hypothesis: the old synchronous
-      primary-NIC DHCP give-up (`udhcpc -n -q -t 5 -T 3`, ~15 s) over the
-      flaky SR9700 USB uplink — a slow lease left the box alive but
-      unreachable. Both mitigations are landed on `master` (unreleased):
-      primary DHCP now retries forever (`udhcpc -b` + bounded wait-carrier,
-      `765ee81`) and the safety net (watchdogs + lockup/hung-task detectors +
-      `wayang.selftest=120` cmdline) is baked into the shipped kernel
-      (`61c768f`, `configs/defconfig-intel`). The block stays **off**
-      (VLAN/bridge MVP) until the boot-count matrix + hardware session decide
-      per the [decision rule](TODO-M7-UNBLOCK.md#decision-rule-replaces-abc):
-      block-kernel vs safe-kernel, N≥12 boots each (`scripts/boot-soak.sh`,
-      ready-to-fire commands in
-      [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)), plus the
-      owner-run hardware session
-      ([docs/HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)). See
-      [docs/GOAL.md](GOAL.md) (M7),
-      [docs/ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md),
+      `docs/EDGE-PARITY.md`. **The kernel block it needs is now enabled (M7 resolved, below).**
+- [x] **Router kernel block — ENABLED (M7 resolved 2026-09-29).** Every group
+      passed the bisect individually; the accumulated set showed no failing
+      subset (delta-debug: 3 boots + 30-min soak); a device boot-count soak of
+      the block kernel ran **~30 consecutive clean boots** (connectivity at
+      up=47 s) with **one** unreproduced first-boot hang (coinciding with the
+      SR9700 link flap at ~14 s). The 1.0.20 freeze's signature was a
+      network/uplink stall (`gw=''`), cause fixed (`udhcpc -b`, `765ee81`), and
+      the shipped safety net (watchdogs + `wayang.selftest=120`, `61c768f`)
+      auto-recovers a hang. The full 7-group block is enabled in
+      `configs/defconfig-intel` (`106bb23`). Remaining before a tag: a real
+      **cold-boot (power-cycle) soak** — [docs/HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md).
+      See [docs/GOAL.md](GOAL.md) (M7),
+      [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
       [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md),
       [docs/HARDWARE.md](HARDWARE.md).
 - [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle

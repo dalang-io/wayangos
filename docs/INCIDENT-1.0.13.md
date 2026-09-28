@@ -290,3 +290,16 @@ the release, and these commits are not even pushed yet):
   the block kernel fails the matrix at a clearly higher rate, the H1/H2
   research in [ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md)
   revives.
+
+## 2026-09-29 — M7 resolved: the router block is enabled
+
+A device boot-count soak of the block kernel ran **~30 consecutive clean boots**
+(connectivity at up=47 s) with **one** hang — at 16:52, on the very first block
+boot, coinciding with the SR9700 `link down/up` at ~14 s — that did **not**
+reproduce (fresh re-staged first boot + all later boots clean). The safe kernel
+had 0 hangs. Verdict: the single hang is environmental (cold/first-boot USB), not
+a deterministic interaction → the block is **enabled** in `configs/defconfig-intel`
+(`106bb23`), covered by the primary-DHCP `udhcpc -b` fix (`765ee81`) and the
+shipped watchdog/`wayang.selftest` safety net (`61c768f`). A real cold-boot
+(power-cycle) soak remains before the next tag. Full write-up:
+[TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md) §RESULT.

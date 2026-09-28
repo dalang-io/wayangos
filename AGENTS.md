@@ -89,15 +89,14 @@ bundled; UI reference for all TUIs).
 **Released: 1.0.22** (tag + channel + GitHub release; device on it). 1.0.22 =
 exactly the 1.0.21 image **plus the shipped safety net** (watchdogs + lockup
 detectors + `wayang.selftest=120`/`panic=10` baked into the kernel cmdline) and
-the DHCP-resilience fix (primary NIC `udhcpc -b`, no 15 s give-up) — it does NOT
-enable the router kernel block. Router MVP (VLAN/bridge) is
-on; the rest of the router kernel block is **off** — every group passes the
-bisect alone but the **accumulated set passed on retest** (3 boots + 30-min
-soak; no failing subset) — the 04:48 stall's signature is a network/USB-uplink
-stall (`gw=''`, clean dmesg), not a CPU lockup; primary suspect: the primary-NIC
-DHCP give-up (fixed on master, unreleased), so it is kept off pending the
-boot-count decision: [docs/INCIDENT-1.0.13.md](docs/INCIDENT-1.0.13.md),
-[docs/ROUTER-KERNEL-BISECT.md](docs/ROUTER-KERNEL-BISECT.md). Cross-repo state:
+the DHCP-resilience fix (primary NIC `udhcpc -b`, no 15 s give-up). It does not
+yet enable the router block. **The full router kernel block is now ENABLED on
+`master`** (`configs/defconfig-intel`, `106bb23`, M7 resolved 2026-09-29):
+WireGuard/VRF/veth/macvlan/tun/ipsec/dummy/bonding/gre-ipip/QoS/bridge. A device
+boot-count soak ran ~30 consecutive clean block boots with one unreproduced
+first-boot hang; the DHCP fix + safety net cover it. **Remaining before a tag**:
+a real cold-boot (power-cycle) soak on the device
+([docs/HW-SESSION-CHECKLIST.md](docs/HW-SESSION-CHECKLIST.md)). Cross-repo state:
 [docs/HANDOVER.md](docs/HANDOVER.md); pending work: [docs/TODO.md](docs/TODO.md).
 WayangOS is a wayangi "Edge" unit type in the dashboard (self-managed WireGuard,
 no agent) — [docs/EDGEROUTER.md](docs/EDGEROUTER.md). WayangPOS is a separate

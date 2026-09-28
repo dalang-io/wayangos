@@ -16,50 +16,37 @@ building and the milestones). This file is *where things stand* across the repos
 `wayang.selftest=120 panic=10 …` baked into `configs/defconfig-intel`
 `CONFIG_CMDLINE`) and the **DHCP-resilience fix** (primary NIC `udhcpc -b`, no
 retry give-up; bounded wait-for-carrier). QEMU-proved (`test-selftest-qemu.sh`
-nonet/hang/panic) and device-tested before tagging. The router kernel block stays
-**off** (VLAN/bridge MVP). CI (see below) now builds on the box itself.
+nonet/hang/panic) and device-tested before tagging. The router kernel block is
+now **enabled** (M7 resolved — see below). CI (see below) builds on the box itself.
 
 1.0.21 ships the **safe kernel** (VLAN/bridge router MVP only) plus all the new
 userspace: `radvd` (IPv6 RA), persistent monitoring daemons, the `wayang` console
 (09 EDGEROUTER), `wayang edgerouter apply`, `dcheck`, `nft`/`wg`/`tc`/`bird`.
 
-## ⚠️ Open: router-kernel block (goal-critical) + the freeze is NOT reproduced
+## ✅ Resolved: router-kernel block ENABLED (M7, 2026-09-29)
 
 - 1.0.13 and 1.0.20 (both with the big "router" kernel block) **froze the
   device**. See `docs/INCIDENT-1.0.13.md`.
-- But a **delta-debug on 2026-09-28 did NOT reproduce it**: the full accumulated
-  block (all 7 groups + watchdog) **passed 3 boots + a 30-min soak**; both halves
-  pass too, so there is **no failing subset**. The freeze's `dmesg.boot` is clean
-  and its selftest failed with **`gw=''` (no default route)`** → the signature is
-  a **network/USB-uplink stall**, not a CPU lockup. The shipped 1.0.20 differed
-  only by lacking the safety-net cmdline (no auto-recovery).
-- Working conclusion: **intermittent/environmental** (cold-boot USB-NIC/DHCP
-  stall), not a deterministic kernel-option interaction.
-- **Leading hypothesis (unconfirmed — the boot-count runs + hw session settle
-  it): the "freeze" was a DHCP stall.** The rootfs used to run a synchronous
-  `udhcpc -n -q -t 5 -T 3` (~15 s give-up) on the primary interface; the public
-  uplink is a DHCP `/32` lease over a flaky USB SR9700, so a slow cold-boot
-  lease left the box alive but unreachable (`gw=''`). **Fixed on master**
-  (`765ee81`, unreleased): primary DHCP is now `udhcpc -b` (retries forever)
-  after a bounded 10 s wait-for-carrier, so a late lease still applies.
-- **The safety net now ships in the kernel** (`61c768f`, unreleased):
-  `configs/defconfig-intel` bakes the watchdogs (ITCO_WDT = the P320's PCH,
-  I6300ESB for the QEMU proof, soft watchdog fallback), soft/hard-lockup +
-  hung-task detectors and `CONFIG_CMDLINE` (`panic=10 oops=panic …
-  nmi_watchdog=1 wayang.selftest=120`) into the kernel cmdline; grub template
-  unchanged. `scripts/test-selftest-qemu.sh` scenarios nonet/hang/panic all
-  PASS with the net coming from the shipped config. A stalled boot now
-  self-recovers (selftest FAIL → fallback → reboot) instead of stranding a
-  headless box.
-- Current state: the block is **off** in `configs/defconfig-intel` (VLAN/bridge
-  MVP). Advanced router features (WireGuard/VRF/ECMP/BGP) run **only in the QEMU
-  lab kernel** until this is decided. The decision is no longer a path pick —
-  it is data-driven: run the **boot-count matrix** (block-kernel vs safe-kernel,
-  N≥12 boots each, `scripts/boot-soak.sh`, ready-to-fire commands in
-  `docs/ROUTER-KERNEL-BISECT.md`) + the hardware session
-  ([docs/HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)), then apply the
-  decision rule in `docs/TODO-M7-UNBLOCK.md`. Details:
-  `docs/ROUTER-KERNEL-INTERACTION.md`, and the goal/roadmap `docs/GOAL.md` (M7/M8).
+- 2026-09-28 delta-debug: the full accumulated block (all 7 groups + watchdog)
+  **passed 3 boots + a 30-min soak** — no failing subset; the freeze's signature
+  was a **network/USB-uplink stall** (`gw=''`, clean dmesg), not a CPU lockup.
+- **M7 decision (2026-09-29): ENABLE the block.** A device boot-count soak of the
+  block kernel ran **~30 consecutive clean boots** (connectivity verified at
+  up=47 s) with **one** unreproduced first-boot hang (coinciding with the SR9700
+  link flap at ~14 s); the fresh-staging first boot and every later boot were
+  clean. Enabling is covered by two already-landed mitigations:
+  - **DHCP fix** (`765ee81`): primary `udhcpc -b` (retries forever) after a
+    bounded 10 s wait-for-carrier — removes the `gw=''` stall class.
+  - **Shipped safety net** (`61c768f`): watchdogs (ITCO_WDT = the P320's PCH,
+    I6300ESB for QEMU, softdog fallback) + lockup/hung-task detectors +
+    `CONFIG_CMDLINE` (`panic=10 oops=panic … wayang.selftest=120`); a hang now
+    self-recovers (watchdog reset / selftest fallback) instead of stranding a
+    headless box. QEMU-proved (`test-selftest-qemu.sh` nonet/hang/panic).
+- **State**: the full 7-group block is **enabled** in `configs/defconfig-intel`
+  (`106bb23`). M8 (EdgeRouter E2E) is unblocked. **Remaining before a tag**: a
+  real **cold-boot** (power-cycle) soak with the owner at the device —
+  `docs/HW-SESSION-CHECKLIST.md`. Details: `docs/GOAL.md` (M7),
+  `docs/TODO-M7-UNBLOCK.md`, `docs/ROUTER-KERNEL-BISECT.md`.
 
 ## WayangOS as a wayangi "Edge" unit type (dashboard)
 

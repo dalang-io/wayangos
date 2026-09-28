@@ -227,3 +227,27 @@ After T1+T2 ship and the T3 matrix runs:
 Either way T1+T2 go into the next release: they fix a real product risk
 (a headless box stranded by a 15-second DHCP race) independent of the kernel
 question.
+
+## RESULT (2026-09-29) — decision: ENABLE the block
+
+Executed the plan on the hardware (device `root@163.128.55.3`):
+
+- Built the block bundle (7 groups + safety net) and the safe/baseline bundle.
+- Found and fixed a real gap: bisect/soak bundles shipped an EMPTY
+  `/etc/wayang/trusted_keys`, so a device running one rejected the next re-stage
+  (`no trusted key for keyid 'release'`) — `scripts/bisect-router-opts.sh` gained
+  `--trusted FILE` to bake the release key (`44aa32d`).
+- Soak of the block kernel: **~30 consecutive clean boots** (connectivity
+  verified at up=47 s in `/data/selftest.log`), with **one** hang — at 16:52, on
+  the very first block boot, coinciding with the SR9700 `link down/up` at ~14 s —
+  that did **not** reproduce (a fresh re-staged first boot, and every later boot,
+  was clean). The safe kernel has 0 hangs.
+- The soak's "empty snapshot" rows and rising `attempts` were artifacts of
+  rebooting before the 120 s verdict (mark-ok never fired), not failures.
+
+Verdict per the decision rule: the single unreproduced hang is environmental
+(cold/first-boot USB) rather than a deterministic interaction → **enable the
+block**, covered by the two mitigations (primary-DHCP `udhcpc -b`; shipped
+watchdog/`wayang.selftest` safety net). Landed: `configs/defconfig-intel`
+enable = `106bb23`. **Remaining before a tag**: a real cold-boot (power-cycle)
+soak with the owner at the device ([HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)).

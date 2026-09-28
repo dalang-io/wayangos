@@ -37,48 +37,43 @@ on the box (self-managed WireGuard, like a RouterOS `.rsc`, no agent).
 | M4 | Router MVP (VLAN/bridge/static routes/DHCP) | done |
 | M5 | Monitoring persistence (fw/router history) + `radvd` bundled | done |
 | M6 | wayangi **WayangOS unit type** + self-managed WireGuard bundle, prod hub on | done |
-| M7 | **Router kernel block on the released image** | **blocked** — see below |
-| M8 | EdgeRouter end-to-end on real hardware (tunnels + public IP + RA + fw) | blocked by M7 |
+| M7 | **Router kernel block on the released image** | **done** — enabled `106bb23`; pending cold-boot soak + release, see below |
+| M8 | EdgeRouter end-to-end on real hardware (tunnels + public IP + RA + fw) | unblocked by M7 |
 | M9 | Router feature completion: VRF/ECMP/BGP/OSPF/IPsec/QoS via dashboard | after M7 |
 
-## Where M7 stands (the goal-critical blocker)
+## Where M7 stands — RESOLVED 2026-09-29
 
-The router kernel block (WireGuard/VRF/veth/dummy/bond/gre/ipsec/QoS) is **off in
-the released image** (`configs/defconfig-intel` = VLAN/bridge MVP only). 1.0.13
-and 1.0.20 froze the device with the block; but a 2026-09-28 delta-debug showed
-the **full block passes** on the device (3 boots + 30-min soak) — **no failing
-subset** — and the freeze's signature is a **network/USB-uplink stall** (`gw=''`,
-clean dmesg), not a CPU lockup. Leading (unconfirmed) hypothesis: the old
-synchronous primary-NIC DHCP give-up (`udhcpc -n -q -t 5 -T 3`, ~15 s) over the
-flaky SR9700 USB uplink. Both mitigations are landed on `master`, unreleased
-(1.0.22 is the release): primary DHCP now retries forever (`udhcpc -b` +
-bounded wait-carrier, `765ee81`) and the safety net (watchdogs + lockup/hung-task
-detectors + `wayang.selftest=120`) is baked into the shipped kernel (`61c768f`).
-The M7 decision is now data-driven, not a path pick: run the boot-count matrix
-(block-kernel vs safe-kernel, N≥12 boots each, `scripts/boot-soak.sh`) plus the
-hardware session ([HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)), then apply
-the decision rule in [TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md). See
-[ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md),
-[ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md), [INCIDENT-1.0.13.md](INCIDENT-1.0.13.md).
+The full router block (WireGuard/VRF/veth/macvlan/tun/ipsec/dummy/bond/gre-ipip/
+QoS/bridge) is **enabled in `configs/defconfig-intel`** (`106bb23`). Evidence:
+every group passed the bisect individually; the accumulated set showed no failing
+subset (delta-debug: 3 boots + 30-min soak); and a device boot-count soak of the
+block kernel ran **~30 consecutive clean boots** (connectivity at up=47 s) with
+**one** hang — on the very first block boot, coinciding with the SR9700 link flap
+at ~14 s — that did **not** reproduce (fresh-staging first boot + every later boot
+clean). The 1.0.13/1.0.20 freeze's signature was a network/USB-uplink stall
+(`gw=''`), whose leading cause — the synchronous primary-NIC DHCP give-up
+(`udhcpc -n -q -t 5 -T 3`, ~15 s) — is fixed (`udhcpc -b`, `765ee81`); and the
+shipped safety net (watchdogs + lockup/hung-task detectors + `wayang.selftest=120`
++ `panic=10`, `61c768f`) auto-recovers a hang instead of stranding the box.
+**Remaining for a release**: a real **cold-boot** soak (power-cycle, owner at the
+device) per [HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md), then tag.
+See [TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md),
+[ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
+[INCIDENT-1.0.13.md](INCIDENT-1.0.13.md).
 
 ## TODO toward the goal (owner-visible)
 
-- [~] **Unblock M7 — multi-agent plan**: [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).
-      T1 DHCP resilience ✅ `765ee81` · T2 shipped safety net ✅ `61c768f` ·
-      T3 boot-count harness ✅ `17ecaf0` · T4 hardware session doc ✅ `4a00b2e`
-      (all landed 2026-09-28, unreleased) · T5 docs consolidation = this pass.
-      The old "decide M7 path" choice is superseded by that plan's decision
-      rule (next item).
-- [ ] **Run the T3/T4 boot-count + hardware session, then decide M7 by the
-      [decision rule](TODO-M7-UNBLOCK.md#decision-rule-replaces-abc)** (device
-      work needs owner OK): block-kernel vs safe-kernel, N≥12 boots each
-      (`scripts/boot-soak.sh`; ready-to-fire commands in
-      [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)) + the hardware
-      session ([HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)). The old
-      "(a)/(b)/(c)" pick-a-path choice is retired. Until the decision, the
-      advanced router features are lab-kernel only.
-- [ ] Re-enable the minimal validated set in `configs/defconfig-intel` and do a
-      real cold-boot soak (≥30 min, several cold boots) before tagging.
+- [x] **Unblock M7 — multi-agent plan**: [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).
+      T1 DHCP resilience `765ee81` · T2 shipped safety net `61c768f` ·
+      T3 boot-count harness `17ecaf0` · T4 hardware session doc `4a00b2e`
+      (2026-09-28) · T5 docs consolidation · **M7 DECIDED 2026-09-29: the block
+      is ENABLED in `configs/defconfig-intel`** (`106bb23`). Soak evidence: ~30
+      consecutive clean block-kernel boots (connectivity at up=47 s) + 1
+      unreproduced first-boot hang; the shipped safety net (auto-recover) and
+      the T1 DHCP fix cover it.
+- [ ] **Cold-boot soak before the next tag** — the soak above was warm reboots
+      (`reboot -f`); a real power-cycle cold-boot soak (owner at the device) is
+      the last gate. [HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md).
 - [x] **Safety net in the shipped kernel** (watchdog/selftest + lockup panics)
       so a stall auto-recovers instead of stranding a headless box: done
       in-tree — `configs/defconfig-intel` bakes the watchdogs (ITCO_WDT = the
@@ -90,7 +85,8 @@ the decision rule in [TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md). See
       no extra args). Ships with the next tag.
 - [ ] EdgeRouter E2E on hardware: enrol, tunnels, public `/32`+`/64`, RA/SLAAC
       (radvd now bundled), firewall, failover drill — [EDGEROUTER-RUNBOOK.md](EDGEROUTER-RUNBOOK.md).
-- [ ] CI channel-publish secrets (`docs/CHANNEL.md`).
+- [x] CI channel-publish secrets (`docs/CHANNEL.md`): set + verified
+      (`WAYANG_DEPLOY_HOST`/`WAYANG_DEPLOY_KEY`, republish dispatch rsynced).
 - [ ] Document the owner's MiniPC CPU/ISA in [HARDWARE.md](HARDWARE.md).
 
 See [docs/TODO.md](TODO.md) (the full cross-repo backlog) and
