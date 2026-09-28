@@ -283,3 +283,12 @@ the 1.0.13 lockup, so the trigger is an **interaction** (or not only these
 options). The full set (plus the Intel TCO / i6300esb watchdog) is now enabled in
 `configs/defconfig-intel` and **must be soak-tested as one bundle on the device**
 before publishing.
+
+## Interaction check (2026-09-28)
+
+The full accumulated set (all 7 groups + watchdog) was booted with the safety net
+and **passed** (3 boots + 30-min soak); the halves pass too — see
+[ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md#bisect-result--the-interaction-did-not-reproduce-2026-09-28).
+No failing subset was found, so the router block stays off pending a reproducer;
+the 1.0.20 freeze looks like an intermittent USB-uplink/DHCP stall. The combo
+harness (`--groups`, `--opts-file`, `--combo-name`) is in `bisect-router-opts.sh`.

@@ -399,3 +399,35 @@ cumulative re-add to isolate the netdev interaction.
 - Repo ground truth: [INCIDENT-1.0.13.md](INCIDENT-1.0.13.md),
   [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
   [HANDOVER.md](HANDOVER.md), `configs/defconfig-{intel,qemu}`.
+
+## Bisect result — the interaction did NOT reproduce (2026-09-28)
+
+A delta-debug ran the full accumulated set (all 7 groups + watchdog) on the real
+device with the safety net (`wayang.selftest=120`, lockup/panic detectors):
+
+| combo | result |
+|---|---|
+| full (all 7 + watchdog) | **PASS ×3** (selftest PASS ~124 s each; all boot netdevs present; dmesg clean) |
+| full + `selftest=1800` | **SURVIVED 30 min** (route stable; slot marked good) |
+| half A (veth,wireguard,vrf,ipsec) | PASS |
+| half B (dummy,gre,qos) | PASS |
+
+So there is **no minimal failing subset** — the full block that shipped as 1.0.20
+**passes** here. The 04:48 freeze's `/data/debug/dmesg.boot` is clean through
+5.7 s (xHCI/sr9700/keyboard enumerate fine) and its selftest failed with
+**`gw=''` (no default route)** — the signature is a **network/USB-uplink stall**,
+not a CPU lockup. Differences vs the shipped artifact: the shipped 1.0.20 ran the
+same kernel options but **without** the safety-net `CONFIG_CMDLINE`
+(detector/nmi args were inert) and without a `selftest` cmdline, so it had no
+auto-recovery.
+
+Working conclusion: the freeze is most likely **intermittent/environmental** (a
+cold-boot USB-NIC/DHCP stall), not a deterministic kernel-option interaction.
+
+Recommendation: keep the router block **OFF** in the release until reproduced
+(the shipped 1.0.20 without the safety cmdline is the only failing artifact).
+To settle it, cold-boot the shipped 1.0.20 with `wayang.selftest=… wayang.debug`
+many times (~10+) with a ≥30 min window and log time-to-failure — this needs
+power-cycle access. Consider putting a `wayang.selftest`-style watchdog +
+`panic=10 …` into the *shipped* grub so a stall auto-recovers instead of
+stranding a headless box.

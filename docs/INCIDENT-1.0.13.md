@@ -225,3 +225,15 @@ Conclusion: the trigger is an **interaction of ≥2 groups**, not a single optio
 1.0.20 was never published (channel stayed on 1.0.19). The kernel is reverted to
 the VLAN/bridge MVP; the router features stay lab-kernel/officially off until the
 interaction is found (cumulative/pairwise bisect on the hardware).
+
+### Follow-up (2026-09-28): the interaction did not reproduce
+
+A delta-debug of the full accumulated kernel block **passed** on the real device
+(3 boots + a 30-minute soak), so there is **no minimal failing subset**. The
+04:48 failure's `dmesg.boot` is clean and its selftest failed with `gw=''` (no
+default route) — the signature is a **network/USB-uplink stall**, not a CPU
+lockup. The shipped 1.0.20 differed only by lacking the safety-net cmdline
+(`selftest` + detectors), so it had no auto-recovery. Working conclusion: the
+freeze is most likely **intermittent/environmental** (cold-boot USB-NIC/DHCP
+stall). Keep the block off until reproduced; see
+[ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md#bisect-result--the-interaction-did-not-reproduce-2026-09-28).
