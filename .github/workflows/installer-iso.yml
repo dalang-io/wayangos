@@ -132,7 +132,22 @@ jobs:
             echo "self-hosted runner without sudo — assuming build deps are preinstalled"
           fi
 
+      # The kernel tree source+object cache is ~700 MB; restoring it over the
+      # cache service takes ~3 min. The persistent self-hosted workspace almost
+      # always already has the tree (build-kernel.sh is incremental — the build
+      # is seconds), so restoring every run is pure waste. Restore only when the
+      # tree is absent (a fresh runner); the hash-of-inputs key is unchanged.
+      - name: Check for kernel tree
+        id: ktree
+        run: |
+          if [ -d wayangos-build/linux-7.2.7 ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Cache kernel tree
+        if: steps.ktree.outputs.present != 'true'
         uses: actions/cache@v4
         with:
           path: |
