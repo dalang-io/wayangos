@@ -52,6 +52,17 @@ Detected devices and status:
 - If a future build ever sets `-march=`/`target-cpu` or `GOAMD64=v3`, it must be
   validated against this CPU's flags above. Baseline `v1`/`x86-64` is required.
 
+> **Build policy — keep it generic (do NOT target a single CPU).** WayangOS ships
+> **one** x86_64 image (the installer ISO is used on many boxes), so the kernel and
+> every userspace binary are built to the **x86-64 baseline** (SSE2): no
+> `-march=native`, no `target-cpu`, `GOAMD64` unset. A CPU-specific build
+> (`-march=kabylake`, `GOAMD64=v3`, kernel family `MCORE2`) would run on *this*
+> P320 Tiny but **break on any older CPU / VM** (SIGILL/panic) and would diverge
+> from the release. It also does **not** fix the freeze — that is a kernel
+> *option interaction* ([docs/ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md)),
+> not instruction-set selection. For a one-off experiment on your own unit it is
+> "safe" only on that exact CPU; keep it out of `configs/` and the release.
+
 ### Gotchas
 
 - **`8086:24fb` is a family id.** The actual chip (here *3168*, not 8265) comes
