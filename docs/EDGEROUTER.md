@@ -1,5 +1,7 @@
 # TODO — WayangOS as a wayangi EdgeRouter
 
+Practical end-to-end operations: [docs/EDGEROUTER-RUNBOOK.md](EDGEROUTER-RUNBOOK.md).
+
 Goal: turn a WayangOS box (wayang-router + wayang-fw) into an **EdgeRouter**
 registered on the **wayangi** dashboard (`~/dev/wayangi`, `wayangi.dalang.io`):
 it enrols with a token, brings up a WireGuard tunnel to the hub, receives a

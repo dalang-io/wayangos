@@ -36,6 +36,8 @@ userspace: `radvd` (IPv6 RA), persistent monitoring daemons, the `wayang` consol
 
 ## WayangOS as a wayangi "Edge" unit type (dashboard)
 
+End-to-end operations: [docs/EDGEROUTER-RUNBOOK.md](EDGEROUTER-RUNBOOK.md).
+
 Goal: a WayangOS box becomes an Edge router on the wayangi dashboard — exactly
 like the MikroTik `.rsc`, but the box **self-manages WireGuard from a generated
 config** (no wayangi agent on the box).
