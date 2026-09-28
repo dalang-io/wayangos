@@ -38,7 +38,7 @@ on the box (self-managed WireGuard, like a RouterOS `.rsc`, no agent).
 | M5 | Monitoring persistence (fw/router history) + `radvd` bundled | done |
 | M6 | wayangi **WayangOS unit type** + self-managed WireGuard bundle, prod hub on | done |
 | M7 | **Router kernel block on the released image** | **done** — enabled `106bb23`; pending cold-boot soak + release, see below |
-| M8 | EdgeRouter end-to-end on real hardware (tunnels + public IP + RA + fw) | unblocked by M7 |
+| M8 | EdgeRouter end-to-end (tunnels + public IP + RA + fw) | **QEMU-proven**; real-hardware pending a wiring-matched bundle + console commit |
 | M9 | Router feature completion: VRF/ECMP/BGP/OSPF/IPsec/QoS via dashboard | after M7 |
 
 ## Where M7 stands — RESOLVED 2026-09-29

@@ -110,7 +110,7 @@ config** (no wayangi agent on the box).
 |---|---|---|
 | `dalang-io/wayangos` (this) | `master` @ 1.0.22, tag `v1.0.22` | released 1.0.22 (safety net + DHCP resilience); CI is self-hosted on the build box |
 | `dalang-io/wayang-fw` | `master` `a8518fc`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, `docs/NFT-REF.md`, monitor |
-| `dalang-io/wayang-router` | `master` `3027eed`, tag `v0.2.0` | self-managed WG, tunnel-as-uplink (`onlink`), weighted ECMP, VRF, BGP/OSPF, radvd, multi-WAN, `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
+| `dalang-io/wayang-router` | `master` `59ec752`, tag `v0.3.0` | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor history); `engine` hardening (unparseable confirmed config = error); `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
 | `dalang-io/dcheck` | `master` `33dc1af` | health list + Prometheus + undelete/macOS |
 | `dalang-io/wayangi` (dashboard) | `main` `b8b2227` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod |
 
