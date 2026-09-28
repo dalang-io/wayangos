@@ -100,24 +100,19 @@ Goal: determine whether the stalls are caused by the **SR9700 USB dongle**
 (hardware under test) or by the **kernels**. The product MiniPCs use the
 onboard NIC, so "stalls vanish off the SR9700" ⇒ dongle flaky, case closed.
 
-### ⚠️ OPEN QUESTION — resolve BEFORE the session: is the /32 lease MAC-bound?
+### ✅ RESOLVED (owner, 2026-09-28): the /32 comes from the local router, lease TTL 1 min
 
-The public `163.128.55.3/32` DHCP lease **may be bound to the SR9700's MAC
-address**. If so, moving the cable to `eth0` gets no lease (or a different
-address) and the test is inconclusive. Options, in order:
+The public `163.128.55.3/32` is **not MAC-bound**: it is leased by the local
+router's DHCP with a **1-minute lease**. Swap the cable to `eth0`, wait ~1
+minute for the lease to expire, and the same IP is offered to the new MAC —
+no MAC cloning, no provider call. With T1's `udhcpc -b` (retries forever) the
+box simply keeps asking until the lease frees up. ISPs differ (some hand out
+one IP, some many) — **do not try to accommodate ISP behaviour**; the only
+requirement is that the box gets an IP.
 
-1. **Just test it (cheapest).** Move the cable, boot, and check `ip addr` on
-   `eth0`: if the same `163.128.55.3/32` appears, the lease follows the *port*,
-   not the MAC — proceed. If no lease / a different address, the lease is
-   MAC-bound and you need option 2 or 3.
-2. **MAC clone.** BusyBox `udhcpc -C` asks the server to keep the previous
-   lease for a changed client-id; a cleaner approach is to have `eth0` present
-   the SR9700's MAC — the rootfs network init does **not** support MAC spoofing
-   today (`ip link set eth0 address <SR9700-MAC>` before `udhcpc` would do it
-   as a manual console step). Record the SR9700 MAC first:
-   `ssh $HOST 'cat /sys/class/net/eth1/address'` (do this **before** swapping).
-3. **Ask the provider/owner** how the lease moves (portal re-auth, MAC
-   registration, or simply DHCP-per-port on their side).
+If `eth0` shows no lease right after the swap, that is expected for up to a
+minute — re-check, don't debug. Only if it stays empty for several minutes,
+look at cabling/port.
 
 Alternative control (no lease question at all): swap in a **known-good USB NIC
 (AX88179 or RTL8153)** in place of the SR9700, keeping the same cabling. If
@@ -150,7 +145,7 @@ To restore afterwards: move the cable back, then
 |---|---|
 | Stalls reproduce on `eth0` (e1000e) too | Not the dongle — DHCP server/timing or kernel after all; the boot-count matrix (§4) decides |
 | Stalls only happen on the SR9700 | Dongle (or USB path) flaky — product MiniPCs use onboard NICs; the router block can ship with the safety net |
-| No lease at all on `eth0` | Lease is MAC-bound — resolve via the open question above, or use the known-good USB NIC control |
+| No lease at all on `eth0` | Expected for up to ~1 min (lease TTL 1 min — owner-confirmed); `udhcpc -b` keeps retrying. Still empty after several minutes → cabling/port |
 
 ## 4. Running the boot-count matrix
 
