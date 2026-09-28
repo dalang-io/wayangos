@@ -8,14 +8,23 @@ name: Installer ISO + update bundle
 #   channel/stable/x86_64/manifest.json
 #   SHA256SUMS
 #
-# Shape: three build jobs fan in — the two heavy independent ones run in
-# parallel, the assembler produces the artifacts:
+# Shape: kernel ∥ (tools -> rootfs) -> release. The initramfs needs only the
+# tools (busybox/dropbear/curl + nft/wg/iproute2/bird/radvd/wayangi + the wayang
+# CLI + wifi tools/firmware), NOT the kernel, so the rootfs overlaps the (long)
+# kernel build instead of waiting behind it:
 #   kernel    build-kernel.sh -> bzImage-installer            (artifact wayangos-kernel)
 #   tools     cargo (wayang, installer) + nft/wg/iproute2/bird/radvd/wayangi +
 #             wifi tools & firmware staging (parity with manual builds),
 #             all built CONCURRENTLY inside one step          (artifact wayangos-tools)
-#   installer needs: [kernel, tools] — rootfs (incl. fetch-dcheck) -> ISO ->
-#             signed .wup + channel tree + SHA256SUMS -> release  (artifact wayangos-release)
+#   rootfs    needs: [tools] — SKIP_KERNEL fetch-sources + fetch-dcheck ->
+#             build-rootfs.sh -> initramfs                    (artifact wayangos-initramfs)
+#   release   needs: [kernel, rootfs, tools] — builds the ISO and the signed
+#             .wup CONCURRENTLY (both need only kernel + initramfs + the
+#             installer binary), then the channel tree + SHA256SUMS
+#                                                             (artifact wayangos-release)
+# The .wup (the device-critical artifact) is therefore never stuck behind
+# grub-mkrescue, and the slow rootfs/ISO work no longer sits on the kernel's
+# tail. Critical path ≈ max(kernel, tools + rootfs) + release.
 #
 # Self-hosted runners (labels [self-hosted, wosbuild] on the build box,
 # root@10.0.0.251 — two runner instances so kernel/tools really run at the
@@ -24,7 +33,7 @@ name: Installer ISO + update bundle
 # The workspaces persist between runs (checkout clean: false) and every cache
 # key is hash-of-inputs, so config/script changes invalidate properly (the old
 # static -v1 key never invalidated). To go back to GitHub-hosted runners,
-# replace the three `runs-on: [self-hosted, wosbuild]` with `runs-on:
+# replace the four `runs-on: [self-hosted, wosbuild]` with `runs-on:
 # ubuntu-latest` — everything else works unchanged.
 #
 # Signing (optional, recommended for releases):
@@ -249,11 +258,114 @@ jobs:
             dist/wayang-installer-x86_64-unknown-linux-musl
           retention-days: 3
 
-  installer:
-    # Fan-in: kernel + tools artifacts -> rootfs -> ISO -> signed .wup -> release.
-    # A republish-only dispatch skips the (expensive) rebuild entirely; the
-    # publish-channel job then reuses the released assets.
-    needs: [kernel, tools]
+  rootfs:
+    # The initramfs needs the tools artifacts (BusyBox/Dropbear/curl + the
+    # static tools + the wayang CLI + wifi/firmware), but NOT the kernel — so
+    # this runs alongside the kernel build and off the release critical path.
+    # A republish-only dispatch skips kernel/tools, so this is skipped too.
+    needs: [tools]
+    runs-on: [self-hosted, wosbuild]
+    timeout-minutes: 20
+    env:
+      BUILD_DIR: ${{ github.workspace }}/wayangos-build
+      KERNEL_VERSION: ${{ github.event.inputs.kernel_version || '7.2.7' }}
+      # tag ref_name looks like v1.4.1; strip the leading v below.
+      WAYANG_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Install build dependencies (github-hosted only)
+        run: |
+          if sudo -n true 2>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y \
+              build-essential flex bison bc libelf-dev libssl-dev \
+              cpio gzip xz-utils bzip2 unzip wget git
+          else
+            echo "self-hosted runner without sudo — assuming build deps are preinstalled"
+          fi
+
+      - name: Normalize version (strip leading v)
+        run: echo "WAYANG_VERSION=${WAYANG_VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Cache base userspace sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            wayangos-build/busybox-1.37.0
+            wayangos-build/dropbear-2024.86
+            wayangos-build/cacert.pem
+            wayangos-build/wifi
+          key: wos-base-7.2.7-${{ hashFiles('scripts/fetch-sources.sh') }}
+          restore-keys: wos-base-7.2.7-
+
+      # SKIP_KERNEL: the bzImage comes from the kernel job as an artifact and is
+      # never compiled here — skip the ~130 MB kernel download + extract.
+      - name: Fetch external sources
+        run: SKIP_KERNEL=1 ./scripts/fetch-sources.sh
+
+      - name: Download tools
+        uses: actions/download-artifact@v4
+        with:
+          name: wayangos-tools
+
+      # Defensive: download-artifact may not preserve exec bits.
+      - name: Restore exec bits
+        run: |
+          find wayangos-build/nft wayangos-build/wg wayangos-build/iproute2 \
+               wayangos-build/bird wayangos-build/radvd wayangos-build/wayangi dist \
+               -maxdepth 3 -type f -exec chmod +x {} + 2>/dev/null || true
+
+      # The trusted release keys are baked into /etc/wayang/trusted_keys by
+      # build-rootfs.sh, so they must be staged before it runs. The signing key
+      # itself is only needed by the release job (to sign the .wup).
+      - name: Prepare trusted keys
+        env:
+          TRUSTED: ${{ secrets.WAYANG_TRUSTED_KEYS }}
+          SIGNING_KEY: ${{ secrets.WAYANG_SIGNING_KEY }}
+        run: |
+          mkdir -p "$BUILD_DIR/keys"
+          if [ -n "$TRUSTED" ]; then
+            printf '%s\n' "$TRUSTED" > "$BUILD_DIR/keys/trusted_keys"
+            echo "WAYANG_TRUSTED_KEYS=$BUILD_DIR/keys/trusted_keys" >> "$GITHUB_ENV"
+          elif [ -n "$SIGNING_KEY" ]; then
+            echo "::warning::WAYANG_TRUSTED_KEYS not set — installed systems won't trust the new key"
+          fi
+
+      # dcheck (storage health, docs/APPS.md) — best-effort: skipped when the
+      # release channel is unreachable, so the image simply ships without it.
+      - name: Fetch dcheck
+        run: ./scripts/fetch-dcheck.sh || true
+
+      - name: Build rootfs (updater + trusted keys)
+        run: ./scripts/build-rootfs.sh
+
+      # A second top-level file keeps the artifact's LCA at the workspace root,
+      # so the initramfs keeps its wayangos-build/ path on download (v4
+      # flattens single-file artifacts to their parent dir, cf. the kernel job).
+      - name: Write initramfs provenance
+        run: |
+          printf '%s\n' \
+            "$(sha256sum "$BUILD_DIR/wayangos-initramfs.img" | cut -d' ' -f1)" \
+            > initramfs-provenance.txt
+
+      - name: Upload initramfs
+        uses: actions/upload-artifact@v4
+        with:
+          name: wayangos-initramfs
+          path: |
+            wayangos-build/wayangos-initramfs.img
+            initramfs-provenance.txt
+          retention-days: 3
+
+  release:
+    # Fan-in: kernel + initramfs + tools -> ISO ∥ signed .wup -> channel tree.
+    # The ISO and the update bundle need only the kernel + initramfs + installer
+    # binary, so they build CONCURRENTLY: a slow grub-mkrescue no longer delays
+    # the device-critical .wup. A republish-only dispatch skips the rebuild.
+    needs: [kernel, rootfs, tools]
     runs-on: [self-hosted, wosbuild]
     timeout-minutes: 30
     env:
@@ -262,7 +374,6 @@ jobs:
       KERNEL_VERSION: ${{ github.event.inputs.kernel_version || '7.2.7' }}
       CHANNEL: stable
       WAYANG_KEYID: ${{ secrets.WAYANG_KEYID || 'release' }}
-      # tag ref_name looks like v1.4.1; strip the leading v below.
       WAYANG_VERSION: ${{ github.event.inputs.version || github.ref_name }}
       WAYANG_EDITION: installer
     steps:
@@ -285,42 +396,27 @@ jobs:
       - name: Normalize version (strip leading v)
         run: echo "WAYANG_VERSION=${WAYANG_VERSION#v}" >> "$GITHUB_ENV"
 
-      - name: Cache base userspace sources
-        uses: actions/cache@v4
-        with:
-          path: |
-            wayangos-build/busybox-1.37.0
-            wayangos-build/dropbear-2024.86
-            wayangos-build/cacert.pem
-            wayangos-build/wifi
-          key: wos-base-7.2.7-${{ hashFiles('scripts/fetch-sources.sh') }}
-          restore-keys: wos-base-7.2.7-
-
-      # SKIP_KERNEL: the installer job gets the bzImage as an artifact and
-      # never compiles — skip the ~130 MB kernel download + extract here.
-      - name: Fetch external sources
-        run: SKIP_KERNEL=1 ./scripts/fetch-sources.sh
-
-      - name: Download kernel + tools
+      - name: Download kernel + initramfs + tools
         uses: actions/download-artifact@v4
         with:
-          pattern: wayangos-{kernel,tools}
+          pattern: wayangos-{kernel,initramfs,tools}
           merge-multiple: true
 
       # Defensive: v4 flattens single-file artifacts to their parent dir; if an
-      # older upload left the kernel at the workspace root, put it back.
+      # older upload left a flat file at the workspace root, put it back.
       - name: Restore exec bits
         run: |
           [ -f bzImage-installer ] && [ ! -f wayangos-build/bzImage-installer ] \
             && mv bzImage-installer wayangos-build/ || true
+          [ -f wayangos-initramfs.img ] && [ ! -f wayangos-build/wayangos-initramfs.img ] \
+            && mv wayangos-initramfs.img wayangos-build/ || true
           find wayangos-build/nft wayangos-build/wg wayangos-build/iproute2 \
                wayangos-build/bird wayangos-build/radvd wayangos-build/wayangi dist \
                -maxdepth 3 -type f -exec chmod +x {} + 2>/dev/null || true
 
-      - name: Prepare signing & trusted keys
+      - name: Prepare signing key
         env:
           SIGNING_KEY: ${{ secrets.WAYANG_SIGNING_KEY }}
-          TRUSTED: ${{ secrets.WAYANG_TRUSTED_KEYS }}
         run: |
           mkdir -p "$BUILD_DIR/keys"
           if [ -n "$SIGNING_KEY" ]; then
@@ -329,47 +425,49 @@ jobs:
           else
             echo "::warning::WAYANG_SIGNING_KEY not set — update bundle will be UNSIGNED"
           fi
-          if [ -n "$TRUSTED" ]; then
-            printf '%s\n' "$TRUSTED" > "$BUILD_DIR/keys/trusted_keys"
-            echo "WAYANG_TRUSTED_KEYS=$BUILD_DIR/keys/trusted_keys" >> "$GITHUB_ENV"
-          elif [ -n "$SIGNING_KEY" ]; then
-            echo "::warning::WAYANG_TRUSTED_KEYS not set — installed systems won't trust the new key"
-          fi
 
-      # dcheck (storage health, docs/APPS.md) — best-effort: skipped when the
-      # release channel is unreachable, so the image simply ships without it.
-      - name: Fetch dcheck
-        run: ./scripts/fetch-dcheck.sh || true
-
-      - name: Build rootfs (updater + trusted keys)
-        run: ./scripts/build-rootfs.sh
-
-      - name: Build installer ISO
-        run: |
-          ISO="$BUILD_DIR/wayangos-${WAYANG_VERSION}-linux-${KERNEL_VERSION}-installer-x86_64.iso"
-          ./scripts/build-installer-iso.sh \
-            "$BUILD_DIR/bzImage-installer" \
-            "$BUILD_DIR/wayangos-initramfs.img" \
-            "$ISO"
-          # stable alias for the landing "latest" link
-          cp "$ISO" "$BUILD_DIR/wayangos-installer.iso"
-
-      - name: Build update bundle + channel tree
+      # ISO and .wup only share the kernel/initramfs inputs and write disjoint
+      # outputs, so run them at the same time: the .wup is ready as soon as it
+      # finishes, not after grub-mkrescue.
+      - name: Build ISO + update bundle (concurrent) + channel tree
         env:
           WAYANG_BIN: ${{ github.workspace }}/dist/wayang-x86_64-unknown-linux-musl
         run: |
           set -eu
           V="$BUILD_DIR/bzImage-installer"
           I="$BUILD_DIR/wayangos-initramfs.img"
+          ISO="$BUILD_DIR/wayangos-${WAYANG_VERSION}-linux-${KERNEL_VERSION}-installer-x86_64.iso"
+          WUP="$BUILD_DIR/wayang-$WAYANG_VERSION-x86_64.wup"
+
+          ./scripts/build-installer-iso.sh "$V" "$I" "$ISO" \
+            > "$BUILD_DIR/iso.log" 2>&1 &
+          iso_pid=$!
           if [ -n "${WAYANG_SIGN_KEY:-}" ] && [ -x "$WAYANG_BIN" ]; then
             ./scripts/build-bundle.sh "$V" "$I" "$WAYANG_VERSION" x86_64 installer \
               --out "$BUILD_DIR" --channel "$CHANNEL" \
-              --key "$WAYANG_SIGN_KEY" --keyid "$WAYANG_KEYID"
+              --key "$WAYANG_SIGN_KEY" --keyid "$WAYANG_KEYID" \
+              > "$BUILD_DIR/wup.log" 2>&1 &
           else
             ./scripts/build-bundle.sh "$V" "$I" "$WAYANG_VERSION" x86_64 installer \
-              --out "$BUILD_DIR" --channel "$CHANNEL"
+              --out "$BUILD_DIR" --channel "$CHANNEL" \
+              > "$BUILD_DIR/wup.log" 2>&1 &
           fi
-          WUP="$BUILD_DIR/wayang-$WAYANG_VERSION-x86_64.wup"
+          wup_pid=$!
+
+          rc=0
+          wait "$iso_pid" || rc=1
+          wait "$wup_pid" || rc=1
+          if [ "$rc" != 0 ]; then
+            echo "--- iso.log ---"; tail -40 "$BUILD_DIR/iso.log"
+            echo "--- wup.log ---"; tail -40 "$BUILD_DIR/wup.log"
+            exit 1
+          fi
+          tail -6 "$BUILD_DIR/iso.log"
+          tail -6 "$BUILD_DIR/wup.log"
+
+          # stable alias for the landing "latest" link
+          cp "$ISO" "$BUILD_DIR/wayangos-installer.iso"
+
           DEST="$BUILD_DIR/channel/$CHANNEL/x86_64"
           mkdir -p "$DEST"
           cp "$WUP" "$DEST/"
@@ -381,16 +479,17 @@ jobs:
               "channel/$CHANNEL/x86_64/manifest.json" > SHA256SUMS )
           echo "=== release assets ==="; ls -l "$BUILD_DIR"/*.iso "$BUILD_DIR"/*.wup "$DEST"/*
 
-      - name: Upload artifacts
+      # Only the channel tree + SHA256SUMS are consumed downstream (the
+      # publish-channel job); the ISO/.wup are attached to the release directly
+      # from the workspace, so they are not re-uploaded here.
+      - name: Upload channel artifact
         uses: actions/upload-artifact@v4
         with:
           name: wayangos-release
           path: |
-            wayangos-build/wayangos-installer.iso
-            wayangos-build/wayangos-*-linux-*-installer-*.iso
-            wayangos-build/wayang-*.wup
             wayangos-build/channel/**
             wayangos-build/SHA256SUMS
+          retention-days: 3
 
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -412,10 +511,10 @@ jobs:
   # with scripts/publish-channel.sh otherwise.
   publish-channel:
     name: Publish update channel
-    needs: installer
+    needs: release
     # A v* tag publishes the tree built above; a republish-only dispatch skips
     # the build job, so use always() to still run.
-    if: ${{ always() && ((startsWith(github.ref, 'refs/tags/') && needs.installer.result == 'success') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_channel_version != '')) }}
+    if: ${{ always() && ((startsWith(github.ref, 'refs/tags/') && needs.release.result == 'success') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_channel_version != '')) }}
     runs-on: ubuntu-latest
     # A publish hiccup must never fail the release.
     continue-on-error: true
