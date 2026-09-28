@@ -6,10 +6,12 @@ what to check when a new board shows up. Kernel config lives in
 [`scripts/stage-firmware.sh`](../scripts/stage-firmware.sh); WiFi userspace in
 [`scripts/build-wifi-tools.sh`](../scripts/build-wifi-tools.sh).
 
-## Kaby Lake desktop (Intel 200-series PCH)
+## ThinkStation P320 Tiny (Kaby Lake / Skylake, Intel 200-series PCH)
 
-The main **test device `root@163.128.55.3`** is a **Lenovo ThinkCentre M710q Tiny**
-(family 6 model 158 = Kaby Lake). Full spec, for build/ISA and driver reference:
+The main **test device `root@163.128.55.3`** is a **Lenovo ThinkStation P320 Tiny**
+(machine type **30C1**, product `30C1S0QS00`, board `310C`) — and the owner's own
+WayangOS Edge-router MiniPC is the **same model**. Full spec, for build/ISA and
+driver reference:
 
 | | |
 |---|---|
@@ -70,22 +72,22 @@ Detected devices and status:
   `wayang-addkey github:USER` (or paste a key); they persist in
   `/data/etc/ssh/authorized_keys`.
 
-## Owner's MiniPC (EdgeRouter target) — FILL IN
+## Owner's MiniPC (EdgeRouter target): ThinkStation P320 Tiny
 
-The owner's own WayangOS box (intended Edge router) is **not yet documented**.
-Capture it with:
+The owner's own WayangOS box (intended Edge router) is a **Lenovo ThinkStation
+P320 Tiny** — the same model as the test device above. P320 Tiny variants ship
+with Kaby Lake / Skylake-Xeon (i5/i7-7xxxT or Xeon E3-12xx v6; HD 630/P530), so
+the exact CPU and ISA should still be captured per unit (none have AVX-512):
 
 ```sh
 grep -m1 'model name' /proc/cpuinfo
 grep -m1 flags /proc/cpuinfo | tr ' ' '\n' | grep -E 'sse4_2|avx|avx2|avx512f|aes|sha_ni'
 grep MemTotal /proc/meminfo
 cat /sys/class/dmi/id/{sys_vendor,product_name,board_name,bios_version}
-lspci -nn | grep -iE 'ethernet|network|wireless'
-lsusb
 ```
 
-Record the CPU family/ISA here so any `-march`/`GOAMD64` change is validated
-against it (see "Build target / CPU ISA" above).
+The build is generic x86-64 (see "Build target / CPU ISA" above), so any P320 Tiny
+variant runs the image.
 
 ## Identifying new hardware
 
