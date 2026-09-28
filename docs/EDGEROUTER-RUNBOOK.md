@@ -158,7 +158,7 @@ run:
 - **A sole uplink must not be flapped by its health check (real-hardware
   finding, 2026-09-29).** On the test device the bundle's default WAN probe
   (`check = ["1.1.1.1"]`) intermittently false-failed under ISP jitter (and
-  `8.8.8.8` is filtered there), so `wan-monitor` marked the **only** uplink down
+  `8.8.8.8` is filtered there), so `wan-failover` marked the **only** uplink down
   and moved the default route — the box lost its own SSH/management for ~30 s,
   repeatedly. Workaround: point the WAN probe at the ISP gateway (always up
   while the link is up). **Fixed in wayang-router v0.3.1**: a policy table is
