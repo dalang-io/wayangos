@@ -78,11 +78,13 @@ bundled; UI reference for all TUIs).
 
 ## Current state
 
-**Released: 1.0.17** (tag + channel). Router MVP (VLAN/bridge) is on; the rest
-of the router kernel block is still off pending a supervised bisect
-([docs/ROUTER-KERNEL-BISECT.md](docs/ROUTER-KERNEL-BISECT.md), incident:
-[docs/INCIDENT-1.0.13.md](docs/INCIDENT-1.0.13.md)). Cross-repo state for the
-next agent: [docs/HANDOVER.md](docs/HANDOVER.md); pending work:
-[docs/TODO.md](docs/TODO.md). WayangPOS is a separate project and is no longer
-part of `wayang`. Firewall/router handovers: `dalang-io/wayang-fw/HANDOVER.md`,
-`dalang-io/wayang-router/HANDOVER.md`.
+**Released: 1.0.21** (tag + channel; device on it). Router MVP (VLAN/bridge) is
+on; the rest of the router kernel block is **off** — every group passes the
+bisect alone but the **accumulated set freezes the device** (interaction), so it
+is reverted until found: [docs/INCIDENT-1.0.13.md](docs/INCIDENT-1.0.13.md),
+[docs/ROUTER-KERNEL-BISECT.md](docs/ROUTER-KERNEL-BISECT.md). Cross-repo state:
+[docs/HANDOVER.md](docs/HANDOVER.md); pending work: [docs/TODO.md](docs/TODO.md).
+WayangOS is a wayangi "Edge" unit type in the dashboard (self-managed WireGuard,
+no agent) — [docs/EDGEROUTER.md](docs/EDGEROUTER.md). WayangPOS is a separate
+project and is not part of `wayang`. Firewall/router handovers:
+`dalang-io/wayang-fw/HANDOVER.md`, `dalang-io/wayang-router/HANDOVER.md`.

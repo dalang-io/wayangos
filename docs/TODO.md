@@ -3,33 +3,26 @@
 Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
-release: **1.0.17** (see `docs/HANDOVER.md`).
+release: **1.0.21** (see `docs/HANDOVER.md`).
 
 ## wayangos (this repo)
 
-- [ ] **WayangOS as a wayangi EdgeRouter** — enrol on the wayangi dashboard,
-      tunnel via WireGuard, receive a delegated IPv6 prefix and route/firewall
-      it to a LAN. Full design + required system/flow: [docs/EDGEROUTER.md](EDGEROUTER.md).
-      Token enrol + TUI/CLI (`wayang edgerouter enroll`/`start`/…) and the
-      dashboard **bundle import** (`wayang edgerouter apply <dir|.tar.gz>`, TUI
-      `a`/`A`) are in; still blocked by the WireGuard + vrf-multipath kernel
-      groups (below) and the dashboard-side `internal/edgewos` renderer.
-- [~] **Re-enable the full router kernel block, bisected.** 1.0.13's block
-      locked the test device (docs/INCIDENT-1.0.13.md). 1.0.15 restored only
-      `VLAN_8021Q` + `BRIDGE` (+`BRIDGE_VLAN_FILTERING`). A safe harness is now
-      in place: `scripts/bisect-router-opts.sh --list` (build one group at a
-      time on the builder, never `/root/wayangos-build`) and
-      `docs/ROUTER-KERNEL-BISECT.md` (device procedure + recovery). **Needs a
-      supervised hardware session** — booting each group on the device and
-      confirming keyboard + SSH, recovering via GRUB slot A / power-cycle.
-      Groups, safest first: baseline (safety net only), veth-macvlan-tun,
-      wireguard, vrf-multipath, ipsec, dummy-bonding, gre-ipip, qos.
-      **Remote option now prepared**: every bisect kernel carries a safety net
-      (TCO watchdog, lockup panics, `panic=10`) and `--unattended SECS` adds
-      `wayang.selftest` (self-test → mark-ok, or `wayang update --fallback` +
-      reboot). QEMU-proven (nonet/hang/panic all return to A); validate the
-      `baseline` group supervised on the device first
-      (docs/ROUTER-KERNEL-BISECT.md → "Remote bisect (unattended)").
+- [x] **WayangOS as a wayangi EdgeRouter** — unit type in the dashboard
+      (`internal/edgewos`), self-managed WireGuard (no agent), hub provisioned
+      like RB; `wayang edgerouter apply/status/enroll/start/stop/restart` + the
+      09 EDGEROUTER console module; prod hub deployed with `WAYANGI_EDGE_WOS=1`;
+      QEMU-proven against the production hubs. See
+      [docs/EDGEROUTER.md](EDGEROUTER.md) + wayangi's `docs/edge-wayangos.md`,
+      `docs/EDGE-PARITY.md`. **Runs only once the kernel below is fixed.**
+- [~] **Router kernel block — INTERACTION lockup.** Every group PASSES the
+      bisect **individually** (veth-macvlan-tun, wireguard, vrf-multipath,
+      ipsec, dummy-bonding, gre-ipip, qos), but the **accumulated set froze the
+      device** (1.0.13 and 1.0.20). Reverted to the VLAN/bridge MVP. Next: find
+      the minimal failing subset by delta-debugging on the hardware
+      (`scripts/bisect-router-opts.sh`; extend to combo groups) and research the
+      culprit (`docs/ROUTER-KERNEL-INTERACTION.md`, expected). See
+      [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
+      [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md).
 - [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle
       and creates the GitHub release; the tag path of
       `.github/workflows/installer-iso.yml` now also publishes the channel in a
@@ -167,3 +160,13 @@ static v4/v6, DHCP client, forwarding, static routes):
       `/var/log/wayang-{fw,router}-monitor.log`; `status` prints the collector
       line. **Retention: the newest 20 000 records per collector are kept
       (trimmed at boot).** See [docs/MONITORING.md](MONITORING.md).
+- [x] Released **1.0.18 / 1.0.19 / 1.0.21** (tag + channel + device). **1.0.20
+      was never released** (its kernel froze). 1.0.21 = safe kernel + radvd +
+      monitoring + edgerouter.
+- [x] `radvd` bundled (`scripts/build-radvd.sh`, `/usr/sbin/radvd`) for IPv6
+      RA/SLAAC.
+- [x] Tech references written: wayang-router `docs/ROUTING-TECH.md`,
+      `docs/DAEMONS-TECH.md`; wayang-fw `docs/NFT-REF.md`; wayangi
+      `docs/EDGE-PARITY.md`.
+- [x] WayangOS is a wayangi Edge unit type (self-managed WireGuard, no agent);
+      prod hub deployed with `WAYANGI_EDGE_WOS=1`.

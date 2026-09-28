@@ -1,88 +1,106 @@
-# HANDOVER — WayangOS state for the next agent
+# HANDOVER — WayangOS state (2026-09-28)
 
 Read `AGENTS.md` first (rules, boot order, build). `docs/TODO.md` is the
 pending-work index. This file is *where things stand* across the repos.
 
-## Repos & current releases
+## Releases / channel / device
 
-| Repo | What | State |
+| | |
+|---|---|
+| WayangOS release | **1.0.21** (tag `v1.0.21`; channel live `https://wayang.dalang.io/channel/stable/x86_64`) |
+| Test device `root@163.128.55.3` | **1.0.21** (slot A, active/good), stable 6+ min, USB uplink works |
+| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+
+1.0.21 ships the **safe kernel** (VLAN/bridge router MVP only) plus all the new
+userspace: `radvd` (IPv6 RA), persistent monitoring daemons, the `wayang` console
+(09 EDGEROUTER), `wayang edgerouter apply`, `dcheck`, `nft`/`wg`/`tc`/`bird`.
+
+## ⚠️ Open: router-kernel interaction lockup (the main blocker)
+
+- 1.0.13 added a big "router" kernel block and **froze the device** (keyboard +
+  USB uplink dead). See `docs/INCIDENT-1.0.13.md`.
+- Every group was bisected **individually on the real device and PASSED**
+  (`docs/ROUTER-KERNEL-BISECT.md`): veth-macvlan-tun, wireguard, vrf-multipath,
+  ipsec, dummy-bonding, gre-ipip, qos.
+- The **accumulated set froze it again** in 1.0.20 (same symptom) → the trigger
+  is an **interaction of ≥2 groups**, not a single option.
+- Current state: the block is **reverted** in `configs/defconfig-intel` to the
+  VLAN/bridge MVP. The lab kernel (`scripts/build-lab-kernel.sh`) still has the
+  full block for QEMU-only work.
+- **In flight / next**: find the minimal failing subset with delta-debugging on
+  the hardware, and research likely culprits (arch crypto `*_ARCH`, VRF,
+  WireGuard+tunnel interactions). Two summary docs are expected:
+  `docs/ROUTER-KERNEL-INTERACTION.md` (culprit research) and the bisect result.
+  Until then, the advanced router features (WireGuard/VRF/ECMP/BGP) run **only
+  in the QEMU lab kernel**, not on shipped images.
+
+## WayangOS as a wayangi "Edge" unit type (dashboard)
+
+Goal: a WayangOS box becomes an Edge router on the wayangi dashboard — exactly
+like the MikroTik `.rsc`, but the box **self-manages WireGuard from a generated
+config** (no wayangi agent on the box).
+
+- **wayangi (dashboard)** now has a **WayangOS unit type**: `internal/edgewos`
+  renders `router.toml` + `fw.toml` + `install.sh` (writes `keys/<hub>.key` 0600).
+  It reuses edgerb's facts/hub provisioning (keys + transit from the `edge_sites`
+  row, both hubs provisioned exactly like RB). Models: `wos-x86-2/3/4/5`
+  (4 NIC = 3 WAN + public LAN). Gated by `WAYANGI_EDGE_WOS=1`.
+- **Deployed to prod**: the production hub (`ssh wayangi-hub`, `root@[2001:df6:d2c0::14]`)
+  runs the new binary (contains `wos-x86-*`) and `/etc/wayangi/env` has
+  `WAYANGI_EDGE_WOS=1` (+ the EdgeRB hubs/keys). The dropdown at
+  `https://wayangi.dalang.io/admin/edge` shows the WayangOS models.
+- **Sim site + bundle**: `~/dev/wayangi/scripts/dev-sim-wayangos.sh` creates
+  site `sim-wayangos` (model `wos-x86-4`, public `…` , WG keys) and writes
+  `~/dev/wayangi/dist/sim-wayangos.bundle.tar.gz` (gitignored).
+- **On a box**: `wayang edgerouter apply sim-wayangos.bundle.tar.gz`
+  (`wayang edgerouter status|enroll|clear|start|stop|restart` also exist).
+- **Proven end-to-end in QEMU against the PRODUCTION hubs**: a pure-config
+  WayangOS box connected to both hubs, served a public `/32` to a LAN host,
+  inbound+outbound, failover JKT→MLB, hubs restored.
+- **Caveat**: this needs the WireGuard/VRF kernel options, which are **gated by
+  the interaction lockup above** — so it does not run on shipped 1.0.21 yet.
+
+## Persistent monitoring (forensics)
+
+- `wayang-fw monitor --daemon` / `wayang-router monitor --daemon` append samples
+  + events to `/data/var/<app>/history.jsonl` (rotation + retention); the HUDs
+  replay it on open instead of resetting. `/etc/init.d/{fw,router}` start them at
+  boot when a confirmed config exists. See `docs/MONITORING.md`.
+
+## Repos & tags
+
+| Repo | HEAD / tag | Notes |
 |---|---|---|
-| `dalang-io/wayangos` (this) | the OS: kernel configs, rootfs, ISO, updater | tag **v1.0.17** |
-| `dalang-io/wayang-fw` | firewall (nftables) + HUD/CLI | master (v0.2.2 + DROPS/schedules/hairpin, untagged) |
-| `dalang-io/wayang-router` | router (VLAN/bridge/static/DHCP) + HUD/CLI | master (v0.1.0 + netlink backend, untagged) |
-| `dalang-io/dcheck` | storage-health app (bundled in the image) | master (`dcheck-v0.5.1` + undelete/macOS, untagged) |
-| `dalang-io/wayang-pos` (private) | WayangPOS kiosk app, **separate project** | `v3.2.3` |
+| `dalang-io/wayangos` (this) | `master` `5721ec7`, tag `v1.0.21` | kernel reverted, radvd, monitoring, edgerouter apply |
+| `dalang-io/wayang-fw` | `master` `a8518fc`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, `docs/NFT-REF.md`, monitor |
+| `dalang-io/wayang-router` | `master` `3027eed`, tag `v0.2.0` | self-managed WG, tunnel-as-uplink (`onlink`), weighted ECMP, VRF, BGP/OSPF, radvd, multi-WAN, `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
+| `dalang-io/dcheck` | `master` `33dc1af` | health list + Prometheus + undelete/macOS |
+| `dalang-io/wayangi` (dashboard) | `main` `b8b2227` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod |
 
-Local checkouts: `~/wayang-fw`, `~/wayang-router`, `~/dcheck`.
+## Tech references written this round (read these before editing configs)
 
-## Test device `root@163.128.55.3` (public IP — careful)
+- wayang-router `docs/ROUTING-TECH.md` (WireGuard/iproute2/VRF/ECMP/proxy_arp/IPv6)
+- wayang-router `docs/DAEMONS-TECH.md` (BIRD/radvd/udhcpd)
+- wayang-fw `docs/NFT-REF.md` (nftables)
+- wayangi `docs/EDGE-PARITY.md` (RouterOS `.rsc` → WayangOS) + `docs/edge-wayangos.md`
 
-- WayangOS **1.0.17**, A/B: the newest slot is active/good.
-- `/data/bin`: `wayang-fw` (0.2.2) + `wayang-router` (0.1.0), deployed, **nothing
-  committed** for either. rcS links both into `/usr/bin` at boot → runnable from
-  the CLI (`wayang-fw`, `wayang-router`).
-- Network: uplink = USB `sr9700` (`eth1`), public `/32` (on-link route handled
-  automatically); onboard `eth0` (e1000e) is DHCP-silent behind this router.
-- SSH is flaky/slow; retry. **No `sftp-server`** → copy with
-  `ssh host 'cat > FILE' < FILE`, and verify sha256 for big files.
-- **Do not `ssh … reboot` a candidate kernel blindly** — if it locks there is no
-  remote way back; use the GRUB menu at the console. See
-  `docs/INCIDENT-1.0.13.md` and `docs/ROUTER-KERNEL-BISECT.md`.
+## Not done / next steps
 
-## What is done (recent)
-
-- WayangOS **1.0.17**: console UX/perf, SSH-key TUI, "also lease" secondary NICs,
-  DCHECK module, POS removed, router VLAN/bridge MVP, CI channel-publish step
-  (gated on secrets).
-- `wayang` console modules: **01 SYSTEM · 02 UPDATES · 03 NETWORK · 04 WIFI ·
-  05 SSH · 06 DCHECK · 07 FIREWALL · 08 ROUTER**. Determinate update progress;
-  `b` = one-shot boot-other-slot.
-- wayang-fw: **DROPS** screen, rule **schedules**, **hairpin NAT**.
-- wayang-router: **rtnetlink** backend (addr/link/VLAN/bridge).
-- dcheck: `undelete` follows `$ATTRIBUTE_LIST` + `$I30` names, `--carve --free`;
-  macOS backends for recover/verify.
-- Router kernel bisect harness ready (hardware-gated), see TODO.
-- **Router userspace bundled** (master, unreleased): static `wg`
-  (wireguard-tools 1.0.20260223, 1016K), `tc` (iproute2 7.2.0, 1.5M), `bird`
-  (BIRD 2.19.2, 2.3M; no birdc — no static readline on the builder); initramfs
-  +2.05 MiB gzip (21.9 → 24.1 MB). `/etc/init.d/router` starts bird only with
-  `/data/etc/router/bird.conf`.
-- **QEMU lab kernel** `scripts/build-lab-kernel.sh` (full 1.0.13 block, never
-  shipped). On the builder: `/tmp/wayang-tools/{wg,tc,bird,bzImage-lab,initramfs-lab.img}`
-  (initramfs has `/tmp/wayangos-tb/testkey.pub`).
-- **Remote bisect safety net** (prepared, QEMU-proven, not used on the device):
-  `bisect-router-opts.sh --group baseline --unattended 600`, `wayang-selftest`,
-  `wayang update --fallback`; see `docs/ROUTER-KERNEL-BISECT.md` → "Remote
-  bisect (unattended)" and `scripts/test-selftest-qemu.sh`.
-
-## What is pending (see docs/TODO.md for detail)
-
-- **Router kernel bisect on hardware** (the big one): re-enable the 1.0.13
-  option groups one at a time, booting the device and checking keyboard + SSH.
-  Groups + procedure in `docs/ROUTER-KERNEL-BISECT.md`. Start with the
-  supervised `baseline` group (safety net only); once it proves the TCO
-  watchdog/self-test on the device, the rest can run unattended.
-- CI: provision `WAYANG_DEPLOY_HOST` + `WAYANG_DEPLOY_KEY` so a tag publishes the
-  channel (currently manual `scripts/publish-channel.sh`).
-- wayang-fw roadmap: per-zone DHCP/DNS (dnsmasq not bundled), nft sets/FQDN,
-  interface config in the HUD; enforcement is QEMU-tested only.
-- wayang-router roadmap: WireGuard, IPsec, VRF/policy/ECMP, QoS, BGP/OSPF —
-  userspace (`wg`, `tc`, `bird`) is in the image; kernel-gated on the bisect
-  (develop in QEMU with the lab kernel).
-- dcheck: remaining undelete/recover gaps (listed in `~/dcheck/TODO.md`).
+1. **Find the kernel interaction** (delta-debug on hardware; see the two docs).
+   Then re-enable the minimal safe set in `configs/defconfig-intel`.
+2. `radvd` is bundled but RA was only tool-checked, not seen on a device with a
+   WG kernel — re-verify once WireGuard ships.
+3. EdgeRouter: the box's own-traffic coverage / endpoint recursion / DHCP single
+   `/32` gaps are documented in `docs/EDGE-PARITY.md`; phone-home heartbeat UI
+   (site "online") still TODO.
+4. CI channel publish secret provisioning (`docs/CHANNEL.md`).
 
 ## Gotchas
 
-- Build on `root@10.0.0.251`; **never write to `/root/wayangos-build`** for
-  experiments — use a `/tmp` dir with symlinks to the sources and a copy of the
-  kernel tree. `scripts/build-remote.sh` uses `/root/wayangos-build` for
-  releases (fine).
-- `build-kernel.sh` resolves **one** fragment level only (`defconfig-intel` is a
-  fragment of `defconfig-qemu`).
-- Kernel console font has no box-drawing/Javanese glyphs — the boot splash is
-  plain ASCII on purpose (`wayang-splash`).
-- Tagging `v*` publishes (CI builds the ISO + GitHub release); the update
-  channel is published by hand. **Ask the owner before tagging.**
-- POS is gone from `wayang`; don't reintroduce it (separate project).
-- aarch64 musl rust target is not installed on the builder — the `wayang` ARM
-  build is skipped (harmless).
+- Build on `root@10.0.0.251`; never write `/root/wayangos-build` for experiments.
+- The device's USB `sr9700` uplink is **flaky**: large `.wup` transfers over SSH
+  stall; `wayang.dalang.io` serves **no byte-range** (no resume). Prefer the
+  device pulling via `wayang update` (single stream), or chunked SSH with retries.
+- **Never tag/publish without a device boot test** — 1.0.13 and 1.0.20 froze it.
+- The `busybox ip` cannot do multipath/`xfrm`; the labs use a static iproute2 `ip`.
+- POS is a separate project; not in `wayang`.
