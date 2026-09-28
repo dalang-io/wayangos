@@ -36,10 +36,21 @@ wired NIC, keep the first that gets DHCP; see the current init).
    - `MODE=static` → set `IPV4_ADDRESS`/`IPV6_ADDRESS`, add default routes
      (`IPV4_GATEWAY`/`IPV6_GATEWAY`), write `/etc/resolv.conf` from the DNS
      lists. Log the applied addresses.
-   - `MODE=dhcp` (or unset) → `udhcpc` (IPv4). For `FAMILY=ipv6|both`, also
-     enable SLAAC on the interface (`accept_ra=2`) — DHCPv6 is **not**
-     implemented (documented limitation).
-3. Else auto-probe as today.
+   - `MODE=dhcp` (or unset) → `udhcpc -b` (IPv4): daemonize and keep retrying
+     in the background until a lease arrives, then renew. There is **no
+     synchronous give-up on the primary path** — before the first attempt the
+     script waits up to 10 s for carrier (USB adapters such as the SR9700
+     report link seconds after the driver probe), and if no carrier appears
+     it logs a warning and starts the background DHCP anyway. A lease that
+     arrives late is still applied with route + DNS by `udhcpc.script`, so a
+     slow DHCP server or a lagging USB link can delay connectivity but never
+     strands the box. For `FAMILY=ipv6|both`, also enable SLAAC on the
+     interface (`accept_ra=2`) — DHCPv6 is **not** implemented (documented
+     limitation).
+3. Else auto-probe: up to 10 s for *any* interface to report carrier, then
+   probe candidates with a bounded synchronous `udhcpc -n -t 5 -T 3` (needed
+   to pick the winner); if none leases, a background loop keeps re-probing
+   failed candidates for ~2 min, so a lease that arrives late still wins.
 4. After the primary is up, lease every interface in `also` address-only
    (wired or wireless, one name per line, `#` comments and blank lines
    ignored, duplicates collapsed). This is in addition to the one-shot pass
@@ -49,6 +60,12 @@ wired NIC, keep the first that gets DHCP; see the current init).
 Only the primary interface owns the default route and DNS. `also` interfaces
 get an address (and nothing else); DHCP route/DNS are still installed solely
 when `udhcpc.script` sees the primary interface.
+
+Validation note: QEMU's user-mode networking answers DHCP instantly, so the
+retry paths above (`-b` background renewal, bounded carrier wait, late
+re-probing) can only be proven end-to-end on hardware with a genuinely slow
+lease (e.g. the SR9700 uplink on the test device). QEMU boots are a smoke test
+that the scripts stay syntactically valid and the happy path leases.
 
 ## `wayang-net` CLI (in the rootfs)
 

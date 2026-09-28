@@ -690,6 +690,20 @@ wired() {
 
 carrier() { [ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" = "1" ]; }
 
+# Wait (bounded, default 10 s) for a carrier on $1 before running DHCP. USB
+# Ethernet adapters (e.g. the SR9700) report link seconds after the driver
+# probe, so an immediate DHCP attempt races the physical link. Cheap no-op
+# when the link is already up; runs inside the backgrounded bring-up subshell,
+# so even the full wait never blocks boot. Returns 0 only with a carrier.
+wait_carrier() {
+    i="$1"; n=0; lim="${2:-10}"
+    while [ "$n" -lt "$lim" ]; do
+        carrier "$i" && return 0
+        sleep 1; n=$((n + 1))
+    done
+    carrier "$i"
+}
+
 # If $1 is a wireless interface with a saved wpa_supplicant config, associate
 # first: DHCP cannot run until the link is up. `wayang wifi` writes
 # /data/etc/wpa_supplicant.conf and makes the iface primary.
@@ -707,12 +721,16 @@ wifi_associate() {
     fi
 }
 
-# synchronous: 0 if a lease was obtained
+# synchronous: 0 if a lease was obtained. Bounded retries: this is only used
+# for *probing* candidates in auto-detect mode; boot must not hang here.
 probe() {
     udhcpc -n -q -t 5 -T 3 -i "$1" -s /etc/udhcpc.script >/dev/null 2>&1
 }
 
-# persistent: daemonizes after the lease, then renews
+# persistent: daemonizes after the lease, then renews. -b keeps retrying in
+# the background forever, so a DHCP server that is slow at cold boot (or a
+# USB NIC whose link comes up late) cannot strand the box: a lease that
+# arrives late is still applied, with the default route and DNS.
 serve() {
     echo "  DHCP on $1 (primary)"
     echo "$1" > "$PRIMARY_RUN"
@@ -804,7 +822,14 @@ apply_dhcp() {
     i="$1"
     echo "$i" > "$PRIMARY_RUN"
     if want_v4; then
-        probe "$i" || true
+        # No synchronous lease attempt here: udhcpc -b (in serve) retries in
+        # the background forever, so a DHCP server that is slow at cold boot
+        # or a NIC whose link comes up late cannot leave the box stranded.
+        # Bounded carrier wait first — USB NICs (e.g. the SR9700) report link
+        # seconds after the driver probe — then warn and continue either way.
+        if ! wait_carrier "$i" 10; then
+            echo "  WARNING: no carrier on $i after 10s; DHCP keeps retrying in the background" >&2
+        fi
         serve "$i"
     fi
     if want_v6; then enable_slaac "$i"; fi
@@ -828,6 +853,15 @@ apply_primary() {
 
 # no persisted choice: probe every wired NIC, first DHCP lease wins
 auto_detect() {
+    # Give late (USB) links a bounded chance to come up before picking
+    # candidates: up to 10 s for *any* interface to report carrier.
+    n=0
+    while [ "$n" -lt 10 ]; do
+        any=0
+        for i in $(wired); do carrier "$i" && any=1; done
+        [ "$any" = 1 ] && break
+        sleep 1; n=$((n + 1))
+    done
     # prefer interfaces that report a link
     cand=""
     for i in $(wired); do carrier "$i" && cand="$cand $i"; done
@@ -836,7 +870,10 @@ auto_detect() {
         if probe "$i"; then adopt "$i"; break; fi
     done
 
-    # keep looking for late (USB) adapters for a while if nothing worked
+    # keep looking for late (USB) adapters for a while if nothing worked.
+    # A candidate that fails its probe is retried on the next iteration: the
+    # marker marks *successful* adoptions, not attempts, so a slow DHCP
+    # server cannot exhaust this loop with a single missed attempt.
     if [ ! -e "$PRIMARY_RUN" ]; then
         (
             n=0
@@ -845,8 +882,10 @@ auto_detect() {
                 for i in $(wired); do
                     carrier "$i" || continue
                     [ -e "/var/run/probe.$i" ] && continue
-                    : > "/var/run/probe.$i"
-                    if probe "$i"; then adopt "$i"; exit 0; fi
+                    if probe "$i"; then
+                        : > "/var/run/probe.$i"
+                        adopt "$i"; exit 0
+                    fi
                 done
             done
         ) &
@@ -863,9 +902,11 @@ case "$1" in
             exit 0
         fi
         for i in $(wired); do ifconfig "$i" up 2>/dev/null; done
-        # Bring-up is instant, but probing/DHCP can take seconds. Run it in the
-        # background so boot (and SSH) never waits on the network. `wait` blocks
-        # only for callers that actually need an address.
+        # Bring-up is instant, but probing/DHCP can take seconds (USB NICs
+        # report carrier late; a slow DHCP server delays the first lease).
+        # Everything below runs in the background so boot (and SSH) never
+        # waits on the network; `wait` blocks only for callers that actually
+        # need an address.
         (
             sleep 1
             [ -r "$PRIMARY_FILE" ] && PRIMARY="$(tr -d '[:space:]' < "$PRIMARY_FILE")"
