@@ -97,55 +97,13 @@ CONFIG_NFT_SYNPROXY=y
 CONFIG_NF_FLOW_TABLE=y
 CONFIG_NF_FLOW_TABLE_INET=y
 CONFIG_NFT_FLOW_OFFLOAD=y
-# Router (docs/ROUTER-TODO.md). All groups bisected individually on the real
-# device and PASS (docs/ROUTER-KERNEL-BISECT.md): VLAN/bridge (v0.1) plus
-# bonding/dummy/veth/macvlan/TUN/WireGuard (+arch crypto), GRE/IPIP, VRF +
-# multiple tables, IPsec (ESP + xfrm ifaces) and shaping (HTB/fq_codel/CAKE,
-# cls, act, IFB). ECMP (IP_ROUTE_MULTIPATH) and IP_MULTIPLE_TABLES are already
-# on in the base config. The accumulated set was NOT the single-group cause of
-# the 1.0.13 lockup (interaction suspected), so it is validated as one bundle
-# before publishing.
+# Router MVP (v0.1, docs/ROUTER-TODO.md): 802.1Q VLANs + bridges, driven with
+# vconfig/brctl by wayang-router. The full router block (bonding/dummy/veth/
+# macvlan/TUN/WireGuard/GRE-IPIP/VRF/policy-routing/IPsec/IFB/shaping) is OFF:
+# each group passes individually, but the ACCUMULATED set froze the test device
+# in 1.0.20 exactly like 1.0.13, so it is an INTERACTION — see
+# docs/INCIDENT-1.0.13.md and docs/ROUTER-KERNEL-BISECT.md. Re-enable only
+# after the interaction is bisected.
 CONFIG_VLAN_8021Q=y
 CONFIG_BRIDGE=y
 CONFIG_BRIDGE_VLAN_FILTERING=y
-CONFIG_VETH=y
-CONFIG_MACVLAN=y
-CONFIG_TUN=y
-CONFIG_WIREGUARD=y
-CONFIG_CRYPTO_LIB_CHACHA=y
-CONFIG_CRYPTO_LIB_CHACHA_ARCH=y
-CONFIG_CRYPTO_LIB_POLY1305=y
-CONFIG_CRYPTO_LIB_POLY1305_ARCH=y
-CONFIG_CRYPTO_LIB_CURVE25519=y
-CONFIG_CRYPTO_LIB_CURVE25519_ARCH=y
-CONFIG_NET_L3_MASTER_DEV=y
-CONFIG_NET_VRF=y
-CONFIG_IPV6_MULTIPLE_TABLES=y
-CONFIG_IPV6_SUBTREES=y
-CONFIG_INET_ESP=y
-CONFIG_XFRM_INTERFACE=y
-CONFIG_DUMMY=y
-CONFIG_BONDING=y
-CONFIG_NET_IPIP=y
-CONFIG_NET_IPGRE_DEMUX=y
-CONFIG_NET_IPGRE=y
-CONFIG_IFB=y
-CONFIG_NET_SCH_HTB=y
-CONFIG_NET_SCH_FQ_CODEL=y
-CONFIG_NET_SCH_CAKE=y
-CONFIG_NET_SCH_INGRESS=y
-CONFIG_NET_CLS_U32=y
-CONFIG_NET_CLS_FW=y
-CONFIG_NET_ACT_POLICE=y
-CONFIG_NET_ACT_MIRRED=y
-CONFIG_NET_REDIRECT=y
-# Watchdog (hardware lockup auto-recovery for a headless edge box): Intel TCO
-# on the test-class hardware + the QEMU i6300esb one. Nothing opens /dev/watchdog
-# unless wayang-selftest/wayang-fw do, so this is dormant by default.
-CONFIG_WATCHDOG_CORE=y
-CONFIG_ITCO_WDT=y
-CONFIG_ITCO_VENDOR_SUPPORT=y
-CONFIG_LPC_ICH=y
-CONFIG_I6300ESB_WDT=y
-
-

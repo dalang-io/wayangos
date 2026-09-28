@@ -21,7 +21,7 @@ SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"
 #   wayang/version      what the installed system reports (see `wayang status`)
 #   wayang/channel      stable | edge
 #   wayang/trusted_keys release signing keys, if any
-WAYANG_VERSION="${WAYANG_VERSION:-1.0.20}"
+WAYANG_VERSION="${WAYANG_VERSION:-1.0.21}"
 WAYANG_CHANNEL="${WAYANG_CHANNEL:-stable}"
 WAYANG_TRUSTED_KEYS="${WAYANG_TRUSTED_KEYS:-}"
 
@@ -312,7 +312,7 @@ fi
 # Per-connection byte/packet counters (wayang-fw / wayang-router dashboards).
 [ -w /proc/sys/net/netfilter/nf_conntrack_acct ] && echo 1 > /proc/sys/net/netfilter/nf_conntrack_acct
 
-# Opt-in crash diagnostics (incident 1.0.20): with `wayang.debug` on the kernel
+# Opt-in crash diagnostics (incident 1.0.21): with `wayang.debug` on the kernel
 # cmdline, keep dmesg/interrupts on /data so a freeze can be read back after a
 # power-cycle. Off unless requested.
 DEBUG=0

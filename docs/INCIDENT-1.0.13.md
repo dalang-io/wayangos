@@ -213,3 +213,15 @@ Published: tag `v1.0.15`, channel serves **1.0.15**.
 
 Later releases (**1.0.16**, **1.0.17**) keep this kernel (router MVP only) and add
 console/UX work; see [docs/HANDOVER.md](HANDOVER.md) and [docs/TODO.md](TODO.md).
+
+## 1.0.20 — the accumulated router block froze the device again (2026-09-28)
+
+Every router-kernel group passed the bisect **individually** (see
+ROUTER-KERNEL-BISECT.md), so the full set was enabled in `configs/defconfig-intel`
+and shipped as 1.0.20. On boot the device **froze exactly like 1.0.13**
+(keyboard dead, SSH down); the owner power-cycled back to 1.0.19.
+
+Conclusion: the trigger is an **interaction of ≥2 groups**, not a single option.
+1.0.20 was never published (channel stayed on 1.0.19). The kernel is reverted to
+the VLAN/bridge MVP; the router features stay lab-kernel/officially off until the
+interaction is found (cumulative/pairwise bisect on the hardware).
