@@ -273,3 +273,13 @@ Kernel: `defconfig-intel` + safety net + `wayang.selftest=60`; final grubenv
 - The probe proves L3 reachability of one host, not SSH; a firewall/sshd
   problem with a live uplink passes. The keyboard cannot be checked remotely.
 - Bundles must be signed with the release key (`WAYANG_KEY`), as before.
+
+## Result (2026-09-28)
+
+All **8 groups PASS individually** on the real device (no lockup, watchdog never
+fired, SSH alive throughout): baseline, veth-macvlan-tun, wireguard,
+vrf-multipath, ipsec, dummy-bonding, gre-ipip, qos. No single group reproduced
+the 1.0.13 lockup, so the trigger is an **interaction** (or not only these
+options). The full set (plus the Intel TCO / i6300esb watchdog) is now enabled in
+`configs/defconfig-intel` and **must be soak-tested as one bundle on the device**
+before publishing.
