@@ -8,9 +8,9 @@ building and the milestones). This file is *where things stand* across the repos
 
 | | |
 |---|---|
-| WayangOS release | **1.0.22** (tag `v1.0.22`; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.22) |
-| Test device `root@163.128.55.3` | **1.0.22** (slot B active/good after the pre-tag boot test + selftest PASS, route up; slot A holds 1.0.21) |
-| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+| WayangOS release | **1.0.23** (tag `v1.0.23`; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.23) — first release with the **full router block** enabled |
+| Test device `root@163.128.55.3` | running the block kernel (slot B, selftest PASS, route up); cold-boot PASS 2026-09-29 |
+| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
 
 1.0.22 = 1.0.21 + the **shipped safety net** (watchdog + lockup/panic detectors +
 `wayang.selftest=120 panic=10 …` baked into `configs/defconfig-intel`
@@ -134,7 +134,7 @@ config** (no wayangi agent on the box).
    (`765ee81`) + the shipped safety net (`61c768f`) — they fix a real product
    risk (a headless box stranded by a ~15 s DHCP race) independent of the M7
    decision ([docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)). Nothing after
-   1.0.22 is tagged; never tag without a device boot test (gotcha below).
+   1.0.23 is tagged; never tag without a device boot test (gotcha below).
 3. `radvd` is bundled but RA was only tool-checked, not seen on a device with a
    WG kernel — re-verify once WireGuard ships.
 4. EdgeRouter: the box's own-traffic coverage / endpoint recursion / DHCP single
