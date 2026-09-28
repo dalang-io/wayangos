@@ -210,7 +210,7 @@ jobs:
           job wayang     1 ./scripts/build-wayang.sh   &
           job installer  1 ./scripts/build-installer.sh &
           job wifi-tools 0 ./scripts/build-wifi-tools.sh &
-          job firmware   0 ./scripts/stage-firmware.sh &
+          job firmware   0 env FIRMWARE_DIR="$( [ -d /home/wosrunner/firmware-src ] && echo /home/wosrunner/firmware-src || echo /lib/firmware )" ./scripts/stage-firmware.sh &
           job radvd      0 ./scripts/build-radvd.sh    &
           job wayangi    0 env WAYANGI_BASE_URL="$WAYANGI_BASE_URL" ./scripts/build-wayangi.sh &
           wait
