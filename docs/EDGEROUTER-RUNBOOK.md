@@ -161,6 +161,7 @@ run:
   `8.8.8.8` is filtered there), so `wan-monitor` marked the **only** uplink down
   and moved the default route — the box lost its own SSH/management for ~30 s,
   repeatedly. Workaround: point the WAN probe at the ISP gateway (always up
-  while the link is up). Tracked as a wayang-router bug: a sole/last uplink
-  should keep the last-known-good default rather than strand the box, and the
-  wayangi renderer should not hard-code `1.1.1.1` as the probe.
+  while the link is up). **Fixed in wayang-router v0.3.1**: a policy table is
+  withdrawn only when another uplink of the same family is healthy, so a
+  sole/last uplink never loses its only path (the wayangi renderer should still
+  not hard-code `1.1.1.1` as the probe).
