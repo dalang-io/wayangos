@@ -8,7 +8,24 @@ name: Installer ISO + update bundle
 #   channel/stable/x86_64/manifest.json
 #   SHA256SUMS
 #
-# Kernels are built from source; the build dir is cached.
+# Shape: three build jobs fan in — the two heavy independent ones run in
+# parallel, the assembler produces the artifacts:
+#   kernel    build-kernel.sh -> bzImage-installer            (artifact wayangos-kernel)
+#   tools     cargo (wayang, installer) + nft/wg/iproute2/bird/radvd/wayangi +
+#             wifi tools & firmware staging (parity with manual builds),
+#             all built CONCURRENTLY inside one step          (artifact wayangos-tools)
+#   installer needs: [kernel, tools] — rootfs (incl. fetch-dcheck) -> ISO ->
+#             signed .wup + channel tree + SHA256SUMS -> release  (artifact wayangos-release)
+#
+# Self-hosted runners (labels [self-hosted, wosbuild] on the build box,
+# root@10.0.0.251 — two runner instances so kernel/tools really run at the
+# same time). The box has all build deps preinstalled and no sudo for the
+# runner user, so the apt step is a no-op there (guarded by `sudo -n true`).
+# The workspaces persist between runs (checkout clean: false) and every cache
+# key is hash-of-inputs, so config/script changes invalidate properly (the old
+# static -v1 key never invalidated). To go back to GitHub-hosted runners,
+# replace the three `runs-on: [self-hosted, wosbuild]` with `runs-on:
+# ubuntu-latest` — everything else works unchanged.
 #
 # Signing (optional, recommended for releases):
 #   secrets.WAYANG_SIGNING_KEY   ed25519 seed (64 hex) from `wayang keygen`
@@ -78,12 +95,156 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: installer-iso-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  kernel:
+    # The long pole, on its own runner so `tools` builds concurrently.
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.publish_channel_version != '') }}
+    runs-on: [self-hosted, wosbuild]
+    timeout-minutes: 20
+    env:
+      BUILD_DIR: ${{ github.workspace }}/wayangos-build
+      KERNEL_CONFIG: ${{ github.event.inputs.kernel_config || 'defconfig-intel' }}
+      KERNEL_VERSION: ${{ github.event.inputs.kernel_version || '7.2.7' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Install build dependencies (github-hosted only)
+        run: |
+          if sudo -n true 2>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y build-essential flex bison bc libelf-dev libssl-dev cpio gzip xz-utils bzip2 unzip wget git
+          else
+            echo "self-hosted runner without sudo — assuming build deps are preinstalled"
+          fi
+
+      - name: Cache kernel tree
+        uses: actions/cache@v4
+        with:
+          path: wayangos-build/linux-7.2.7
+          key: wos-kernel-7.2.7-${{ hashFiles('scripts/build-kernel.sh', 'scripts/fetch-sources.sh', 'configs/defconfig-*') }}
+          restore-keys: wos-kernel-7.2.7-
+
+      - name: Fetch external sources
+        run: ./scripts/fetch-sources.sh
+
+      - name: Build kernel (${{ env.KERNEL_CONFIG }})
+        run: ./scripts/build-kernel.sh "$KERNEL_CONFIG" bzImage-installer
+
+      - name: Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wayangos-kernel
+          path: wayangos-build/bzImage-installer
+          retention-days: 3
+
+  tools:
+    # Cargo binaries + every static tool, all CONCURRENTLY in one step (they
+    # build into disjoint directories and share nothing but the checkout).
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.publish_channel_version != '') }}
+    runs-on: [self-hosted, wosbuild]
+    timeout-minutes: 30
+    env:
+      BUILD_DIR: ${{ github.workspace }}/wayangos-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Install build dependencies (github-hosted only)
+        run: |
+          if sudo -n true 2>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y build-essential flex bison bc libelf-dev libssl-dev \
+              libnl-3-dev libnl-genl-3-dev libnl-route-3-dev pkg-config \
+              cpio gzip xz-utils bzip2 unzip wget git
+          else
+            echo "self-hosted runner without sudo — assuming build deps are preinstalled"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Cache built tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            wayangos-build/nft
+            wayangos-build/wg
+            wayangos-build/iproute2
+            wayangos-build/bird
+            wayangos-build/radvd
+            wayangos-build/wayangi
+            wayangos-build/wifi
+          key: wos-tools-${{ hashFiles('scripts/build-nft.sh', 'scripts/build-wg.sh', 'scripts/build-iproute2.sh', 'scripts/build-bird.sh', 'scripts/build-radvd.sh', 'scripts/build-wayangi.sh', 'scripts/build-wifi-tools.sh', 'scripts/stage-firmware.sh') }}
+          restore-keys: wos-tools-
+
+      # The scripts are idempotent (they skip finished builds), so racing them
+      # over an already-cached tree is safe. Required: nft wg iproute2 bird
+      # wayang installer. Best-effort: radvd, wayangi (warn-and-skip, as before).
+      - name: Build all tools concurrently
+        env:
+          WAYANGI_BASE_URL: ${{ secrets.WAYANGI_BASE_URL }}
+        run: |
+          set -u
+          mkdir -p logs; : > logs/required; : > logs/optional
+          job() { # <label> <required? 1|0> <script...>
+            label="$1"; req="$2"; shift 2
+            name="${1##*/}"; name="${name%.sh}"
+            if "$@" > "logs/$name.log" 2>&1; then
+              echo "$label OK" >> "logs/$([ "$req" = 1 ] && echo required || echo optional)"
+            else
+              echo "$label FAIL rc=$?" >> "logs/$([ "$req" = 1 ] && echo required || echo optional)"
+            fi
+          }
+          job nft        1 ./scripts/build-nft.sh      &
+          job wg         1 ./scripts/build-wg.sh       &
+          job iproute2   1 ./scripts/build-iproute2.sh &
+          job bird       1 ./scripts/build-bird.sh     &
+          job wayang     1 ./scripts/build-wayang.sh   &
+          job installer  1 ./scripts/build-installer.sh &
+          job wifi-tools 0 ./scripts/build-wifi-tools.sh &
+          job firmware   0 ./scripts/stage-firmware.sh &
+          job radvd      0 ./scripts/build-radvd.sh    &
+          job wayangi    0 env WAYANGI_BASE_URL="$WAYANGI_BASE_URL" ./scripts/build-wayangi.sh &
+          wait
+          echo "=== required ==="; cat logs/required
+          echo "=== optional (best-effort, ok to skip) ==="; cat logs/optional
+          if grep -q FAIL logs/required; then
+            echo "::error::a required tool build failed"
+            for f in logs/*.log; do echo "--- $f"; tail -5 "$f"; done
+            exit 1
+          fi
+
+      - name: Upload tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: wayangos-tools
+          path: |
+            wayangos-build/nft/
+            wayangos-build/wg/
+            wayangos-build/iproute2/
+            wayangos-build/bird/
+            wayangos-build/radvd/
+            wayangos-build/wayangi/
+            wayangos-build/wifi/
+            dist/wayang-x86_64-unknown-linux-musl
+            dist/wayang-installer-x86_64-unknown-linux-musl
+          retention-days: 3
+
   installer:
+    # Fan-in: kernel + tools artifacts -> rootfs -> ISO -> signed .wup -> release.
     # A republish-only dispatch skips the (expensive) rebuild entirely; the
     # publish-channel job then reuses the released assets.
-    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.publish_channel_version != '') }}
-    runs-on: ubuntu-latest
+    needs: [kernel, tools]
+    runs-on: [self-hosted, wosbuild]
+    timeout-minutes: 30
     env:
       BUILD_DIR: ${{ github.workspace }}/wayangos-build
       KERNEL_CONFIG: ${{ github.event.inputs.kernel_config || 'defconfig-intel' }}
@@ -95,35 +256,50 @@ jobs:
       WAYANG_EDITION: installer
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential flex bison bc libelf-dev libssl-dev \
-            cpio gzip xz-utils bzip2 unzip wget git \
-            grub-pc-bin grub-efi-amd64-bin xorriso mtools
-
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          clean: false
+
+      - name: Install build dependencies (github-hosted only)
+        run: |
+          if sudo -n true 2>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y \
+              build-essential flex bison bc libelf-dev libssl-dev \
+              cpio gzip xz-utils bzip2 unzip wget git \
+              grub-pc-bin grub-efi-amd64-bin xorriso mtools
+          else
+            echo "self-hosted runner without sudo — assuming build deps are preinstalled"
+          fi
 
       - name: Normalize version (strip leading v)
         run: echo "WAYANG_VERSION=${WAYANG_VERSION#v}" >> "$GITHUB_ENV"
 
-      - name: Cache build directory
+      - name: Cache base userspace sources
         uses: actions/cache@v4
         with:
-          path: wayangos-build
-          key: wayangos-build-${{ github.event.inputs.kernel_config || 'defconfig-intel' }}-v1
+          path: |
+            wayangos-build/busybox-1.37.0
+            wayangos-build/dropbear-2024.86
+            wayangos-build/cacert.pem
+            wayangos-build/wifi
+          key: wos-base-7.2.7-${{ hashFiles('scripts/fetch-sources.sh') }}
+          restore-keys: wos-base-7.2.7-
 
       - name: Fetch external sources
         run: ./scripts/fetch-sources.sh
 
-      - name: Build updater + installer binaries
+      - name: Download kernel + tools
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wayangos-{kernel,tools}
+          merge-multiple: true
+
+      # upload/download artifacts do not preserve the exec bits — restore them.
+      - name: Restore exec bits
         run: |
-          ./scripts/build-wayang.sh
-          ./scripts/build-installer.sh
+          find wayangos-build/nft wayangos-build/wg wayangos-build/iproute2 \
+               wayangos-build/bird wayangos-build/radvd wayangos-build/wayangi dist \
+               -maxdepth 3 -type f -exec chmod +x {} + 2>/dev/null || true
 
       - name: Prepare signing & trusted keys
         env:
@@ -144,34 +320,10 @@ jobs:
             echo "::warning::WAYANG_TRUSTED_KEYS not set — installed systems won't trust the new key"
           fi
 
-      - name: Build kernel (${{ env.KERNEL_CONFIG }})
-        run: ./scripts/build-kernel.sh "$KERNEL_CONFIG" bzImage-installer
-
-      - name: Build nft (static, for wayang-fw)
-        run: ./scripts/build-nft.sh
-
-      - name: Build router tools (static wg, tc, bird for wayang-router)
-        run: |
-          ./scripts/build-wg.sh
-          ./scripts/build-iproute2.sh
-          ./scripts/build-bird.sh
-
-      # radvd (IPv6 router advertisements for the delegated /64) is optional:
-      # the script warns and exits 0 when flex/bison or a static libc is
-      # missing, so the image simply ships without it (wayang-router then
-      # warns that no RAs are sent).
-      - name: Build radvd (static, IPv6 RA; best-effort)
-        run: ./scripts/build-radvd.sh || true
-
-      # wayangi EdgeRouter agent (docs/EDGEROUTER.md). Best-effort: the script
-      # exits 0 with a warning when no source checkout or release base URL is
-      # available, so the image simply ships without it. Provide
-      # `secrets.WAYANGI_BASE_URL` (e.g. https://wayangi.dalang.io/downloads) to
-      # fetch a pinned binary; point `WAYANGI_SRC` at a checkout to build one.
-      - name: Build wayangi agent (static, best-effort)
-        env:
-          WAYANGI_BASE_URL: ${{ secrets.WAYANGI_BASE_URL }}
-        run: ./scripts/build-wayangi.sh || true
+      # dcheck (storage health, docs/APPS.md) — best-effort: skipped when the
+      # release channel is unreachable, so the image simply ships without it.
+      - name: Fetch dcheck
+        run: ./scripts/fetch-dcheck.sh || true
 
       - name: Build rootfs (updater + trusted keys)
         run: ./scripts/build-rootfs.sh
