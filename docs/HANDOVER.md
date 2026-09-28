@@ -100,17 +100,22 @@ config** (no wayangi agent on the box).
 
 - Tagging `v*` (or `workflow_dispatch`) runs `.github/workflows/installer-iso.yml`
   **on the build box** via two self-hosted runners (`wosbuild-a`/`wosbuild-b`,
-  user `wosrunner`, label `[self-hosted, wosbuild]`) — ~5 min warm. Three jobs:
-  `kernel` ∥ `tools` (10 builds concurrently) → `installer` (fan-in: rootfs →
-  ISO → signed `.wup` → release). `SKIP_KERNEL=1` keeps the installer job from
-  re-downloading the kernel source it never compiles.
-- CI stages wifi tools + firmware (`stage-firmware.sh` from
-  `/home/wosrunner/firmware-src`) and `dcheck`, so CI artifacts match manual
-  builds. Cache keys are hash-of-inputs. The runner has no sudo (apt step no-op).
-- Channel publish is **best-effort in CI** and still needs repo secrets
-  `WAYANG_DEPLOY_HOST` + `WAYANG_DEPLOY_KEY`; until then publish by hand
-  (`rsync` the `channel/stable/x86_64/{manifest.json,wayang-*.wup}` into
-  `/root/wayang.dalang.io/public/channel/stable/x86_64/`). See `docs/CHANNEL.md`.
+  user `wosrunner`, label `[self-hosted, wosbuild]`) — **~4m45s warm** (was
+  ~30 min on GitHub-hosted). Jobs: `kernel` ∥ `tools` (10 builds concurrent),
+  `tools → rootfs`, then `release` fans in kernel+rootfs+tools and builds the
+  ISO ∥ signed `.wup` concurrently → GitHub release; `publish-channel` follows.
+  `SKIP_KERNEL=1` keeps rootfs/release from re-downloading kernel source, and a
+  kernel-tree existence guard avoids a 693 MB cache re-download when the
+  persistent runner workspace already has the tree.
+- CI stages wifi tools + firmware (from `/home/wosrunner/firmware-src`) and
+  `dcheck`, so CI artifacts match manual builds. Cache keys are hash-of-inputs.
+  The runner has no sudo (apt step is a no-op).
+- Channel publish **runs in CI**: repo secrets `WAYANG_DEPLOY_HOST`
+  (`root@163.128.54.5`) + `WAYANG_DEPLOY_KEY` (a dedicated ed25519 key,
+  authorized in the box's `/root/.ssh/authorized_keys` — it is root-level, so
+  harden with an `rrsync`/`restrict` command or move publish to a self-hosted
+  runner). Republish an existing version without rebuilding: `workflow_dispatch`
+  with `publish_channel_version=<ver>`. See `docs/CHANNEL.md`.
 
 ## Repos & tags
 
