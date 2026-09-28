@@ -28,11 +28,31 @@ userspace: `radvd` (IPv6 RA), persistent monitoring daemons, the `wayang` consol
   only by lacking the safety-net cmdline (no auto-recovery).
 - Working conclusion: **intermittent/environmental** (cold-boot USB-NIC/DHCP
   stall), not a deterministic kernel-option interaction.
+- **Leading hypothesis (unconfirmed — the boot-count runs + hw session settle
+  it): the "freeze" was a DHCP stall.** The rootfs used to run a synchronous
+  `udhcpc -n -q -t 5 -T 3` (~15 s give-up) on the primary interface; the public
+  uplink is a DHCP `/32` lease over a flaky USB SR9700, so a slow cold-boot
+  lease left the box alive but unreachable (`gw=''`). **Fixed on master**
+  (`765ee81`, unreleased): primary DHCP is now `udhcpc -b` (retries forever)
+  after a bounded 10 s wait-for-carrier, so a late lease still applies.
+- **The safety net now ships in the kernel** (`61c768f`, unreleased):
+  `configs/defconfig-intel` bakes the watchdogs (ITCO_WDT = the P320's PCH,
+  I6300ESB for the QEMU proof, soft watchdog fallback), soft/hard-lockup +
+  hung-task detectors and `CONFIG_CMDLINE` (`panic=10 oops=panic …
+  nmi_watchdog=1 wayang.selftest=120`) into the kernel cmdline; grub template
+  unchanged. `scripts/test-selftest-qemu.sh` scenarios nonet/hang/panic all
+  PASS with the net coming from the shipped config. A stalled boot now
+  self-recovers (selftest FAIL → fallback → reboot) instead of stranding a
+  headless box.
 - Current state: the block is **off** in `configs/defconfig-intel` (VLAN/bridge
   MVP). Advanced router features (WireGuard/VRF/ECMP/BGP) run **only in the QEMU
-  lab kernel** until this is decided. Details + the decision to make:
-  `docs/ROUTER-KERNEL-INTERACTION.md`, `docs/ROUTER-KERNEL-BISECT.md`, and the
-  goal/roadmap `docs/GOAL.md` (M7/M8).
+  lab kernel** until this is decided. The decision is no longer a path pick —
+  it is data-driven: run the **boot-count matrix** (block-kernel vs safe-kernel,
+  N≥12 boots each, `scripts/boot-soak.sh`, ready-to-fire commands in
+  `docs/ROUTER-KERNEL-BISECT.md`) + the hardware session
+  ([docs/HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)), then apply the
+  decision rule in `docs/TODO-M7-UNBLOCK.md`. Details:
+  `docs/ROUTER-KERNEL-INTERACTION.md`, and the goal/roadmap `docs/GOAL.md` (M7/M8).
 
 ## WayangOS as a wayangi "Edge" unit type (dashboard)
 
@@ -60,7 +80,7 @@ config** (no wayangi agent on the box).
   WayangOS box connected to both hubs, served a public `/32` to a LAN host,
   inbound+outbound, failover JKT→MLB, hubs restored.
 - **Caveat**: this needs the WireGuard/VRF kernel options, which are **gated by
-  the interaction lockup above** — so it does not run on shipped 1.0.21 yet.
+  the open router-kernel question above** — so it does not run on shipped 1.0.21 yet.
 
 ## Persistent monitoring (forensics)
 
@@ -73,7 +93,7 @@ config** (no wayangi agent on the box).
 
 | Repo | HEAD / tag | Notes |
 |---|---|---|
-| `dalang-io/wayangos` (this) | `master` `5721ec7`, tag `v1.0.21` | kernel reverted, radvd, monitoring, edgerouter apply |
+| `dalang-io/wayangos` (this) | `master` `61c768f`, tag `v1.0.21` — **5 commits ahead of origin, unpushed; nothing after 1.0.21 is tagged** | 1.0.21 = kernel reverted, radvd, monitoring, edgerouter apply. Post-1.0.21 commits (unreleased): DHCP resilience `765ee81`, shipped safety net `61c768f`, boot-soak harness `17ecaf0`, HW session checklist `4a00b2e`; T5 docs consolidation uncommitted at write time |
 | `dalang-io/wayang-fw` | `master` `a8518fc`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, `docs/NFT-REF.md`, monitor |
 | `dalang-io/wayang-router` | `master` `3027eed`, tag `v0.2.0` | self-managed WG, tunnel-as-uplink (`onlink`), weighted ECMP, VRF, BGP/OSPF, radvd, multi-WAN, `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
 | `dalang-io/dcheck` | `master` `33dc1af` | health list + Prometheus + undelete/macOS |
@@ -88,14 +108,24 @@ config** (no wayangi agent on the box).
 
 ## Not done / next steps
 
-1. **Find the kernel interaction** (delta-debug on hardware; see the two docs).
-   Then re-enable the minimal safe set in `configs/defconfig-intel`.
-2. `radvd` is bundled but RA was only tool-checked, not seen on a device with a
+1. **Decide the router-kernel block by boot counts** — there is no failing
+   subset to find. Run the T3 matrix (block-kernel vs safe-kernel, N≥12 boots
+   each, `scripts/boot-soak.sh`; commands in `docs/ROUTER-KERNEL-BISECT.md`;
+   owner OK required) + the hardware session
+   ([docs/HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)), then apply the
+   decision rule ([docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)). On a green
+   light, re-enable the block in `configs/defconfig-intel`.
+2. **Ship the landed-but-unreleased fixes in the next tag**: DHCP resilience
+   (`765ee81`) + the shipped safety net (`61c768f`) — they fix a real product
+   risk (a headless box stranded by a ~15 s DHCP race) independent of the M7
+   decision ([docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)). Nothing after
+   1.0.21 is tagged; never tag without a device boot test (gotcha below).
+3. `radvd` is bundled but RA was only tool-checked, not seen on a device with a
    WG kernel — re-verify once WireGuard ships.
-3. EdgeRouter: the box's own-traffic coverage / endpoint recursion / DHCP single
+4. EdgeRouter: the box's own-traffic coverage / endpoint recursion / DHCP single
    `/32` gaps are documented in `docs/EDGE-PARITY.md`; phone-home heartbeat UI
    (site "online") still TODO.
-4. CI channel publish secret provisioning (`docs/CHANNEL.md`).
+5. CI channel publish secret provisioning (`docs/CHANNEL.md`).
 
 ## Gotchas
 

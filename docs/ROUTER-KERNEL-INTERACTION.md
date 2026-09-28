@@ -2,7 +2,10 @@
 
 Research-only deliverable (2026-09-28). **No config was changed and nothing was
 committed.** This file ranks the most likely causes of the 1.0.13 / 1.0.20
-lockup (all router groups pass individually, the accumulated set freezes) and
+lockup (all router groups passed the bisect individually; whether the
+accumulated set fails at all is what the boot-count runs decide — see the
+[status banner](#bisect-result--the-interaction-did-not-reproduce-2026-09-28)
+at the bottom) and
 proposes the concrete hardware tests to run next. Context and ground truth:
 [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md) and
 [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md). Harness:
@@ -401,6 +404,21 @@ cumulative re-add to isolate the netdev interaction.
   [HANDOVER.md](HANDOVER.md), `configs/defconfig-{intel,qemu}`.
 
 ## Bisect result — the interaction did NOT reproduce (2026-09-28)
+
+> **Status (2026-09-28, after T1–T4 landed — read before the research below):**
+> with no failing subset found, the hypotheses above are **downgraded to
+> background research**; they revive only if the boot-count matrix shows
+> block-only failures. The network-stall signature (`gw=''`, clean dmesg) now
+> has a concrete userspace cause candidate: the old synchronous primary-NIC
+> DHCP give-up (`udhcpc -n -q -t 5 -T 3`, ~15 s), **fixed in-tree** (`765ee81`:
+> primary DHCP is `udhcpc -b` + a bounded wait-carrier — semantics in
+> [NETWORK.md](NETWORK.md)). The safety net now ships in the kernel (`61c768f`,
+> `configs/defconfig-intel`). The decision moves to **boot counts**
+> (`scripts/boot-soak.sh`, `17ecaf0` — ready-to-fire runs in
+> [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)) plus the hardware session
+> ([HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)), decided by the rule in
+> [TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md#decision-rule-replaces-abc). The
+> research below is kept unchanged.
 
 A delta-debug ran the full accumulated set (all 7 groups + watchdog) on the real
 device with the safety net (`wayang.selftest=120`, lockup/panic detectors):

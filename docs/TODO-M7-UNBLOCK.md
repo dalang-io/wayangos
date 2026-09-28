@@ -9,6 +9,16 @@ and the 1.0.20 freeze's signature turned out to be a **network stall**
 
 ## The new hypothesis every task builds on
 
+> **Status (2026-09-28, end of day):** T1 landed this hypothesis's fix
+> (`765ee81`): the primary boot path now runs `udhcpc -b` (retry forever) after
+> a bounded 10 s wait-for-carrier (`scripts/build-rootfs.sh` `serve()` `:737`,
+> `wait_carrier()` `:698`). The only remaining `udhcpc -n -q -t 5 -T 3` uses
+> are the bounded auto-detect probe (`:727`) and the interactive `wayang-net
+> dhcp`/`use` commands (`:1082`/`:1096`) — neither is on the boot path. T2
+> shipped the safety net in the kernel (`61c768f`). The hypothesis itself is
+> still **unconfirmed** — the boot-count runs + the hardware session decide
+> (decision rule at the bottom).
+
 **Primary-NIC DHCP gives up after ~15 s.** `scripts/build-rootfs.sh` runs
 `udhcpc -n -q -t 5 -T 3` on the primary interface (`:712` and `:1041`) — exit on
 no lease, no retry, no daemon. Secondary NICs use `-b` (retry forever, `:719`,
@@ -36,6 +46,13 @@ shifted boot timing. Consequences:
 ## Workstreams
 
 ### T1 — Primary-NIC DHCP resilience  ·  agent-1  ·  starts immediately
+
+**DONE — `765ee81` (2026-09-28).** Validation: QEMU boot with
+`-device usb-net` + hostfwd leases via the `-b` path and SSH works;
+shellcheck clean; [NETWORK.md](NETWORK.md) boot-behaviour section documents
+the retry semantics. (A genuinely slow lease can only be proven on hardware —
+that is T4's job, and QEMU user-net DHCP answers instantly.)
+
 **Owns:** `scripts/build-rootfs.sh` **network/DHCP section only** (~lines
 700–920 and the `/etc/init.d/network` heredoc ~1030–1050), `docs/NETWORK.md` (dhcp part).
 
@@ -56,6 +73,15 @@ shifted boot timing. Consequences:
 `docs/NETWORK.md` documents the retry semantics.
 
 ### T2 — Safety net in the shipped kernel  ·  agent-2  ·  starts immediately
+
+**DONE — `61c768f` (2026-09-28).** Validation: `test-selftest-qemu.sh`
+scenarios nonet/hang/panic all PASS with the net coming from the shipped
+`defconfig-intel` (no extra args); the rcS `mark-ok` deferral was verified
+already-correct; grub template unchanged (the cmdline is kernel-baked via
+`CONFIG_CMDLINE`). Router block stays off. Operational note documented in
+[UPDATE.md](UPDATE.md) — with the net baked in, a permanently offline box
+loops fallback/reboot instead of freezing.
+
 **Owns:** `configs/defconfig-intel`, `wayang/grub-disk.cfg` (+ `wayang/src/staging.rs`
 only if the template changes shape), `docs/UPDATE.md`. **Does not touch** the
 DHCP section of `build-rootfs.sh` (T1's); may touch the rcS/selftest sections
@@ -85,6 +111,16 @@ DHCP section of `build-rootfs.sh` (T1's); may touch the rcS/selftest sections
 `configs/defconfig-intel` carries watchdog + safety cmdline; docs updated.
 
 ### T3 — Boot-count (soak) harness  ·  agent-3  ·  starts immediately
+
+**DONE — `17ecaf0` (2026-09-28).** Validation: `scripts/boot-soak.sh` —
+evidence-driven classification (`up+route` / `up+no-route` /
+`watchdog-reset` / `unreachable>deadline`), 240 s liveness bound (from the
+owner-measured 120–200 s healthy range) and a 480 s silence cap that bounds
+only evidence-harvesting of self-recovered stalls, 34 assertions,
+shellcheck clean, QEMU-probed. The two ready-to-fire runs (block vs safe
+kernel, N≥12) are documented in
+[ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md).
+
 **Owns:** `scripts/bisect-router-opts.sh` (add a mode) or new
 `scripts/boot-soak.sh`; `docs/ROUTER-KERNEL-BISECT.md` (new section).
 
@@ -106,6 +142,16 @@ DHCP section of `build-rootfs.sh` (T1's); may touch the rcS/selftest sections
 (bundle tags, N, polling, evidence capture) and ready to fire on owner OK.
 
 ### T4 — Hardware session protocol (owner-assisted)  ·  agent-4  ·  doc now, run after T1+T2
+
+**DONE — `4a00b2e` (2026-09-28).** Validation:
+[HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md) is complete and
+executable without agent context: Caps Lock first-response test (never
+verified in either incident), evidence-capture commands, SR9700→e1000e swap
+with the MAC-bound-`/32`-lease open question, cold-vs-warm boot-count
+matrix, PASS criteria, and result-recording templates for
+[HARDWARE.md](HARDWARE.md) / [INCIDENT-1.0.13.md](INCIDENT-1.0.13.md). The
+session itself still needs the owner at the device.
+
 **Owns:** new `docs/HW-SESSION-CHECKLIST.md`; appends results to
 `HARDWARE.md` / `INCIDENT-1.0.13.md` later.
 
@@ -133,11 +179,24 @@ Write a checklist the owner can execute without agent context:
 
 ### T5 — Docs consolidation  ·  agent-5  ·  after T1–T4 land
 **Owns:** `docs/TODO.md`, `docs/GOAL.md`, `docs/HANDOVER.md`,
-`docs/INCIDENT-1.0.13.md`, `docs/ROUTER-KERNEL-INTERACTION.md`.
+`docs/INCIDENT-1.0.13.md`, `docs/ROUTER-KERNEL-INTERACTION.md`, this file.
+
+**DONE — 2026-09-28 (this pass; uncommitted at write time).** M7 sections
+rewritten from "decide (a)/(b)/(c)" to "run the plan, decide by boot-count"
+([TODO.md](TODO.md), [GOAL.md](GOAL.md), [HANDOVER.md](HANDOVER.md));
+T1–T4 marked done above with their hashes;
+[HARDWARE.md](HARDWARE.md) linked from [TODO.md](TODO.md);
+[ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md) hypotheses
+downgraded to background research (status banner on the Bisect-result
+section); [INCIDENT-1.0.13.md](INCIDENT-1.0.13.md) gained the
+"the freeze was (probably) never a freeze" section; [HANDOVER.md](HANDOVER.md)
+cross-repo table updated to `61c768f` (unpushed, nothing tagged). The final
+M7 decision is **pending** — it gets recorded here once the boot-count runs
+produce data.
 
 1. Rewrite the M7 sections from "decide (a)/(b)/(c)" to "run the plan, decide by
    boot-count" with the udhcpc hypothesis + `build-rootfs.sh` line refs.
-2. Keep `HARDWARE.md` linked from `TODO.md` (currently missing).
+2. Keep `HARDWARE.md` linked from `TODO.md` (was missing; done in this pass).
 3. Mark T1–T4 done as they land; record the final M7 decision + the data it was
    based on. Update `HANDOVER.md` cross-repo table.
 

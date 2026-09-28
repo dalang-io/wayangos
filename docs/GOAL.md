@@ -45,28 +45,49 @@ on the box (self-managed WireGuard, like a RouterOS `.rsc`, no agent).
 
 The router kernel block (WireGuard/VRF/veth/dummy/bond/gre/ipsec/QoS) is **off in
 the released image** (`configs/defconfig-intel` = VLAN/bridge MVP only). 1.0.13
-and 1.0.20 froze the device with the block; but a delta-debug on 2026-09-28 showed
-the **full block passes** on the device (3 boots + 30-min soak) and the freeze's
-signature is a **network/USB-uplink stall** (`gw=''`, clean dmesg), not a CPU
-lockup → most likely **intermittent/environmental**, not a kernel-option
-interaction. See [ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md),
+and 1.0.20 froze the device with the block; but a 2026-09-28 delta-debug showed
+the **full block passes** on the device (3 boots + 30-min soak) — **no failing
+subset** — and the freeze's signature is a **network/USB-uplink stall** (`gw=''`,
+clean dmesg), not a CPU lockup. Leading (unconfirmed) hypothesis: the old
+synchronous primary-NIC DHCP give-up (`udhcpc -n -q -t 5 -T 3`, ~15 s) over the
+flaky SR9700 USB uplink. Both mitigations are landed on `master`, unreleased
+(1.0.21 remains the release): primary DHCP now retries forever (`udhcpc -b` +
+bounded wait-carrier, `765ee81`) and the safety net (watchdogs + lockup/hung-task
+detectors + `wayang.selftest=120`) is baked into the shipped kernel (`61c768f`).
+The M7 decision is now data-driven, not a path pick: run the boot-count matrix
+(block-kernel vs safe-kernel, N≥12 boots each, `scripts/boot-soak.sh`) plus the
+hardware session ([HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)), then apply
+the decision rule in [TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md). See
+[ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md),
 [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md), [INCIDENT-1.0.13.md](INCIDENT-1.0.13.md).
 
 ## TODO toward the goal (owner-visible)
 
-- [~] **Unblock M7 — multi-agent plan**: [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)
-      (T1 DHCP resilience · T2 shipped safety net · T3 boot-count harness ·
-      T4 hardware session · T5 docs). The "decide M7 path" item below is
-      superseded by that plan's decision rule.
-- [ ] **Decide M7 path** (owner): (a) ship a test release with the block + a
-      safety-net grub cmdline (`wayang.selftest` + `panic=10 …`) and cold-boot
-      soak on the device; (b) investigate the cold-boot USB-NIC/DHCP stall
-      directly; or (c) keep it off. Until then the advanced router features are
-      lab-kernel only.
+- [~] **Unblock M7 — multi-agent plan**: [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).
+      T1 DHCP resilience ✅ `765ee81` · T2 shipped safety net ✅ `61c768f` ·
+      T3 boot-count harness ✅ `17ecaf0` · T4 hardware session doc ✅ `4a00b2e`
+      (all landed 2026-09-28, unreleased) · T5 docs consolidation = this pass.
+      The old "decide M7 path" choice is superseded by that plan's decision
+      rule (next item).
+- [ ] **Run the T3/T4 boot-count + hardware session, then decide M7 by the
+      [decision rule](TODO-M7-UNBLOCK.md#decision-rule-replaces-abc)** (device
+      work needs owner OK): block-kernel vs safe-kernel, N≥12 boots each
+      (`scripts/boot-soak.sh`; ready-to-fire commands in
+      [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)) + the hardware
+      session ([HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)). The old
+      "(a)/(b)/(c)" pick-a-path choice is retired. Until the decision, the
+      advanced router features are lab-kernel only.
 - [ ] Re-enable the minimal validated set in `configs/defconfig-intel` and do a
       real cold-boot soak (≥30 min, several cold boots) before tagging.
-- [ ] Put a safety net in the **shipped** grub (watchdog/selftest + lockup panics)
-      so a stall auto-recovers instead of stranding a headless box.
+- [x] **Safety net in the shipped kernel** (watchdog/selftest + lockup panics)
+      so a stall auto-recovers instead of stranding a headless box: done
+      in-tree — `configs/defconfig-intel` bakes the watchdogs (ITCO_WDT = the
+      P320's PCH, I6300ESB for QEMU, soft watchdog fallback), soft/hard-lockup
+      + hung-task detectors and `CONFIG_CMDLINE` (`panic=10 oops=panic …
+      wayang.selftest=120`) into the kernel cmdline — kernel-baked, so
+      installer, both slots and updates all inherit it; grub template
+      unchanged (`61c768f`; `test-selftest-qemu.sh` nonet/hang/panic PASS with
+      no extra args). Ships with the next tag.
 - [ ] EdgeRouter E2E on hardware: enrol, tunnels, public `/32`+`/64`, RA/SLAAC
       (radvd now bundled), firewall, failover drill — [EDGEROUTER-RUNBOOK.md](EDGEROUTER-RUNBOOK.md).
 - [ ] CI channel-publish secrets (`docs/CHANNEL.md`).

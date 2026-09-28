@@ -5,7 +5,9 @@ Status: **mitigated, not fully diagnosed.** 1.0.13 was pulled from the channel.
 and booted cleanly on the device, so the leading theory is those options. The
 rest of the block stays off until a supervised bisect
 ([docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)). Read this before
-touching the release or the device again.
+touching the release or the device again. **Latest: 2026-09-28 — the
+interaction did not reproduce and the freeze was (probably) never a freeze;
+see the dated sections at the bottom.**
 
 ## Symptom
 
@@ -237,3 +239,54 @@ lockup. The shipped 1.0.20 differed only by lacking the safety-net cmdline
 freeze is most likely **intermittent/environmental** (cold-boot USB-NIC/DHCP
 stall). Keep the block off until reproduced; see
 [ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md#bisect-result--the-interaction-did-not-reproduce-2026-09-28).
+
+## 2026-09-28 — the freeze was (probably) never a freeze
+
+After the multi-agent unblock plan ([TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md))
+landed T1–T4 on `master` (all 2026-09-28; **nothing tagged** — 1.0.21 remains
+the release, and these commits are not even pushed yet):
+
+- **Leading hypothesis (unconfirmed): the "freeze" was a DHCP stall, not a
+  lockup.** The rootfs ran a synchronous `udhcpc -n -q -t 5 -T 3` (~15 s
+  give-up) on the primary interface — exit on no lease, no retry, no daemon.
+  This device's public uplink is a DHCP `/32` lease over a flaky USB SR9700;
+  a lease slower than ~15 s at cold boot leaves `gw=''` — the box alive but
+  unreachable, which matches the 1.0.20 signature (clean `dmesg.boot`,
+  selftest FAIL `gw=''`). This failure mode exists on **any kernel, including
+  1.0.21**; the router block may only have shifted boot timing. Whether the
+  console was dead too was never verified — the Caps Lock test was **never
+  performed in either incident** and is the single most informative
+  10-second action ([HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md) §1).
+- **Fixed in-tree (`765ee81`, unreleased):** the primary path now runs
+  `udhcpc -b` (background retry forever) after a bounded 10 s
+  wait-for-carrier (`scripts/build-rootfs.sh` `serve()`/`wait_carrier`); a
+  late lease is still applied with route + DNS, so a slow lease delays
+  connectivity but cannot strand the box. Late-adapter auto-detect no longer
+  permanently skips an interface after one failed probe. QEMU-proofed (lease
+  via the `-b` path, SSH over hostfwd); semantics documented in
+  [NETWORK.md](NETWORK.md) (boot behaviour).
+- **The safety net now ships in the kernel (`61c768f`, unreleased):**
+  `configs/defconfig-intel` bakes the watchdogs (ITCO_WDT = this P320's PCH,
+  I6300ESB for the QEMU proof, soft watchdog fallback), soft/hard-lockup +
+  hung-task detectors and `CONFIG_CMDLINE` (`panic=10 oops=panic
+  softlockup_panic=1 hardlockup_panic=1 hung_task_panic=1 nmi_watchdog=1
+  wayang.selftest=120`) into the kernel cmdline; grub template unchanged.
+  `scripts/test-selftest-qemu.sh` scenarios nonet/hang/panic all PASS with
+  the net coming from the shipped config. With the net baked in, a
+  permanently offline box loops fallback/reboot instead of freezing (device
+  note in [UPDATE.md](UPDATE.md), "Jaring pengaman boot").
+- **Owner-measured timings on this device (2026-09-28):** reboot→SSH is
+  **173 s healthy** (the kernel is up only ~28 s at SSH-up — ~145 s is
+  shutdown); healthy range 120–200 s; the give-up bound is 240 s. These
+  validated the soak bounds in
+  [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md).
+- **What settles it:** the boot-count runs — block-kernel vs safe-kernel,
+  N≥12 boots each, autonomous (`scripts/boot-soak.sh`, `17ecaf0`;
+  ready-to-fire commands in
+  [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)) — plus the hardware
+  session ([HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md), `4a00b2e`),
+  decided by the [decision rule](TODO-M7-UNBLOCK.md#decision-rule-replaces-abc).
+  Until then "the freeze was a DHCP stall" is a hypothesis, not a finding: if
+  the block kernel fails the matrix at a clearly higher rate, the H1/H2
+  research in [ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md)
+  revives.

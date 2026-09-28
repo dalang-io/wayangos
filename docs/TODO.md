@@ -4,9 +4,9 @@ Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
 release: **1.0.21** (see `docs/HANDOVER.md`). **Product goal + roadmap:
-[docs/GOAL.md](GOAL.md).** **Execution plan to unblock M7 (multi-agent,
-do this before touching the kernel block):
-[docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).**
+[docs/GOAL.md](GOAL.md).** **Execution plan to unblock M7 (multi-agent, do this before touching the
+kernel block): [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)** — T1–T4 landed
+2026-09-28 (see that file for hashes); the device runs need owner OK.
 
 ## wayangos (this repo)
 
@@ -17,17 +17,30 @@ do this before touching the kernel block):
       QEMU-proven against the production hubs. See
       [docs/EDGEROUTER.md](EDGEROUTER.md) + wayangi's `docs/edge-wayangos.md`,
       `docs/EDGE-PARITY.md`. **Runs only once the kernel below is fixed.**
-- [~] **Router kernel block — freeze NOT reproduced (decision pending).**
-      Every group passes the bisect individually, and a 2026-09-28 delta-debug
-      showed the **full accumulated block passes too** (3 boots + 30-min soak);
-      the 1.0.20 freeze's signature is a **network/USB-uplink stall** (`gw=''`,
-      clean dmesg), not a CPU lockup → likely intermittent/environmental. The
-      block stays **off** (VLAN/bridge MVP) until the owner picks a path (ship a
-      test release with a safety-net grub + cold-boot soak; investigate the
-      cold-boot stall; or keep off). See [docs/GOAL.md](GOAL.md) (M7),
+- [~] **Router kernel block — no failing subset; decision pending = boot-count
+      runs.** Every group passes the bisect individually, and a 2026-09-28
+      delta-debug showed the **full accumulated block passes too** (3 boots +
+      30-min soak) — there is **no failing subset**. The 1.0.20 freeze's
+      signature is a **network/USB-uplink stall** (`gw=''`, clean dmesg), not
+      a CPU lockup. Leading (unconfirmed) hypothesis: the old synchronous
+      primary-NIC DHCP give-up (`udhcpc -n -q -t 5 -T 3`, ~15 s) over the
+      flaky SR9700 USB uplink — a slow lease left the box alive but
+      unreachable. Both mitigations are landed on `master` (unreleased):
+      primary DHCP now retries forever (`udhcpc -b` + bounded wait-carrier,
+      `765ee81`) and the safety net (watchdogs + lockup/hung-task detectors +
+      `wayang.selftest=120` cmdline) is baked into the shipped kernel
+      (`61c768f`, `configs/defconfig-intel`). The block stays **off**
+      (VLAN/bridge MVP) until the boot-count matrix + hardware session decide
+      per the [decision rule](TODO-M7-UNBLOCK.md#decision-rule-replaces-abc):
+      block-kernel vs safe-kernel, N≥12 boots each (`scripts/boot-soak.sh`,
+      ready-to-fire commands in
+      [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)), plus the
+      owner-run hardware session
+      ([docs/HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)). See
+      [docs/GOAL.md](GOAL.md) (M7),
       [docs/ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md),
-      [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
-      [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md).
+      [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md),
+      [docs/HARDWARE.md](HARDWARE.md).
 - [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle
       and creates the GitHub release; the tag path of
       `.github/workflows/installer-iso.yml` now also publishes the channel in a

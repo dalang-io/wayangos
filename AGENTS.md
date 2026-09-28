@@ -80,8 +80,11 @@ bundled; UI reference for all TUIs).
 
 **Released: 1.0.21** (tag + channel; device on it). Router MVP (VLAN/bridge) is
 on; the rest of the router kernel block is **off** — every group passes the
-bisect alone but the **accumulated set freezes the device** (interaction), so it
-is reverted until found: [docs/INCIDENT-1.0.13.md](docs/INCIDENT-1.0.13.md),
+bisect alone but the **accumulated set passed on retest** (3 boots + 30-min
+soak; no failing subset) — the 04:48 stall's signature is a network/USB-uplink
+stall (`gw=''`, clean dmesg), not a CPU lockup; primary suspect: the primary-NIC
+DHCP give-up (fixed on master, unreleased), so it is kept off pending the
+boot-count decision: [docs/INCIDENT-1.0.13.md](docs/INCIDENT-1.0.13.md),
 [docs/ROUTER-KERNEL-BISECT.md](docs/ROUTER-KERNEL-BISECT.md). Cross-repo state:
 [docs/HANDOVER.md](docs/HANDOVER.md); pending work: [docs/TODO.md](docs/TODO.md).
 WayangOS is a wayangi "Edge" unit type in the dashboard (self-managed WireGuard,
