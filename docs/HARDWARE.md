@@ -46,8 +46,9 @@ Detected devices and status:
   and **neither has AVX-512** (so no `avx512` codegen risk either way).
 - Kernel: `CONFIG_GENERIC_CPU*`, and in the shipped kernel
   `CONFIG_CRYPTO_AES_NI_INTEL is not set` (no AES-NI SIMD path). Keep an eye on
-  any `CRYPTO_LIB_*_ARCH` / `*_X86_64` options added for WireGuard/IPsec — the
-  router-kernel interaction investigation names x86 SIMD crypto as a suspect
+  any `CRYPTO_LIB_*_ARCH` / `*_X86_64` options added for WireGuard/IPsec. The
+  router-kernel "x86 SIMD crypto" hypothesis was **never confirmed** — the
+  interaction did not reproduce and the full block shipped in **1.0.23**
   ([docs/ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md)).
 - If a future build ever sets `-march=`/`target-cpu` or `GOAMD64=v3`, it must be
   validated against this CPU's flags above. Baseline `v1`/`x86-64` is required.
@@ -58,10 +59,12 @@ Detected devices and status:
 > `-march=native`, no `target-cpu`, `GOAMD64` unset. A CPU-specific build
 > (`-march=kabylake`, `GOAMD64=v3`, kernel family `MCORE2`) would run on *this*
 > P320 Tiny but **break on any older CPU / VM** (SIGILL/panic) and would diverge
-> from the release. It also does **not** fix the freeze — that is a kernel
-> *option interaction* ([docs/ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md)),
-> not instruction-set selection. For a one-off experiment on your own unit it is
-> "safe" only on that exact CPU; keep it out of `configs/` and the release.
+> from the release. It is also unrelated to the 1.0.13/1.0.20 "freeze" (a
+> network/USB-uplink stall; the kernel-option interaction did not reproduce and
+> the full block shipped in 1.0.23 —
+> [docs/ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md)). For a
+> one-off experiment on your own unit it is "safe" only on that exact CPU; keep
+> it out of `configs/` and the release.
 
 ### Gotchas
 

@@ -161,8 +161,9 @@ The rootfs also carries the userspace for the next router features: static
 `wg` (WireGuard), `tc` (HTB/fq_codel/CAKE/ingress, u32/fw, police/mirred) and
 `bird` (BGP/OSPF/BFD). `/etc/init.d/router` starts `bird` after
 `wayang-router boot` only when `/data/etc/router/bird.conf` exists (control
-socket `/var/run/bird.ctl`). Their kernel options are still bisect-gated;
-`scripts/build-lab-kernel.sh` builds a QEMU-only kernel with all of them.
+socket `/var/run/bird.ctl`). Their kernel options are **enabled in the shipped
+image** as of 1.0.23 (`configs/defconfig-intel`, `106bb23`);
+`scripts/build-lab-kernel.sh` builds a QEMU-only kernel for lab testing.
 
 ## The `wayang` console
 

@@ -7,13 +7,13 @@ Design: [docs/EDGEROUTER.md](EDGEROUTER.md); parity with the MikroTik `.rsc`:
 wayangi `docs/EDGE-PARITY.md`.
 
 > **Prerequisite — kernel.** The tunnels need WireGuard (+ VRF / IPv6 multiple
-> tables for the tunnel routing) in the kernel. Those options are **off in the
-> shipped image** because the accumulated router kernel block freezes the test
-> device (an interaction — see [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md) and
-> [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md)). Until that is fixed,
-> this runbook runs against the **QEMU lab kernel**
-> (`scripts/build-lab-kernel.sh`) or a self-built image with WireGuard enabled.
-> Everything below already works end-to-end there, proven against the
+> tables for the tunnel routing) in the kernel. Those options are **enabled in
+> the shipped image** since **1.0.23** (`configs/defconfig-intel`, `106bb23`) —
+> M7 resolved 2026-09-29 after the "interaction" did not reproduce (see
+> [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md) and
+> [docs/ROUTER-KERNEL-INTERACTION.md](ROUTER-KERNEL-INTERACTION.md)). The QEMU
+> lab kernel (`scripts/build-lab-kernel.sh`) is still useful for reproducible
+> pre-release testing. The flow below was proven end-to-end against the
 > **production hubs**.
 
 ## 0. Mental model
@@ -112,7 +112,7 @@ data for post-incident analysis is on `/data`. See [docs/MONITORING.md](MONITORI
 | LAN host has no address | `udhcpd` running? fw has `lan → self` `dhcp` policy? option 121 present in `/data/etc/router/udhcpd/<iface>.conf` (BusyBox wants raw hex, no `0x`)? |
 | IPv6 `RA` missing | `radvd` installed (`/usr/sbin/radvd`) and `ra = true`; `diagnostics` in the router log |
 | Public `/32` unreachable inbound | the `/32` must be routed to the hub upstream and the hub must route it to the box's peer (the dashboard adds this) — verify `ip route get <pub>` on the hub |
-| Box froze after a kernel change | power-cycle → GRUB slot A; see the kernel interaction blocker at the top |
+| Box froze after a kernel change | power-cycle → GRUB slot A; the shipped safety net + slot fallback should auto-recover (see [docs/UPDATE.md](UPDATE.md)) |
 
 ## 7. Anti-lockout
 

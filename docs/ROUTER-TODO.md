@@ -69,15 +69,40 @@ QoS, tunnel GRE/IPIP ✅ — PPPoE, MPLS, VXLAN, ipset belum).
   via strongSwan, BGP via BIRD): `wayang-router/docs/ROADMAP.md` — keputusan
   I.2 condong ke **BIRD**.
 
+## Update 2026-09-29: blok kernel router RILIS di 1.0.23 (M7 selesai)
+
+Blok opsi kernel router (WireGuard/VRF/veth/macvlan/tun/ipsec/dummy/bonding/
+gre-ipip/QoS/bridge) **sudah aktif dan dirilis** — M7 resolved 2026-09-29, di
+`configs/defconfig-intel` (`106bb23`), terkirim sebagai **1.0.23** (`b5d9eb5`,
+channel menyajikan 1.0.23). Tidak ada lagi framing "blok mati / menunggu
+bisect": bisect per grup tidak menemukan subset gagal, dan soak boot-count
+device ~30 boot blok bersih (satu hang first-boot tak terulang) menutup M7;
+jaring pengaman sudah ada di kernel (`61c768f`) dan stall DHCP diperbaiki
+(`765ee81`). Rincian: [docs/GOAL.md](GOAL.md) (M7),
+[docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md),
+[docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
+[docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md) §2026-09-29.
+
+Konsekuensi: fragment terpisah `configs/defconfig-router` + overlay `router.img`
+(bagian A/B/G2) tetap **rencana**, tetapi opsi kernel intinya kini hidup di
+kernel core `configs/defconfig-intel`, bukan menunggu edisi itu.
+
 ## Status sekarang (diaudit dari `configs/defconfig-qemu` + `defconfig-intel`)
+
+> **Catatan 2026-09-29:** baris L2/VPN/QoS/Routing di bawah sudah **usang**
+> untuk opsi kernel router — sejak `106bb23` `configs/defconfig-intel` memuat
+> bridge/VLAN/bonding/macvlan/veth, WireGuard/TUN/ESP, CAKE/HTB/fq_codel/
+> IFB/u32, VRF + policy routing IPv6, nftables + flowtable. Yang benar-benar
+> belum di kernel: **ipset, PPPoE, MPLS, VXLAN/IPV6_SIT, conntrack helper
+> SIP/PPTP/TFTP**. Lihat update di atas.
 
 | Area | Ada | Belum |
 |------|-----|-------|
-| Netfilter | core, conntrack, NAT core, iptables (tabel `filter`), `xt_conntrack`, helper FTP | nftables, tabel `nat` iptables + MASQUERADE, ipset, flowtable |
-| Routing | `IP_ADVANCED_ROUTER`, multiple tables, multipath, multicast routing, IPv6 | VRF, policy routing IPv6, MPLS |
-| L2 | — | bridge, VLAN 802.1Q, bonding/LACP, macvlan, veth |
-| VPN | XFRM | WireGuard, TUN (OpenVPN), ESP (IPsec) |
-| QoS | `NET_SCHED` | CAKE, HTB, fq_codel, IFB, classifier u32 |
+| Netfilter | core, conntrack, NAT core (`NF_NAT`), nftables + flowtable (`NF_TABLES`, `NFT_*`, `NF_FLOW_TABLE`), iptables (tabel `filter`), `xt_conntrack` | ipset, tabel `nat` iptables + MASQUERADE, helper SIP/PPTP/TFTP |
+| Routing | `IP_ADVANCED_ROUTER`, multiple tables, multipath, multicast routing, IPv6, VRF (`NET_VRF`) + policy routing IPv6 | MPLS |
+| L2 | bridge (+VLAN filtering), VLAN 802.1Q, bonding/LACP, macvlan, veth | — |
+| VPN | XFRM, WireGuard, TUN (OpenVPN), ESP (IPsec) | — |
+| QoS | `NET_SCHED`, CAKE, HTB, fq_codel, IFB, classifier u32 | — |
 | WAN | DHCP client (udhcpc) | PPPoE |
 | NIC | e1000e, r8169, igb, igc, ixgbe, i40e, USB-Ethernet | — |
 | Userspace | BusyBox (`ip` terbatas, `udhcpd`), Dropbear, curl | `nft`, iproute2 penuh + `tc`, dnsmasq, wg, pppd, BIRD/FRR, ethtool, tcpdump, conntrack-tools |
@@ -89,6 +114,12 @@ Catatan: `tc` BusyBox sengaja dimatikan (qdisc CBQ hilang dari header kernel
 ---
 
 ## A. Kernel — fondasi data-plane
+
+> **Status 2026-09-29:** rencana awal menaruh semua opsi ini di fragment baru
+> `configs/defconfig-router` (base `defconfig-intel`). Kenyataannya opsi inti
+> sudah masuk **langsung ke `configs/defconfig-intel`** (`106bb23`, rilis
+> 1.0.23); lihat update di atas. Checklist di bawah tetap sebagai daftar
+> lengkap edisi router terpisah.
 
 Semua di fragment baru `configs/defconfig-router` (base `defconfig-intel`);
 `defconfig-qemu` / `defconfig-intel` tidak ditambah.

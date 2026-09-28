@@ -20,15 +20,18 @@ WG peers and the dashboard. Prefix delegation + the `/64` tier are documented in
 
 Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
-## A. Kernel (blockers, one bisect)
+## A. Kernel (done — enabled in 1.0.23)
 
-- [ ] **WireGuard** (`CONFIG_WIREGUARD` + arch crypto) — bisect group
-      `wireguard`; required for the tunnel. Ship only after device validation
-      (docs/ROUTER-KERNEL-BISECT.md).
-- [ ] **IPv6 forwarding + policy routing / VRF / multiple tables** — bisect
-      group `vrf-multipath`; needed for the reply-path v6 policy routing the
-      agent installs and for handing the prefix to a LAN.
-- [ ] (optional) `NET_SCH_*`/`tc` if the EdgeRouter does QoS — bisect `qos`.
+- [x] **WireGuard** (`CONFIG_WIREGUARD` + arch crypto) — enabled in
+      `configs/defconfig-intel` (`106bb23`, shipped **1.0.23**); no longer
+      bisect-gated (M7 resolved 2026-09-29, the "interaction" did not reproduce
+      — docs/ROUTER-KERNEL-INTERACTION.md).
+- [x] **IPv6 forwarding + policy routing / VRF / multiple tables**
+      (`NET_VRF`/`NET_L3_MASTER_DEV`/`IPV6_MULTIPLE_TABLES`) — enabled in
+      `configs/defconfig-intel` (`106bb23`); needed for the reply-path v6 policy
+      routing the agent installs and for handing the prefix to a LAN.
+- [x] (optional) `NET_SCH_*` / QoS — enabled in `configs/defconfig-intel`
+      (`106bb23`); userspace `tc` bundled (`scripts/build-iproute2.sh`).
 - [ ] Confirm firewall (`nftables`, already on) covers IPv6 for the delegated
       prefix.
 
@@ -127,9 +130,11 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## First concrete steps
 
-1. Run the **WireGuard** (+ `vrf-multipath`) bisect groups on the device
+1. ~~Run the **WireGuard** (+ `vrf-multipath`) bisect groups on the device
    (`scripts/bisect-router-opts.sh --unattended …`, docs/ROUTER-KERNEL-BISECT.md)
-   and land them in `configs/defconfig-intel`.
+   and land them in `configs/defconfig-intel`.~~ **Done** — the full block landed
+   in `configs/defconfig-intel` (`106bb23`) and shipped as **1.0.23** (M7
+   resolved 2026-09-29; docs/ROUTER-KERNEL-INTERACTION.md).
 2. Bundle `wayangi` and add `/data/etc/wayangi/` (**done**: `build-wayangi.sh` +
    `/usr/sbin/wayangi` install + persisted dir, no token baked); `wayang
    edgerouter enroll` + `apply` (**done**) consume the dashboard's token/bundle;

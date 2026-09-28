@@ -1,11 +1,23 @@
 # Router-kernel interaction lockup — culprit research
 
-Research-only deliverable (2026-09-28). **No config was changed and nothing was
-committed.** This file ranks the most likely causes of the 1.0.13 / 1.0.20
-lockup (all router groups passed the bisect individually; whether the
-accumulated set fails at all is what the boot-count runs decide — see the
-[status banner](#bisect-result--the-interaction-did-not-reproduce-2026-09-28)
-at the bottom) and
+> **Status: RESOLVED — the interaction did NOT reproduce; the block is ENABLED
+> (2026-09-29).** The hypotheses H1–H6 below were **never confirmed**, and this
+> file is kept only as **background research** — do not read H1/H2 as live
+> conclusions. A delta-debug on the real device found **no failing subset** (the
+> full block passed 3 boots + a 30-min soak) and a device boot-count soak ran
+> ~30 consecutive clean block boots with a single unreproduced first-boot hang;
+> the freeze's signature was a **network/USB-uplink stall** (`gw=''`, clean
+> dmesg), not a CPU lockup. M7 decision: **enable** the full block in
+> `configs/defconfig-intel` (`106bb23`), shipped as **1.0.23** (`b5d9eb5`),
+> covered by the shipped safety net (`61c768f`) and the DHCP-resilience fix
+> (`765ee81`). Ground truth: [INCIDENT-1.0.13.md](INCIDENT-1.0.13.md) §2026-09-29,
+> [TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md), [ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
+> [HANDOVER.md](HANDOVER.md).
+
+Research-only deliverable (2026-09-28; the "no config was changed, nothing was
+committed" caveat is **superseded by `106bb23`**). This file ranks the most
+likely causes of the 1.0.13 / 1.0.20 lockup (all router groups passed the bisect
+individually) and
 proposes the concrete hardware tests to run next. Context and ground truth:
 [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md) and
 [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md). Harness:
@@ -355,6 +367,10 @@ Same accumulated config on a 6.18 or 7.1 kernel. Distinguishes H5 from H1–H3.
 
 ## Bottom line
 
+> **Superseded 2026-09-29:** the interaction did not reproduce; the hypotheses
+> below were downgraded to background and the block shipped as 1.0.23. Kept for
+> the record.
+
 Most likely an **interaction on the network path at boot** (H1: boot-created
 netdevs × IPv6/VRF l3mdev), with the **x86 SIMD-crypto / FPU-in-softirq** change
 as the strongest single mechanism that can produce a *silent hard freeze*
@@ -442,10 +458,9 @@ auto-recovery.
 Working conclusion: the freeze is most likely **intermittent/environmental** (a
 cold-boot USB-NIC/DHCP stall), not a deterministic kernel-option interaction.
 
-Recommendation: keep the router block **OFF** in the release until reproduced
-(the shipped 1.0.20 without the safety cmdline is the only failing artifact).
-To settle it, cold-boot the shipped 1.0.20 with `wayang.selftest=… wayang.debug`
-many times (~10+) with a ≥30 min window and log time-to-failure — this needs
-power-cycle access. Consider putting a `wayang.selftest`-style watchdog +
-`panic=10 …` into the *shipped* grub so a stall auto-recovers instead of
-stranding a headless box.
+Recommendation (**superseded 2026-09-29**): **enable the block.** A device
+boot-count soak ran ~30 consecutive clean block boots with one unreproduced
+first-boot hang; the safety net now ships in the kernel (`61c768f`) and the
+primary-NIC DHCP stall is fixed (`765ee81`). The full block is enabled in
+`configs/defconfig-intel` (`106bb23`) and shipped as **1.0.23** (M7 resolved,
+2026-09-29; see [INCIDENT-1.0.13.md](INCIDENT-1.0.13.md) §2026-09-29).

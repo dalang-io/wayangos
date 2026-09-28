@@ -47,8 +47,9 @@ Count: **10 promoted, ~1 with source here** (Viewer/deprecated), plus
   wayang-router, socket `/var/run/bird.ctl`; `/etc/init.d/router` starts it
   after `wayang-router boot` only when that file exists). Each is optional in
   `build-rootfs.sh` (installed only when staged) and pinned + sha256-verified.
-  The kernel side is bisect-gated (docs/ROUTER-KERNEL-BISECT.md); develop
-  against the QEMU-only `scripts/build-lab-kernel.sh`. Both apps open from the `wayang` console (07 FIREWALL, 08 ROUTER; 06 DCHECK opens the bundled dcheck; 05 SSH manages root keys).
+  The kernel side is **enabled in the shipped image** as of **1.0.23**
+  (`configs/defconfig-intel`, `106bb23`); the QEMU-only
+  `scripts/build-lab-kernel.sh` remains for lab/pre-release testing. Both apps open from the `wayang` console (07 FIREWALL, 08 ROUTER; 06 DCHECK opens the bundled dcheck; 05 SSH manages root keys).
 - **dcheck** — `scripts/fetch-dcheck.sh` downloads the signed release binary
   (x86_64-unknown-linux-musl) from `https://wayang.dalang.io/dcheck` into
   `$BUILD/dcheck/dcheck`; `build-rootfs.sh` installs it to `/usr/bin/dcheck`.
