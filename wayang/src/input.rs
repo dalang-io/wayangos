@@ -125,6 +125,49 @@ impl Picker {
     }
 }
 
+/// Indices of `items` that fuzzy-match `q`: case-insensitive substring, or a
+/// word that starts with it. An empty query matches nothing.
+pub fn fuzzy_matches(q: &str, items: &[String]) -> Vec<usize> {
+    let q = q.trim().to_ascii_lowercase();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, hay)| {
+            let hay = hay.to_ascii_lowercase();
+            hay.contains(&q) || hay.split_whitespace().any(|w| w.starts_with(&q))
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Draw the matched candidates just under a jump input box (read-only jump):
+/// `enter` selects the first.
+pub fn draw_hits(f: &mut Frame, area: Rect, t: &Theme, title: &str, hits: &[String]) {
+    if hits.is_empty() {
+        return;
+    }
+    let ir = hud::centered(area, 76, 9);
+    let h = (hits.len() as u16 + 2).min(8).min(area.bottom().saturating_sub(ir.y + 9));
+    if h < 3 {
+        return;
+    }
+    let rect = Rect { x: ir.x, y: ir.y + 9, width: ir.width, height: h };
+    f.render_widget(Clear, rect);
+    let inner = hud::panel(f, rect, title, t);
+    let mut lines = Vec::new();
+    for s in hits.iter().take(inner.height as usize) {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(s.clone(), t.bold(t.fg)),
+            Span::styled("   enter selects it", t.fg(t.dim)),
+        ]));
+    }
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
 /// Draw the modal centered in `area`; `tick` drives the cursor blink.
 pub fn draw(f: &mut Frame, area: Rect, t: &Theme, input: &Input, tick: usize) {
     let r = hud::centered(area, 76, 9);
@@ -217,6 +260,15 @@ mod tests {
         let mut i = Input::new("T", "P", "H").value("  x  ");
         assert_eq!(i.on_key(key(KeyCode::Enter)), Outcome::Submit("x".into()));
         assert_eq!(i.on_key(key(KeyCode::Esc)), Outcome::Cancel);
+    }
+
+    #[test]
+    fn fuzzy_matches_substring_and_word_prefix() {
+        let items = vec!["eth0 e1000e 192.168.1.42/24".into(), "wlan0 rtl8xxxu".into(), "enp0s20u1 r8152".into()];
+        assert_eq!(fuzzy_matches("wlan", &items), vec![1]);
+        assert_eq!(fuzzy_matches("u1", &items), vec![2]);
+        assert_eq!(fuzzy_matches("", &items), Vec::<usize>::new());
+        assert_eq!(fuzzy_matches("nope", &items), Vec::<usize>::new());
     }
 
     fn picker() -> Picker {

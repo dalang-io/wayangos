@@ -31,4 +31,4 @@
 │                                                                ││                                          │
 ┗────────────────────────────────────────────────────────────────┛┗──────────────────────────────────────────┛
   ✔ OK  2 authorized key(s).
- [↑↓] pick  [a] add  [d] remove  [r] reload  [?] help  [b] back
+ [↑↓] pick  [/] find  [a] add  [d] remove  [?] help  [b] back

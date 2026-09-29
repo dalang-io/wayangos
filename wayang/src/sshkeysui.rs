@@ -48,6 +48,8 @@ pub struct App {
     pub pane: usize,
     input: Option<(AddMode, Input)>,
     picker: Option<Picker>,
+    /// `/` quick-jump query over the authorized keys, if open.
+    jump: Option<Input>,
     /// Pending REVIEW before an add/remove runs.
     review: Option<(Pending, review::Review)>,
     pub help: bool,
@@ -69,6 +71,7 @@ impl App {
             pane: 0,
             input: None,
             picker: None,
+            jump: None,
             review: None,
             help: false,
             help_scroll: 0,
@@ -253,6 +256,39 @@ impl App {
         }
     }
 
+    /// `/` quick-jump candidates: the authorized keys (read-only: selecting a
+    /// key never removes it).
+    fn jump_targets(&self) -> Vec<String> {
+        self.keys
+            .iter()
+            .map(|k| format!("{} {} {}", k.kind(), k.fingerprint(), k.comment))
+            .collect()
+    }
+
+    fn open_jump(&mut self) {
+        self.jump = Some(Input::new(
+            "QUICK JUMP",
+            "Type a key comment or fingerprint (fuzzy):",
+            "e.g. laptop, SHA256",
+        ));
+    }
+
+    fn submit_jump(&mut self, q: &str) {
+        let targets = self.jump_targets();
+        match input::fuzzy_matches(q, &targets).first().copied() {
+            Some(i) => {
+                self.sel = i;
+                self.pane = 0;
+                let desc = format!("{} {}", self.keys[i].kind(), self.keys[i].comment);
+                self.message = Some((Tone::Ok, format!("Jumped to {desc}.")));
+            }
+            None if !q.trim().is_empty() => {
+                self.message = Some((Tone::Warn, format!("No key matches '{q}'.")));
+            }
+            None => {}
+        }
+    }
+
     pub fn on_key(&mut self, key: KeyEvent) {
         if self.review.is_some() {
             let decision = self.review.as_mut().map(|(_, r)| r.on_key(key));
@@ -279,6 +315,18 @@ impl App {
         }
         if self.input.is_some() {
             self.on_input_key(key);
+            return;
+        }
+        if self.jump.is_some() {
+            let outcome = self.jump.as_mut().map(|i| i.on_key(key));
+            match outcome {
+                Some(Outcome::Cancel) => self.jump = None,
+                Some(Outcome::Submit(q)) => {
+                    self.jump = None;
+                    self.submit_jump(&q);
+                }
+                _ => {}
+            }
             return;
         }
         if self.help {
@@ -332,6 +380,7 @@ impl App {
                 self.refresh();
                 self.message = Some((Tone::Ok, "Keys reloaded.".into()));
             }
+            KeyCode::Char('/') => self.open_jump(),
             KeyCode::Char('?') => self.help = true,
             KeyCode::Esc => {
                 if self.pane > 0 {
@@ -423,9 +472,9 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let mut keys = hud::keycaps(
         &[
             ("↑↓", "pick"),
+            ("/", "find"),
             ("a", "add"),
             ("d", "remove"),
-            ("r", "reload"),
             ("?", "help"),
             ("b", "back"),
         ],
@@ -445,6 +494,15 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     }
     if let Some((_, rev)) = &app.review {
         review::draw(f, area, t, rev);
+    }
+    if let Some(jump) = &app.jump {
+        input::draw(f, area, t, jump, tick);
+        let targets = app.jump_targets();
+        let hits: Vec<String> = input::fuzzy_matches(&jump.buf, &targets)
+            .into_iter()
+            .map(|i| targets[i].clone())
+            .collect();
+        input::draw_hits(f, area, t, "JUMP TO", &hits);
     }
 }
 
@@ -637,6 +695,22 @@ mod tests {
         assert!(app.review.is_some(), "the fetched keys wait for a REVIEW");
         key(&mut app, KeyCode::Enter);
         assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+    }
+
+    #[test]
+    fn slash_jump_selects_a_key_without_removing_it() {
+        let mut app = App::new(true);
+        let before = app.keys.len();
+        app.sel = 0;
+        key(&mut app, KeyCode::Char('/'));
+        assert!(app.jump.is_some());
+        type_str(&mut app, "desktop");
+        key(&mut app, KeyCode::Enter);
+        assert!(app.jump.is_none());
+        assert_eq!(app.sel, 1, "jump selects the matching key");
+        assert_eq!(app.pane, 0);
+        assert!(app.review.is_none(), "jump never removes");
+        assert_eq!(app.keys.len(), before);
     }
 
     #[test]

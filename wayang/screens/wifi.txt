@@ -31,4 +31,4 @@
 │                                                       ││                                                   │
 ┗───────────────────────────────────────────────────────┛┗───────────────────────────────────────────────────┛
   ✔ OK  Scan: 3 networks.
- [↑↓] pick  [enter] connect  [s] scan  [c] country  [?] help  [b] back
+ [↑↓] pick  [/] find  [enter] connect  [s] scan  [?] help  [b] back

@@ -19,8 +19,8 @@
 │      │  1 - 8           jump to module 01 system … 08  RouterOS Queues                              │      │
 │      │router                                             ▸ QOS                                      │      │
 │      │  0               exit                           FortiGate Policy & Objects > Policy          │      │
-│      │  /               quick jump: type a module or     ▸ FIREWALL → wayang-fw POLICIES            │      │
-│      │screen                                           FortiGate Network > Interfaces               │      │
+│      │  /               quick jump: a module, or an      ▸ FIREWALL → wayang-fw POLICIES            │      │
+│      │item on this screen                              FortiGate Network > Interfaces               │      │
 │      │  ?               this reference                   ▸ NETWORK / ROUTER                         │      │
 │      │  q               quit / back (guarded while an  Cloudflare DNS / WAF / rules                 │      │
 │      │↑↓ scroll   p print to /data/var/wayang/keys.txt                                              │      │

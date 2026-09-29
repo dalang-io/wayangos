@@ -39,6 +39,8 @@ pub struct App {
     pub pane: usize,
     input: Option<Input>,
     picker: Option<Picker>,
+    /// `/` quick-jump query over APs and interfaces, if open.
+    jump: Option<Input>,
     /// Pending REVIEW before a connect runs.
     review: Option<(Pending, review::Review)>,
     pub help: bool,
@@ -63,6 +65,7 @@ impl App {
             pane: 0,
             input: None,
             picker: None,
+            jump: None,
             review: None,
             help: false,
             help_scroll: 0,
@@ -216,6 +219,52 @@ impl App {
         }
     }
 
+    /// `/` quick-jump candidates: access points first (pane 0), then the
+    /// wireless interfaces (pane 1). Read-only: selecting never connects.
+    fn jump_targets(&self) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .bss
+            .iter()
+            .map(|b| {
+                let sig = b.signal.map(|s| format!("{s}dBm")).unwrap_or_else(|| "--".into());
+                format!("{} {} {}", b.ssid, b.security, sig)
+            })
+            .collect();
+        v.extend(self.ifaces.iter().map(|i| format!("{} {}", i.name, i.driver)));
+        v
+    }
+
+    fn open_jump(&mut self) {
+        self.jump = Some(Input::new(
+            "QUICK JUMP",
+            "Type an access point or interface (fuzzy):",
+            "e.g. CoffeeShop, wlan0",
+        ));
+    }
+
+    fn submit_jump(&mut self, q: &str) {
+        let targets = self.jump_targets();
+        let bss_n = self.bss.len();
+        match input::fuzzy_matches(q, &targets).first().copied() {
+            Some(i) if i < bss_n => {
+                self.bss_sel = i;
+                self.pane = 0;
+                let ssid = self.bss[i].ssid.clone();
+                self.message = Some((Tone::Ok, format!("Jumped to \"{ssid}\".")));
+            }
+            Some(i) => {
+                self.iface_sel = i - bss_n;
+                self.pane = 1;
+                let name = self.ifaces[i - bss_n].name.clone();
+                self.message = Some((Tone::Ok, format!("Jumped to {name}.")));
+            }
+            None if !q.trim().is_empty() => {
+                self.message = Some((Tone::Warn, format!("No access point or interface matches '{q}'.")));
+            }
+            None => {}
+        }
+    }
+
     pub fn on_key(&mut self, key: KeyEvent) {
         if self.review.is_some() {
             let decision = self.review.as_mut().map(|(_, r)| r.on_key(key));
@@ -239,6 +288,18 @@ impl App {
         }
         if self.input.is_some() {
             self.on_input_key(key);
+            return;
+        }
+        if self.jump.is_some() {
+            let outcome = self.jump.as_mut().map(|i| i.on_key(key));
+            match outcome {
+                Some(Outcome::Cancel) => self.jump = None,
+                Some(Outcome::Submit(q)) => {
+                    self.jump = None;
+                    self.submit_jump(&q);
+                }
+                _ => {}
+            }
             return;
         }
         if self.help {
@@ -288,6 +349,7 @@ impl App {
             KeyCode::Char('s') | KeyCode::Char('r') => self.scan(),
             KeyCode::Char('c') => self.open_country(),
             KeyCode::Char('w') => self.open_passphrase(),
+            KeyCode::Char('/') => self.open_jump(),
             KeyCode::Char('?') => self.help = true,
             KeyCode::Esc => {
                 if self.pane > 0 {
@@ -417,9 +479,9 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     draw_result(f, rows[3], app);
 
     let keys: Vec<(&str, &str)> = match app.pane {
-        0 => vec![("↑↓", "pick"), ("enter", "connect"), ("s", "scan"), ("c", "country"), ("?", "help"), ("b", "back")],
-        1 => vec![("↑↓", "pick"), ("enter", "switch"), ("s", "scan"), ("?", "help"), ("b", "back")],
-        _ => vec![("c", "country"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
+        0 => vec![("↑↓", "pick"), ("/", "find"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
+        1 => vec![("↑↓", "pick"), ("/", "find"), ("enter", "switch"), ("s", "scan"), ("?", "help"), ("b", "back")],
+        _ => vec![("c", "country"), ("/", "find"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
     };
     let mut kline = hud::keycaps(&keys, t);
     kline.spans.insert(0, Span::raw(" "));
@@ -436,6 +498,15 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     }
     if let Some((_, rev)) = &app.review {
         review::draw(f, area, t, rev);
+    }
+    if let Some(jump) = &app.jump {
+        input::draw(f, area, t, jump, tick);
+        let targets = app.jump_targets();
+        let hits: Vec<String> = input::fuzzy_matches(&jump.buf, &targets)
+            .into_iter()
+            .map(|i| targets[i].clone())
+            .collect();
+        input::draw_hits(f, area, t, "JUMP TO", &hits);
     }
 }
 
@@ -658,6 +729,30 @@ mod tests {
         app.on_key(KeyEvent::from(KeyCode::Enter));
         app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+    }
+
+    #[test]
+    fn slash_jump_selects_an_ap_or_interface() {
+        let mut app = App::new(true);
+        // AP: jump to the strongest/second entry without connecting
+        app.on_key(KeyEvent::from(KeyCode::Char('/')));
+        assert!(app.jump.is_some());
+        for c in "OpenCafe".chars() {
+            app.on_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(app.jump.is_none());
+        assert_eq!(app.bss[app.bss_sel].ssid, "OpenCafe", "jump selects the AP");
+        assert_eq!(app.pane, 0);
+        assert!(app.review.is_none(), "jump never connects");
+        // interface: lands on the WIRELESS IFACE pane
+        app.on_key(KeyEvent::from(KeyCode::Char('/')));
+        for c in "wlan0".chars() {
+            app.on_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert_eq!(app.pane, 1);
+        assert_eq!(app.ifaces[app.iface_sel].name, "wlan0");
     }
 
     #[test]

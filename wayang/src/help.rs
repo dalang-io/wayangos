@@ -23,7 +23,7 @@ pub const GLOBAL: &[(&str, &str)] = &[
     ("b", "back to the command deck"),
     ("1 - 8", "jump to module 01 system … 08 router"),
     ("0", "exit"),
-    ("/", "quick jump: type a module or screen"),
+    ("/", "quick jump: a module, or an item on this screen"),
     ("?", "this reference"),
     ("q", "quit / back (guarded while an action is pending)"),
 ];

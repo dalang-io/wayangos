@@ -60,6 +60,8 @@ pub struct App {
     /// Focused row within the CONFIG pane.
     pub field_sel: usize,
     input: Option<(Field, Input)>,
+    /// `/` quick-jump query over the interface list, if open.
+    jump: Option<Input>,
     pub message: Option<(Tone, String)>,
     /// Background operation (apply / link up-down / dhcp); polled each tick so
     /// the HUD never blocks on the network.
@@ -102,6 +104,7 @@ impl App {
             pane: 0,
             field_sel: 0,
             input: None,
+            jump: None,
             message: None,
             job: None,
             review: None,
@@ -317,6 +320,45 @@ impl App {
         }
     }
 
+    /// Candidate strings for the `/` quick jump (read-only: selects an iface).
+    fn jump_targets(&self) -> Vec<String> {
+        self.ifaces
+            .iter()
+            .map(|i| {
+                let ips = i.ipv4.join(" ");
+                if ips.is_empty() {
+                    format!("{} {}", i.name, i.driver)
+                } else {
+                    format!("{} {} {}", i.name, i.driver, ips)
+                }
+            })
+            .collect()
+    }
+
+    fn open_jump(&mut self) {
+        self.jump = Some(Input::new(
+            "QUICK JUMP",
+            "Type an interface to select (fuzzy):",
+            "e.g. eth0, wlan, 192.168",
+        ));
+    }
+
+    fn submit_jump(&mut self, q: &str) {
+        let targets = self.jump_targets();
+        match input::fuzzy_matches(q, &targets).first().copied() {
+            Some(i) => {
+                self.sel = i;
+                self.pane = 0;
+                let name = self.ifaces[i].name.clone();
+                self.message = Some((Tone::Ok, format!("Jumped to {name}.")));
+            }
+            None if !q.trim().is_empty() => {
+                self.message = Some((Tone::Warn, format!("No interface matches '{q}'.")));
+            }
+            None => {}
+        }
+    }
+
     pub fn on_key(&mut self, key: KeyEvent) {
         if self.review.is_some() {
             let decision = self.review.as_mut().map(|(_, r)| r.on_key(key));
@@ -336,6 +378,18 @@ impl App {
         }
         if self.input.is_some() {
             self.on_input_key(key);
+            return;
+        }
+        if self.jump.is_some() {
+            let outcome = self.jump.as_mut().map(|i| i.on_key(key));
+            match outcome {
+                Some(Outcome::Cancel) => self.jump = None,
+                Some(Outcome::Submit(q)) => {
+                    self.jump = None;
+                    self.submit_jump(&q);
+                }
+                _ => {}
+            }
             return;
         }
         if self.help {
@@ -424,6 +478,7 @@ impl App {
             KeyCode::Char('h') => self.request_pending(Pending::Dhcp),
             KeyCode::Char('l') => self.request_pending(Pending::Also),
             KeyCode::Char('a') => self.request_apply(),
+            KeyCode::Char('/') => self.open_jump(),
             KeyCode::Char('?') => self.help = true,
             KeyCode::Esc => {
                 if self.pane > 0 {
@@ -645,9 +700,9 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
     // Context footer: at most six, most relevant first.
     let keys: Vec<(&str, &str)> = if app.pane == 0 {
-        vec![("↑↓", "pick"), ("enter", "config"), ("a", "apply"), ("u/d", "link"), ("?", "help"), ("q", "back")]
+        vec![("↑↓", "pick"), ("/", "find"), ("a", "apply"), ("u/d", "link"), ("?", "help"), ("q", "back")]
     } else {
-        vec![("↑↓", "field"), ("enter", "edit"), ("space", "toggle"), ("a", "apply"), ("?", "help"), ("q", "back")]
+        vec![("↑↓", "field"), ("/", "find"), ("enter", "edit"), ("space", "toggle"), ("a", "apply"), ("q", "back")]
     };
     let mut kline = hud::keycaps(&keys, t);
     kline.spans.insert(0, Span::raw(" "));
@@ -661,6 +716,15 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     }
     if let Some((_, rev)) = &app.review {
         review::draw(f, area, t, rev);
+    }
+    if let Some(jump) = &app.jump {
+        input::draw(f, area, t, jump, tick);
+        let targets = app.jump_targets();
+        let hits: Vec<String> = input::fuzzy_matches(&jump.buf, &targets)
+            .into_iter()
+            .map(|i| targets[i].clone())
+            .collect();
+        input::draw_hits(f, area, t, "JUMP TO", &hits);
     }
 }
 
@@ -908,6 +972,21 @@ mod tests {
         assert!(rev.note.as_ref().unwrap().contains("primary uplink"), "{:?}", rev.note);
         app.on_key(KeyEvent::from(KeyCode::Esc));
         assert!(app.review.is_none() && !app.busy(), "esc cancels; nothing runs");
+    }
+
+    #[test]
+    fn slash_jump_selects_an_interface() {
+        let mut app = App::new(true);
+        app.sel = 0;
+        app.on_key(KeyEvent::from(KeyCode::Char('/')));
+        assert!(app.jump.is_some());
+        for c in "enp0s20u1".chars() {
+            app.on_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(app.jump.is_none());
+        assert_eq!(app.ifaces[app.sel].name, "enp0s20u1", "jump selects the match");
+        assert_eq!(app.pane, 0, "jump is read-only and lands on the list");
     }
 
     #[test]

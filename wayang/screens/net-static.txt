@@ -31,4 +31,4 @@
 │                                                            ││                                              │
 ┗────────────────────────────────────────────────────────────┛┗──────────────────────────────────────────────┛
   ✔ OK  Ready to apply.
- [↑↓] pick  [enter] config  [a] apply  [u/d] link  [?] help  [q] back
+ [↑↓] pick  [/] find  [a] apply  [u/d] link  [?] help  [q] back
