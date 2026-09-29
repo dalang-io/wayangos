@@ -14,11 +14,15 @@ it stays the historical look-and-feel reference, and the shared-kit extraction
 | `wayang-router` | `wayang-router` | ✅ done — `a8bc823` (0.4.0: tabs incl. new UPLINKS, REVIEW, no silent primary + `[primary]`/`p`, `?`, `/` jump, RECENT, `f` form↔code) |
 | `dcheck` | `dcheck` | ⏸ deferred (P2 shared kit) |
 
-Released: **wayang-router v0.4.0** + **wayang-fw v0.4.0** (tags + GitHub releases +
-mirror `wayang.dalang.io/edge/tools/`; OS pins bumped). The `wayang` CLI ships
-inside WayangOS (no separate tag); it is installed on the test box for manual
-testing. P1 polish (per-row keycaps, deeper `/` jump, auto-open import review,
-WAN wizard) is a follow-up wave.
+Released: **wayang-router v0.4.1** + **wayang-fw v0.4.1** (tags + GitHub releases +
+mirror `wayang.dalang.io/edge/tools/`; OS pins bumped). **P1 done**: deep `/`
+quick-jump into objects, per-row inline keycaps (budget-aware), accessibility
+(colour is never the only signal); router gained a guided **WAN wizard** +
+read-only **POLICY** tab; fw gained a **FortiOS import-review prompt**; the
+`wayang` CLI P1 = SIGPIPE fix (`… | head` no longer aborts), deeper `/` jump,
+sub-screen RECENT echo. **P2** (shared kit / dcheck adoption) is parked per the
+owner. The `wayang` CLI ships inside WayangOS (no separate tag); it is
+installed on the test box for manual testing.
 
 ## 1. Why
 
