@@ -3,10 +3,17 @@
 Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
-release: **1.0.23** (see `docs/HANDOVER.md`). **Product goal + roadmap:
-[docs/GOAL.md](GOAL.md).** **Execution plan to unblock M7 (multi-agent, do this before touching the
-kernel block): [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)** — T1–T4 landed
-2026-09-28 (see that file for hashes); the device runs need owner OK.
+release: **1.0.27** (see `docs/HANDOVER.md`). **Product goal + roadmap:
+[docs/GOAL.md](GOAL.md).** **M7 (router kernel block) is resolved and released**
+— the execution plan is archived in
+[docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).
+
+**Golden rules learned 2026-09-29 (do not regress):** a *monitor* is read-only
+(`wayang-router monitor`); a daemon that changes routes/networking (`wan-failover`)
+must **never strand the box** — keep the last/only path when a check fails;
+**nothing self-reboots on a fresh install** (the removed `wayang-selftest` looped);
+and **never import a bundle/config without matching the box's real topology
+first**. See `AGENTS.md` §Current state.
 
 ## wayangos (this repo)
 
@@ -17,22 +24,19 @@ kernel block): [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)** — T1–T4 lande
       QEMU-proven against the production hubs. See
       [docs/EDGEROUTER.md](EDGEROUTER.md) + wayangi's `docs/edge-wayangos.md`,
       `docs/EDGE-PARITY.md`. **The kernel block it needs is now enabled (M7 resolved, below).**
-- [x] **Router kernel block — ENABLED (M7 resolved 2026-09-29).** Every group
-      passed the bisect individually; the accumulated set showed no failing
-      subset (delta-debug: 3 boots + 30-min soak); a device boot-count soak of
-      the block kernel ran **~30 consecutive clean boots** (connectivity at
-      up=47 s) with **one** unreproduced first-boot hang (coinciding with the
-      SR9700 link flap at ~14 s). The 1.0.20 freeze's signature was a
-      network/uplink stall (`gw=''`), cause fixed (`udhcpc -b`, `765ee81`), and
-      the shipped safety net (watchdogs + `wayang.selftest=120`, `61c768f`)
-      auto-recovers a hang. The full 7-group block is enabled in
-      `configs/defconfig-intel` (`106bb23`). Remaining before a tag: a real
-      **cold-boot (power-cycle) soak** — [docs/HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md).
-      See [docs/GOAL.md](GOAL.md) (M7),
+- [x] **Router kernel block — ENABLED and RELEASED (M7 resolved 2026-09-29).**
+      Every group passed the bisect individually; the accumulated set showed no
+      failing subset (delta-debug: 3 boots + 30-min soak); a device boot-count
+      soak ran **~30 consecutive clean block boots** with **one** unreproduced
+      first-boot hang. The full 7-group block is enabled in
+      `configs/defconfig-intel` (`106bb23`) and **shipped from 1.0.23**; the
+      device cold-boot passed. The 1.0.20 freeze's `gw=''` stall class is fixed
+      (`udhcpc -b`). **`wayang-selftest` (the kernel-baked `wayang.selftest=120` +
+      `CONFIG_CMDLINE`) was REMOVED in 1.0.25** — it reboot-looped a fresh
+      install. See [docs/GOAL.md](GOAL.md) (M7),
       [docs/ROUTER-KERNEL-BISECT.md](ROUTER-KERNEL-BISECT.md),
-      [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md),
-      [docs/HARDWARE.md](HARDWARE.md).
-- [~] **Publish the update channel from CI.** Tagging builds the ISO + bundle
+      [docs/INCIDENT-1.0.13.md](INCIDENT-1.0.13.md), [docs/HARDWARE.md](HARDWARE.md).
+- [x] **Publish the update channel from CI.** Tagging builds the ISO + bundle
       and creates the GitHub release; the tag path of
       `.github/workflows/installer-iso.yml` now also publishes the channel in a
       dedicated best-effort `publish-channel` job (after the signed `.wup`, with
@@ -47,8 +51,9 @@ kernel block): [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)** — T1–T4 lande
       `WAYANG_DEPLOY_KEY` (private key authorised on that host). Optional
       overrides: `WAYANG_DEPLOY_REMOTE_DIR`, `WAYANG_DEPLOY_CHANNEL_SUBDIR`.
       Layout, device consumption, manual publish and the one-time key setup are
-      documented in [docs/CHANNEL.md](CHANNEL.md). Still to do: provision the
-      secrets and verify a real tag publishes.
+      documented in [docs/CHANNEL.md](CHANNEL.md). **Done:** secrets provisioned
+      (`WAYANG_DEPLOY_HOST` + `WAYANG_DEPLOY_KEY`) and a real tag publish verified
+      end-to-end (a tag-build `wayangos-release`-artifact LCA bug was also fixed).
 - [x] **Landing page: drop the removed POS build commands.**
       `landing-page/download.html` no longer references `scripts/build-pos.sh` /
       `build-pos-iso.sh` / `wayangos-pos` (deleted). POS is a separate project now.
@@ -74,6 +79,27 @@ kernel block): [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)** — T1–T4 lande
 - [ ] **`wayang.slot` on first install.** Older installers wrote grub.cfg
       without `wayang.slot=`; `mark-ok` now refreshes it, verify on a fresh
       install.
+
+### New backlog (2026-09-29)
+
+- [ ] **1-NIC WAN-only Edge model** (a customer may have a single NIC). Add a
+      model to wayangi (`internal/edgewos`) and let the renderer run with **no
+      LAN** (today `Site.Validate` requires a LAN port and `lanPlan`/the public
+      `/32` serving assume one). Open design decision: with no LAN, does the box
+      use the public `/32` itself or nothing?
+- [ ] **wayangi: stop hard-coding the WAN health probe `1.1.1.1`** — a false
+      health-check failure on the sole uplink flapped the box on 2026-09-29; use
+      the gateway or a configured target.
+- [ ] **wayangi**: `edge_wos` site kind / DB `class`+`platform`; WOS-only
+      deployment (`EnableEdgeWOS` still hard-requires `EnableEdgeRB`).
+- [ ] **Install media**: the 1.0.27 ISO is built + released but not copied to
+      the Ventoy USB (it was unplugged).
+- [x] **`wayang reset [--yes]`** (`dba2f53`, 1.0.26) — reset config to defaults.
+- [x] **Remove `wayang-selftest`** + the kernel `CONFIG_CMDLINE` (`2c74e76`,
+      1.0.25) — it reboot-looped a fresh install.
+- [x] **All wired NICs run `udhcpc -b`** (`cf9ade9`, 1.0.27) — a cable plugged
+      in later auto-DHCPs.
+- [x] **`wayang edgerouter apply` installs the bundle's WG keys** (`8532055`).
 
 ## wayang-fw (dalang-io/wayang-fw)
 
@@ -104,12 +130,13 @@ static v4/v6, DHCP client, forwarding, static routes):
       via `tc`), **BGP/OSPF** via BIRD (`bird` bundled), **VRF + weighted
       ECMP**, **multi-WAN failover + policy routing**, **delegated IPv6 prefix +
       SLAAC router advertisements** (radvd; warn-and-noop when absent).
-      *All gated on the kernel bisect above — the options are off in shipped
-      images, present in the QEMU lab kernel.*
+      **All of this now ships**: the kernel block is enabled from 1.0.23.
 - [ ] IPsec IKEv2; PPPoE; bridge port-level VLANs; Wi-Fi AP.
+- [ ] Edge 1-NIC (WAN-only) support — same open item as wayangi above.
 - Lab: `/tmp/wayang-tools/{bzImage-lab,initramfs-lab.img}` on the builder
   (QEMU only; all router kernel options on).
-- Kernel side for most of the above is gated on the bisect item above.
+- Released **v0.3.0** (Edge schema), **v0.3.1** (never strand the last uplink),
+  **v0.3.2** (`wan-monitor` → `wan-failover`).
 
 ## dcheck (dalang-io/dcheck)
 
@@ -172,6 +199,10 @@ static v4/v6, DHCP client, forwarding, static routes):
 - [x] Released **1.0.18 / 1.0.19 / 1.0.21 / 1.0.22** (tag + channel + device).
       **1.0.20 was never released** (its kernel froze). 1.0.22 = shipped safety
       net (watchdog + selftest cmdline) + DHCP resilience.
+- [x] Released **1.0.23 … 1.0.27**: 1.0.23 = full router block; 1.0.25 = removed
+      `wayang-selftest` (reboot-loop fix); 1.0.26 = `wayang reset`; 1.0.27 = all
+      wired NICs hotplug-DHCP. wayang-router **v0.3.0/0.3.1/0.3.2** released. See
+      `docs/HANDOVER.md`.
 - [x] `radvd` bundled (`scripts/build-radvd.sh`, `/usr/sbin/radvd`) for IPv6
       RA/SLAAC.
 - [x] Tech references written: wayang-router `docs/ROUTING-TECH.md`,

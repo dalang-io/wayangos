@@ -8,9 +8,9 @@ building and the milestones). This file is *where things stand* across the repos
 
 | | |
 |---|---|
-| WayangOS release | **1.0.23** (tag `v1.0.23`; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.23) — first release with the **full router block** enabled |
-| Test device `root@163.128.55.3` | running the block kernel (slot B, selftest PASS, route up); cold-boot PASS 2026-09-29 |
-| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+| WayangOS release | **1.0.27** (tag `v1.0.27`; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.27). 1.0.23+ carries the **full router block**; 1.0.25 removed `wayang-selftest`; 1.0.26 added `wayang reset`; 1.0.27 makes all wired NICs hotplug-DHCP |
+| Test device `root@163.128.55.3` | fresh **1.0.27** (updated in place via `wayang update`), reachable over the USB LAN (`ssh root@192.168.2.2`) and the public uplink; uplink on the onboard `eth0` |
+| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
 
 1.0.22 = 1.0.21 + the **shipped safety net** (watchdog + lockup/panic detectors +
 `wayang.selftest=120 panic=10 …` baked into `configs/defconfig-intel`
@@ -108,9 +108,9 @@ config** (no wayangi agent on the box).
 
 | Repo | HEAD / tag | Notes |
 |---|---|---|
-| `dalang-io/wayangos` (this) | `master` @ 1.0.22, tag `v1.0.22` | released 1.0.22 (safety net + DHCP resilience); CI is self-hosted on the build box |
+| `dalang-io/wayangos` (this) | `master` @ 1.0.27, tag `v1.0.27` | block enabled; `wayang reset`; selftest removed; hotplug DHCP; CI self-hosted (~5 m, channel-publish secrets set) |
 | `dalang-io/wayang-fw` | `master` `a8518fc`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, `docs/NFT-REF.md`, monitor |
-| `dalang-io/wayang-router` | `master` `59ec752`, tag `v0.3.0` | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor history); `engine` hardening (unparseable confirmed config = error); `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
+| `dalang-io/wayang-router` | `master` `84c796e`, tag `v0.3.2` | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor history); **never strand the last uplink** (v0.3.1); **`wan-monitor` → `wan-failover`** (v0.3.2); `engine` hardening (unparseable confirmed config = error); `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
 | `dalang-io/dcheck` | `master` `33dc1af` | health list + Prometheus + undelete/macOS |
 | `dalang-io/wayangi` (dashboard) | `main` `b8b2227` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod |
 
@@ -123,31 +123,36 @@ config** (no wayangi agent on the box).
 
 ## Not done / next steps
 
-1. **Decide the router-kernel block by boot counts** — there is no failing
-   subset to find. Run the T3 matrix (block-kernel vs safe-kernel, N≥12 boots
-   each, `scripts/boot-soak.sh`; commands in `docs/ROUTER-KERNEL-BISECT.md`;
-   owner OK required) + the hardware session
-   ([docs/HW-SESSION-CHECKLIST.md](HW-SESSION-CHECKLIST.md)), then apply the
-   decision rule ([docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)). On a green
-   light, re-enable the block in `configs/defconfig-intel`.
-2. **Ship the landed-but-unreleased fixes in the next tag**: DHCP resilience
-   (`765ee81`) + the shipped safety net (`61c768f`) — they fix a real product
-   risk (a headless box stranded by a ~15 s DHCP race) independent of the M7
-   decision ([docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md)). Nothing after
-   1.0.23 is tagged; never tag without a device boot test (gotcha below).
-3. `radvd` is bundled but RA was only tool-checked, not seen on a device with a
-   WG kernel — re-verify once WireGuard ships.
-4. EdgeRouter: the box's own-traffic coverage / endpoint recursion / DHCP single
-   `/32` gaps are documented in `docs/EDGE-PARITY.md`; phone-home heartbeat UI
-   (site "online") still TODO.
-5. CI channel publish secret provisioning (`docs/CHANNEL.md`).
+1. **M8 EdgeRouter on real hardware** — blocked by topology: the Edge model
+   assumes a WAN **and** a public LAN, but the test box has essentially a single
+   uplink NIC. Either use a box with ≥2 network-capable NICs, or add a
+   **1-NIC WAN-only model** to wayangi (open design decision: where the public
+   `/32` lives with no LAN) + renderer support (the current renderer requires a
+   LAN port).
+2. **wayangi**: stop hard-coding `1.1.1.1` as the WAN health probe — a false
+   health-check failure on the sole uplink flapped the box (the 2026-09-29
+   hardware incident); use the gateway or a configured target. Also: an
+   `edge_wos` site kind / DB `class`+`platform`, and WOS-only deployment
+   (`EnableEdgeWOS` still hard-requires `EnableEdgeRB`).
+3. **Ventoy**: the **1.0.27 ISO is downloaded but not on the USB** (it was
+   unplugged) — copy it when re-attached.
+4. **wayang-fw**: per-zone DHCP/DNS (dnsmasq not bundled); interface config from
+   the HUD; firewall enforcement is QEMU-tested only — validate on real hardware
+   (`tests/lab/lab.py`).
+5. **wayang-router**: IPsec IKEv2; PPPoE; bridge port-level VLANs; Wi-Fi AP.
+6. `radvd` RA was tool-checked only — re-verify on a device with a WG kernel.
+7. EdgeRouter own-traffic coverage / endpoint recursion / DHCP single-`/32` gaps
+   (`docs/EDGE-PARITY.md`); phone-home "site online" heartbeat UI.
+8. `wayang.slot` on first install — verify on a fresh install (older installers
+   wrote grub.cfg without it).
 
 ## Gotchas
 
 - Build on `root@10.0.0.251`; never write `/root/wayangos-build` for experiments.
-- The device's USB `sr9700` uplink is **flaky**: large `.wup` transfers over SSH
-  stall; `wayang.dalang.io` serves **no byte-range** (no resume). Prefer the
-  device pulling via `wayang update` (single stream), or chunked SSH with retries.
+- The device's USB `sr9700` NIC is **flaky** (10 Mbps, link flaps) — the uplink
+  is now on the onboard **`eth0` (e1000e, 1G)**; don't use the SR9700 as a WAN.
+  Large `.wup` transfers over SSH stall; `wayang.dalang.io` serves **no
+  byte-range** (no resume). Prefer the device pulling via `wayang update`.
 - **Never tag/publish without a device boot test** — 1.0.13 and 1.0.20 froze it.
 - The `busybox ip` cannot do multipath/`xfrm`; the labs use a static iproute2 `ip`.
 - POS is a separate project; not in `wayang`.

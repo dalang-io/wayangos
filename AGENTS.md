@@ -86,16 +86,30 @@ bundled; UI reference for all TUIs).
 
 ## Current state
 
-**Released: 1.0.23** (tag + channel + GitHub release). 1.0.23 = the **first
-release with the full router block enabled** (`configs/defconfig-intel`):
-WireGuard/VRF/veth/macvlan/tun/ipsec/dummy/bonding/gre-ipip/QoS/bridge, plus the
-1.0.22 shipped safety net (watchdogs + lockup detectors +
-`wayang.selftest=120`/`panic=10` baked into the cmdline) and the DHCP-resilience
-fix (primary NIC `udhcpc -b`). M7 resolved 2026-09-29: a device boot-count soak
-ran ~30 consecutive clean block boots with one unreproduced first-boot hang,
-covered by the fix + safety net; cold-boot PASS. Cross-repo state:
-[docs/HANDOVER.md](docs/HANDOVER.md); pending work: [docs/TODO.md](docs/TODO.md).
-WayangOS is a wayangi "Edge" unit type in the dashboard (self-managed WireGuard,
-no agent) — [docs/EDGEROUTER.md](docs/EDGEROUTER.md). WayangPOS is a separate
-project and is not part of `wayang`. Firewall/router handovers:
+**Released: 1.0.27** (tag + channel + GitHub release; channel serves 1.0.27).
+1.0.27 = the **full router block enabled** (`configs/defconfig-intel`:
+WireGuard/VRF/veth/macvlan/tun/ipsec/dummy/bonding/gre-ipip/QoS/bridge; M7
+resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus userspace:
+- **`wayang reset [--yes]`** — return the box's config to defaults
+  (`/data/etc/{router,fw,wayangi,network}` + clear a pending update).
+- **`wayang edgerouter apply`** now installs the bundle's WG private keys (0600).
+- **all wired NICs run `udhcpc -b`** → a cable plugged in *later* auto-DHCPs.
+- **`wayang-selftest` REMOVED** together with the kernel `CONFIG_CMDLINE`
+  (`wayang.selftest=120`/`panic=10`): it reboot-looped a fresh install / any box
+  that could not confirm connectivity in 120 s — a headless box was unreachable.
+
+**Golden rules (learned this round — do not regress):**
+1. A *monitor* is read-only (`wayang-router monitor`); anything that changes
+   routes/networking is a separate, explicitly-named daemon (`wan-failover`) and
+   must **never strand the box** — keep the last/only path when a check fails
+   (wayang-router v0.3.1).
+2. **Nothing self-reboots on a fresh install.** A safety mechanism that can loop
+   is worse than no mechanism.
+3. Never import a bundle/config without matching the box's real topology first.
+
+Cross-repo state: [docs/HANDOVER.md](docs/HANDOVER.md); pending work:
+[docs/TODO.md](docs/TODO.md). WayangOS is a wayangi "Edge" unit type in the
+dashboard (self-managed WireGuard, no agent) —
+[docs/EDGEROUTER.md](docs/EDGEROUTER.md). WayangPOS is a separate project and is
+not part of `wayang`. Firewall/router handovers:
 `dalang-io/wayang-fw/HANDOVER.md`, `dalang-io/wayang-router/HANDOVER.md`.
