@@ -17,8 +17,8 @@
 set -euo pipefail
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
 # Pinned: bump version + sha256 together (sha256 of the published binary).
-WAYANG_FW_VERSION="${WAYANG_FW_VERSION:-0.4.1}"
-WAYANG_FW_SHA256="${WAYANG_FW_SHA256:-fd671b9baf04a06d4c4c4d6893ab66c67f4aa78b68a204318a97d6d5fd74f16a}"
+WAYANG_FW_VERSION="${WAYANG_FW_VERSION:-0.4.2}"
+WAYANG_FW_SHA256="${WAYANG_FW_SHA256:-6d8f48793c64f6bb91568bef5dc852ce1489707a997c7cc16e01481764991138}"
 BASE_URL="${WAYANG_FW_BASE_URL:-https://wayang.dalang.io/edge/tools}"
 ASSET="wayang-fw-v$WAYANG_FW_VERSION-x86_64-unknown-linux-musl"
 OUTDIR="$BUILD/wayang-fw"
