@@ -124,9 +124,11 @@ resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus usersp
    1-NIC box the public-source rule (`from <public /32> lookup 401`) pointed at
    an **empty** table while `wayang-router wan` said "2/2 on" → replies leaked
    out the ISP, so the public /32 was unreachable from the internet (Globalping
-   0/15). Fix is in wayang-router (program the group table at bring-up + drift
-   detection), tracked in wayangi `docs/FUTURE-WORKS.md`; interim fix is a manual
-   `ip route replace table 401 default via <hub-inner> dev wg-… onlink`.
+   0/15). **Fixed in wayang-router v0.3.3** (`d576fa8`): a group's default is now
+   applied through **rtnetlink** (BusyBox `ip` cannot parse `nexthop`/multipath),
+   reinstalled whenever desired-but-absent, and `plan`/`status` report the drift.
+   Deployed on the box (`/data/bin/wayang-router`, so it wins over `/usr/bin`)
+   and the OS pin is bumped to 0.3.3.
 
 Cross-repo state: [docs/HANDOVER.md](docs/HANDOVER.md); pending work:
 [docs/TODO.md](docs/TODO.md). WayangOS is a wayangi "Edge" unit type in the

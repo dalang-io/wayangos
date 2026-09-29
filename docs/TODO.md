@@ -20,14 +20,14 @@ first**. See `AGENTS.md` §Current state.
 The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
 `wayang-router` (data plane), `wayangi` (generator/hub) and this repo (bake).
 
-- [~] **wayang-router: program the `wan_group` table at bring-up.** The public
-      source rule (`from <public/32> lookup 401`) pointed at an **empty** table
-      401 while `wayang-router wan` reported "2/2 on" → replies leaked out the
-      ISP; the public /32 was unreachable from the internet (Globalping 0/15).
-      Must write the weighted ECMP default whenever it is desired-but-absent and
-      make `plan`/`status` flag the drift. *(in progress in wayang-router)*
-- [ ] **Rebake `wayang-router`** into WayangOS once fixed, then re-verify
-      reachability (Globalping, world + Indonesia).
+- [x] **wayang-router: program the `wan_group` table at bring-up** — **fixed in
+      v0.3.3** (`d576fa8`): the group default is applied through **rtnetlink**
+      (BusyBox `ip` cannot parse `nexthop` multipath), reinstalled whenever it is
+      desired-but-absent, and `plan`/`status` flag the drift. Deployed on the box
+      at `/data/bin/wayang-router`; re-verified reachability (Globalping, world +
+      Indonesia). The IPv6 table `402` had the same bug and is fixed too.
+- [x] **Pin `wayang-router` 0.3.3** in `scripts/build-wayang-router.sh` (mirror
+      asset published; next release bakes it).
 - [ ] **N-hub tunnels, arbitrary names** (raise quality of service: 3/4/6
       tunnels, retire `jkt`/`mlb`). Generator MVP in progress (config file +
       per-site `hubs_json`); provisioning automation + hub lifecycle after —
