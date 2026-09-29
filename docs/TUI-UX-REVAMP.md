@@ -197,6 +197,32 @@ open.
 5. The splash stays bounded and **never blocks** — it must not delay the first
    keypress handling or add startup latency.
 
+## 5c. Terminal robustness against external output
+
+**Problem (reported).** While the HUD owns the terminal, the OS or another
+process writes to the tty (kernel printk, a service/systemd-less init log, a
+child the HUD spawned, `wayang update` output) → the incremental renderer leaves
+garbage on screen and the user must exit and re-enter to get a clean UI.
+
+**Fix — one mechanism, all three tools:**
+
+1. **Never leak child output.** Every `Command` the HUD spawns must set
+   `stdout`/`stderr` to `Stdio::null()` (or pipe+capture when it reads them);
+   long-running daemons are started detached with their output going to a log
+   file (the init script's job), never to the shared tty.
+2. **Self-healing redraw.** Force a full repaint (ratatui
+   `Terminal::clear()` before the next `draw`) on: startup, `SIGWINCH`,
+   **returning from a child tool/job**, and a **slow periodic tick** (≈2–5 s)
+   so external junk is overwritten automatically without the user having to
+   quit. Keep it cheap (repaint only when needed) to avoid flicker.
+3. **Manual repaint.** Bind `Ctrl-L` (and `r` on read-only screens) to force a
+   repaint.
+4. Provide it in **`wayang-tui`** (a `Terminal`/repaint helper + the spawn
+   helper) so the three HUDs behave identically.
+
+This also makes the HUD survive WayangOS's boot chatter when a console HUD is
+opened mid-boot.
+
 ## 6. Forms & apply semantics (fixes issue #1)
 
 * **Stage vs commit stays**, but make it explicit and teachable:

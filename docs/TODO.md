@@ -62,6 +62,12 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       terminal / SSH), and a transition frame must cover `wayang` ↔
       fw/router handoff. Shared `splash`/`transition` component in `wayang-tui`.
       Design: [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md) §5b.
+- [ ] **Terminal robustness vs external output (all three HUDs)** — a service,
+      kernel printk, or a spawned child writing to the tty garbles the HUD;
+      fix: never leak child stdout/stderr (`Stdio::null()`), force a full
+      repaint on startup/SIGWINCH/return/slow tick, and a `Ctrl-L` repaint —
+      shared in `wayang-tui`.
+      Design: [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md) §5c.
 - [ ] **Product API (all three tools)** — `wayang`, `wayang-fw`,
       `wayang-router` each get an **`api` subcommand** (loopback + bearer token)
       exposing status/config/plan/commit (and per-tool reads: wan/routes/wg/bgp,
