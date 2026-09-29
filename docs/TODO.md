@@ -76,9 +76,16 @@ first**. See `AGENTS.md` §Current state.
       `build-wg.sh`, `build-iproute2.sh`, `build-bird.sh`, and the
       `build-wayangi.sh` release fallback); `ALLOW_UNVERIFIED=1` is the
       explicit opt-out and a mismatch always aborts.
-- [ ] **`wayang.slot` on first install.** Older installers wrote grub.cfg
-      without `wayang.slot=`; `mark-ok` now refreshes it, verify on a fresh
-      install.
+- [x] **`wayang.slot` on first install.** The installer copies `grub.cfg`
+      verbatim from the ISO payload, and since the shared template (862c683,
+      v1.0.9) that file carries `wayang.slot=A`/`B`; `mark-ok` refreshes it on
+      already-installed boxes (`refresh_grub_cfg`). **Verified by a build**
+      (2026-09-29): a freshly built installer ISO from current master has
+      `/usr/share/wayang-install/grub.cfg` byte-identical to
+      `wayang/grub-disk.cfg`, with `wayang.slot=A` at line 55. Added a
+      build-time guard in `scripts/build-installer-iso.sh` that aborts the
+      build if either entry is missing. Installing to a disk still needs a live
+      box to see the on-ESP copy.
 
 ### New backlog (2026-09-29)
 
@@ -92,6 +99,14 @@ first**. See `AGENTS.md` §Current state.
       the gateway or a configured target.
 - [ ] **wayangi**: `edge_wos` site kind / DB `class`+`platform`; WOS-only
       deployment (`EnableEdgeWOS` still hard-requires `EnableEdgeRB`).
+- [ ] **Verify IPv6 RA/SLAAC on a real device.** `radvd` is bundled and the
+      delegated `/64` + `ra = true` rendering passed QEMU, but RA was only
+      tool-checked on hardware (the kernel block has been in the image since
+      1.0.23). Runnable procedure — `radvd -c -C /etc/radvd.conf`,
+      `ip -6 addr show dev <lan>`, then `radvdump` + `ip -6 addr show scope
+      global` on a LAN host — is in [docs/EDGEROUTER-RUNBOOK.md](EDGEROUTER-RUNBOOK.md#ipv6-ra--slaac-delegated-64)
+      §3 and [docs/NETWORK.md](NETWORK.md) (radvd section). Needs a box with the
+      WG kernel and a delegated `/64`.
 - [ ] **Install media**: the 1.0.27 ISO is built + released but not copied to
       the Ventoy USB (it was unplugged).
 - [x] **`wayang reset [--yes]`** (`dba2f53`, 1.0.26) — reset config to defaults.

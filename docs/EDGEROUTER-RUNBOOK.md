@@ -81,6 +81,39 @@ route) and `curl https://ifconfig.me` should return the site's public address
 (not NATed). From the **internet**, `ping`/`curl` the public `/32` must reach the
 box/LAN host (inbound).
 
+### IPv6 RA / SLAAC (delegated `/64`)
+
+The LAN gets a global address by SLAAC from the bundle's delegated `/64`;
+`wayang-router` renders `/etc/radvd.conf` and runs the bundled `/usr/sbin/radvd`
+(only when an enabled interface has `ra = true` and a `/64` to advertise). The
+kernel block has been in the image since 1.0.23, but this path was only
+tool-checked — run the steps below on a real box to confirm it.
+
+On the **box** (replace `<lan>` with the LAN interface):
+
+```sh
+/usr/sbin/radvd -c -C /etc/radvd.conf   # config check only: exits 0, no output
+cat /etc/radvd.conf                     # prefix, AdvValidLifetime, RDNSS/DNSSL
+ps | grep [r]advd                       # daemon is running (started by wayang-router)
+ip -6 addr show dev <lan>               # link-local + the /64 from the delegated prefix
+ip -6 route show dev <lan>              # the on-link /64 route
+cat /data/etc/router/config.toml        # routed_prefixes / delegated_prefix = the /64
+```
+
+On a **LAN host** (a normal Linux box — `radvdump` is *not* bundled in WayangOS):
+
+```sh
+radvdump                                # prints the RA: prefix, lifetimes, RDNSS/DNSSL
+ip -6 addr show scope global            # a global address SLAACed from the /64
+ping -6 -c3 <prefix>::1                 # optional: reach the box's LAN address
+```
+
+`-C` selects the config file; add `-c` to only check it and exit. Without `-c`,
+`radvd` starts a foreground daemon — don't run that while the boot service
+already owns the pidfile. A LAN host with no RA usually means `ra = true` is
+unset, no `/64` is delegated, or `radvd` was skipped at build time (the image
+still boots; `wayang-router` reports `caps::issues`).
+
 ## 4. Failover drill
 
 ```sh

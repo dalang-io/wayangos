@@ -128,6 +128,15 @@ PAYLOAD="$WORK/root/usr/share/wayang-install"
 mkdir -p "$PAYLOAD/A" "$PAYLOAD/var"
 cp "$WORK/BOOTX64.EFI" "$PAYLOAD/BOOTX64.EFI"
 cp "$WORK/grub-disk.cfg" "$PAYLOAD/grub.cfg"
+# The installer copies this file verbatim to the ESP. A grub.cfg without
+# `wayang.slot=` leaves the first boot unable to name its own slot (the updater
+# and mark-ok both depend on it), so refuse to build such an image.
+for slot in A B; do
+    grep -q "wayang.slot=$slot" "$PAYLOAD/grub.cfg" || {
+        echo "ERROR: $PAYLOAD/grub.cfg is missing wayang.slot=$slot" >&2
+        exit 1
+    }
+done
 cp "$KERNEL" "$PAYLOAD/A/vmlinuz"
 cp "$BASE_INITRAMFS" "$PAYLOAD/A/initramfs.img"
 

@@ -193,6 +193,13 @@ missing, and the image still boots. Without `radvd` the delegated prefix and
 addresses are still installed but no advertisements are sent; `wayang-router`
 reports that as a warning (`caps::issues`).
 
+Verify RA/SLAAC on a box: `radvd -c -C /etc/radvd.conf` (config check; exits 0
+when valid), `cat /etc/radvd.conf` (advertised prefix + RDNSS/DNSSL),
+`ip -6 addr show dev <lan>` for the delegated `/64`, then on a LAN host
+`radvdump` (not bundled — a normal Linux box) to see the RA, and
+`ip -6 addr show scope global` to confirm an address SLAACed. Full procedure:
+[docs/EDGEROUTER-RUNBOOK.md](EDGEROUTER-RUNBOOK.md#ipv6-ra--slaac-delegated-64).
+
 ## Persistent firewall / router monitoring
 
 When `wayang-fw` / `wayang-router` are installed **and** have a confirmed config,
