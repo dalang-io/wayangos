@@ -28,3 +28,6 @@ tar = "0.4"
 flate2 = "1"
 hex = "0.4"
 ratatui = "0.29.0"
+# Reset SIGPIPE to SIG_DFL for the CLI subcommands so `wayang status | head`
+# terminates cleanly instead of aborting on a broken pipe.
+libc = "0.2"

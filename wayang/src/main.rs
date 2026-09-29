@@ -160,9 +160,15 @@ fn main() -> ExitCode {
                 }
             };
         }
+        restore_sigpipe();
         println!("{HELP}");
         return ExitCode::SUCCESS;
     }
+
+    // CLI subcommands write to stdout/stderr, which may be a pipe. Restore the
+    // default SIGPIPE disposition (Rust ignores it) so `wayang status | head`
+    // exits cleanly instead of aborting. The HUD above keeps Rust's behaviour.
+    restore_sigpipe();
 
     let command = match cli::parse(&args) {
         Ok(c) => c,
@@ -213,6 +219,22 @@ fn main() -> ExitCode {
     }
 }
 
+/// Rust ignores `SIGPIPE`, so a write to a closed pipe makes the process abort
+/// with a "Broken pipe" error (`wayang status | head`). Restore the default
+/// disposition on the CLI subcommand paths (never the HUD, which owns the
+/// terminal) so piping behaves like every other Unix tool.
+#[cfg(unix)]
+fn restore_sigpipe() {
+    // SAFETY: installing the default handler is async-signal-safe and there is
+    // no handler to race with.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_sigpipe() {}
+
 /// `--demo` / `--screens DIR` render the HUD to text without a terminal.
 fn demo_mode(args: &[String]) -> Option<ExitCode> {
     let flag = |f: &str| args.iter().any(|a| a == f);
@@ -225,11 +247,13 @@ fn demo_mode(args: &[String]) -> Option<ExitCode> {
     let size = value("--size").unwrap_or_else(|| "100x32".into());
 
     let result = if flag("--screens") {
+        restore_sigpipe();
         match value("--screens") {
             Some(dir) => tui::dump_screens(&dir, &size, flag("--svg")),
             None => Err("--screens needs a directory".to_string()),
         }
     } else if flag("--demo") {
+        restore_sigpipe();
         tui::dump_stdout(&size)
     } else {
         return None;

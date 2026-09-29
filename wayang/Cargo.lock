@@ -851,6 +851,7 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "hex",
+ "libc",
  "rand_core",
  "ratatui",
  "semver",
