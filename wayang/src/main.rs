@@ -184,7 +184,7 @@ fn main() -> ExitCode {
             Ok(0)
         }
         Command::PrintVersion => {
-            println!("wayang {}", env!("CARGO_PKG_VERSION"));
+            println!("wayang {} ({})", env!("CARGO_PKG_VERSION"), version::BUILD_MARKER);
             Ok(0)
         }
         Command::Version => version::read().map(|v| {

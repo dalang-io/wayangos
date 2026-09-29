@@ -1,6 +1,6 @@
  ◢◤ WAYANG OS // SSH ▸ AUTHORIZED KEYS ▸ 2 key(s)                           2 key(s)  persists /data/etc/ssh
- [AUTHORIZED KEYS]│ DETAILS   ▸ ←→
-┏◢ AUTHORIZED KEYS ◣─────────────────────────────────────────────┓┏◢ DETAILS — EDIT: form ◣──────────────────┓
+  ▸ AUTHORIZED KEYS │  DETAILS    ▸ ←→
+┏◢ ▸ AUTHORIZED KEYS ◣───────────────────────────────────────────┓┏◢ ▸ DETAILS — EDIT: form ◣────────────────┓
 │  TYPE      FINGERPRINT                                  COMMENT││TYPE    ED25519                           │
 │▶ ED25519   SHA256:VLrLLGQdUVCOxdvxB1vxSISsKjQ7WgEaGB5m… you@lap││SHA256:VLrLLGQdUVCOxdvxB1vxSISsKjQ7WgEaGB5│
 │  ECDSA     SHA256:2SJGXV5Ait8bKMFY02C2zXiESVRXDxS/JeK2… you@des││COMMENT you@laptop                        │
@@ -10,7 +10,7 @@
 │                                                                ││/data/etc/ssh/authorized_keys             │
 │                                                                ││and appended to /root/.ssh/authorized_keys│
 │                                                                ││                                          │
-│                      ┏◢ ADD SSH KEY ◣───────────────────────────────────────────────┓ GitHub or GitLab)    │
+│                      ┏◢ ▸ ADD SSH KEY ◣─────────────────────────────────────────────┓ GitHub or GitLab)    │
 │                      │Where does the key come from?                                 │                      │
 │                      │                                                              │                      │
 │                      │▶ Paste a public key                                          │                      │

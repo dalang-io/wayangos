@@ -67,8 +67,8 @@ pub const CONCEPT: &[(&str, &str)] = &[
     ("GUI commit / apply", "enter = REVIEW → confirm"),
 ];
 
-fn group<'a>(title: &'a str, items: &'a [(&'a str, &'a str)]) -> Vec<Line<'a>> {
-    let mut out = vec![Line::from(Span::raw(format!("── {title} ")))];
+fn group(title: &str, items: &[(&str, &str)], width: u16, t: &Theme) -> Vec<Line<'static>> {
+    let mut out = vec![hud::caption(title, width, t)];
     for (k, d) in items {
         out.push(Line::from(vec![Span::raw(format!("  {k:<16}")), Span::raw(d.to_string())]));
     }
@@ -113,7 +113,7 @@ pub fn draw(f: &mut Frame, body: Rect, t: &Theme, screen: &str, scroll: usize) {
 
     let mut keys: Vec<Line> = Vec::new();
     for (title, items) in [("GLOBAL", GLOBAL), ("LIST", LIST), ("FORM", FORM), ("CONFIRM", CONFIRM)] {
-        for l in group(title, items) {
+        for l in group(title, items, cols[0].width, t) {
             keys.push(l);
         }
     }

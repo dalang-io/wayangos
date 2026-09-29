@@ -828,7 +828,10 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         }
         None => "COMMAND DECK".to_string(),
     };
-    hud::header_bar(f, header, &crumb, st.version.as_deref().unwrap_or(""), right, t);
+    // The demo header must not show a real-looking release; the SYSTEM card
+    // still shows the sample versions, clearly marked DEMO DATA.
+    let ver = if app.demo { "demo" } else { st.version.as_deref().unwrap_or("") };
+    hud::header_bar(f, header, &crumb, ver, right, t);
 
     let wide = body.width >= 72 && body.height >= 10;
     let deck_w = if body.width >= 110 { 42 } else { 32 };
@@ -909,7 +912,7 @@ fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
         let selected = i == app.sel;
         let pad = row_w.saturating_sub(num.len() + 1 + name.len() + 2);
         let (cur, name_style) = if selected {
-            (Span::styled(t.g.cursor, t.bold(t.accent2)), t.highlight())
+            (Span::styled(t.cursor(), t.bold(t.accent2)), t.highlight())
         } else {
             (Span::raw("  "), t.bold(t.fg))
         };
@@ -927,7 +930,7 @@ fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
     // RECENT / QUICK strip: the last actions plus any staged update.
     if inner.height as usize > lines.len() + 3 {
         lines.push(Line::from(""));
-        lines.push(caption("RECENT", t));
+        lines.push(hud::caption("RECENT", inner.width, t));
         if app.pending_update() {
             lines.push(Line::from(Span::styled(
                 format!("{} pending update staged", t.g.warn),
@@ -950,10 +953,6 @@ fn field(label: &str, value: impl Into<String>, t: &Theme) -> Line<'static> {
 
 fn hint(text: String, t: &Theme) -> Line<'static> {
     Line::from(Span::styled(text, t.fg(t.accent)))
-}
-
-fn caption(text: &str, t: &Theme) -> Line<'static> {
-    Line::from(Span::styled(format!("── {text} "), t.bold(t.accent)))
 }
 
 fn status_field(tone: Option<Tone>, label: &str, t: &Theme) -> Line<'static> {
@@ -984,6 +983,9 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let st = &app.status;
     let d = &app.deck;
     let tone = app.module_tone(m);
+    // Inner width of the panel drawn at the end (borders take two columns), for
+    // the `── TEXT ─────` captions built while the lines are assembled.
+    let cap_w = area.width.saturating_sub(2);
     let (title, lines, gauge): CardLines = match m {
         Module::System => {
             let good = st.good.map(Slot::as_str).unwrap_or("-");
@@ -994,7 +996,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 field("HOST", format!("{} {} up {}", d.host, t.g.brand, d.uptime), t),
                 field("DATA", if st.data { "/data mounted (persistent)" } else { "missing: nothing survives a reboot" }, t),
                 Line::from(""),
-                caption("A/B SLOTS", t),
+                hud::caption("A/B SLOTS", cap_w, t),
             ];
             for si in &st.slots {
                 let v = si.meta.as_ref().map(|m| m.version.as_str()).unwrap_or("-");
@@ -1035,7 +1037,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             let mut gauge = None;
             if let Some(job) = &app.job {
                 l.push(Line::from(""));
-                l.push(caption("PROGRESS", t));
+                l.push(hud::caption("PROGRESS", cap_w, t));
                 match job_progress(job) {
                     // Determinate: a real Gauge row is drawn where this line is.
                     Some((ratio, label)) => gauge = Some((l.len(), ratio, label)),
@@ -1051,7 +1053,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 )));
             }
             l.push(Line::from(""));
-            l.push(caption("ACTIONS", t));
+            l.push(hud::caption("ACTIONS", cap_w, t));
             for (k, what) in [
                 ("c", "check the channel for a newer release"),
                 ("u", "download, verify and stage it in the other slot"),
@@ -1091,7 +1093,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 l.push(field("MANAGED BY", "wayang-router (06 ROUTER)", t));
             }
             l.push(Line::from(""));
-            l.push(caption("INTERFACES", t));
+            l.push(hud::caption("INTERFACES", cap_w, t));
             for i in &d.ifaces {
                 l.push(Line::from(vec![
                     Span::styled(format!("  {:<10}", i.name), t.bold(t.fg)),

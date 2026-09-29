@@ -1,13 +1,13 @@
  ◢◤ WAYANG OS // WIFI ▸ ACCESS POINTS ▸ wlan0                                            wlan0 not connected
- [ACCESS POINTS]│ WIRELESS IFACE │ DETAILS   ▸ ←→
-┏◢ ACCESS POINTS ◣──────────────────────────────────────┓┏◢ WIRELESS IFACE ◣─────────────────────────────────┓
+  ▸ ACCESS POINTS │  WIRELESS IFACE  │  DETAILS    ▸ ←→
+┏◢ ▸ ACCESS POINTS ◣────────────────────────────────────┓┏◢ ▸ WIRELESS IFACE ◣───────────────────────────────┓
 │  SSID                   SIGNAL  SECURITY              ││▶ wlan0    rtl8xxxu  00:e0:4c:68:01:23             │
 │▶ CoffeeShop                -45  WPA2    enter connect ││i cycles interface (clears scan)                   │
 │  OldRouter                 -60  WPA                   ││                                                   │
 │  OpenCafe                  -72  OPEN                  ││                                                   │
 │                                                       ││                                                   │
 │                                                       │┗───────────────────────────────────────────────────┛
-│                                                       │┏◢ DETAILS — EDIT: form ◣───────────────────────────┓
+│                                                       │┏◢ ▸ DETAILS — EDIT: form ◣─────────────────────────┓
 │                                                       ││SSID      CoffeeShop                               │
 │                                                       ││BSSID     00:11:22:33:44:55                        │
 │                                                       ││SIGNAL    -45 dBm                                  │

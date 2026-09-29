@@ -550,7 +550,7 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
         let line = format!("{:<9} {:<44} {}", k.kind(), fp, comment);
         if i == app.sel {
             lines.push(hud::line_with_hint(
-                vec![Span::styled(format!("{} {}", t.g.cursor.trim_end(), line), t.highlight())],
+                vec![Span::styled(format!("{} {}", t.cursor().trim_end(), line), t.highlight())],
                 "d remove",
                 row_w,
                 t,

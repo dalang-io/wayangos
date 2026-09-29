@@ -1,6 +1,6 @@
- ◢◤ WAYANG OS // WIFI ▸┏◢ COUNTRY ◣───────────────────────────────────────────────────┓  wlan0 not connected
- [ACCESS POINTS]│ WIREL│Regulatory domain for the wireless radio:                     │
-┏◢ ACCESS POINTS ◣─────│                                                              │──────────────────────┓
+ ◢◤ WAYANG OS // WIFI ▸┏◢ ▸ COUNTRY ◣─────────────────────────────────────────────────┓  wlan0 not connected
+  ▸ ACCESS POINTS │  WI│Regulatory domain for the wireless radio:                     │
+┏◢ ▸ ACCESS POINTS ◣───│                                                              │──────────────────────┓
 │  SSID                │▶ (not set)                                                   │:68:01:23             │
 │▶ CoffeeShop          │  AD  Andorra                                                 │an)                   │
 │  OldRouter           │  AE  United Arab Emirates                                    │                      │

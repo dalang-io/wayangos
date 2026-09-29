@@ -763,7 +763,7 @@ fn iface_line(iface: &net::Iface, selected: bool, also: bool, t: &Theme) -> Line
     if selected {
         let text = format!(
             "{} {:<2}{:<10} {:<4} {:<8} {:<17} {:<15} {} {}",
-            t.g.cursor.trim_end(),
+            t.cursor().trim_end(),
             tag,
             iface.name,
             link,
@@ -830,7 +830,7 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
             Mode::Static => "fixed address, gateway and DNS",
         };
         let focused = sel && net_row_focus(app, Row::Mode);
-        let cur = if focused { t.g.cursor } else { "  " };
+        let cur = if focused { t.cursor() } else { "  " };
         let hint = if focused { "space toggle" } else { "" };
         lines.push(hud::line_with_hint(
             vec![
@@ -846,7 +846,7 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
     if app.choice.mode == Mode::Static {
         lines.push(Line::raw(""));
         let focused = net_row_focus(app, Row::Family);
-        let cur = if focused { t.g.cursor } else { "  " };
+        let cur = if focused { t.cursor() } else { "  " };
         let mut fam = vec![
             Span::styled(cur.to_string(), t.bold(t.accent2)),
             Span::styled("FAMILY  ", t.fg(t.dim)),
@@ -901,7 +901,7 @@ fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str, focused: 
     } else {
         Span::styled(value.to_string(), t.bold(t.fg))
     };
-    let cur = if focused { t.g.cursor } else { "  " };
+    let cur = if focused { t.cursor() } else { "  " };
     let left = vec![
         Span::styled(cur.to_string(), t.bold(t.accent2)),
         Span::styled(format!("{n} {label:<8}"), if focused { t.bold(t.accent) } else { t.fg(t.dim) }),

@@ -1,5 +1,5 @@
- ◢◤ WAYANG OS // COMMAND DECK ▸ FIREWALL  v1.4.1                                DEMO DATA  ▰ naga   ✔ SLOT B
-┏◢ MODULES ◣─────────────────────────────┓┏◢ FIREWALL ◣──────────────────────────────────────────────────────┓
+ ◢◤ WAYANG OS // COMMAND DECK ▸ FIREWALL  demo                                  DEMO DATA  ▰ naga   ✔ SLOT B
+┏◢ ▸ MODULES ◣───────────────────────────┓┏◢ ▸ FIREWALL ◣────────────────────────────────────────────────────┓
 │  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ▲ NO CONFIG                                          │
 │  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││APP         wayang-fw: zones, policies, NAT (nftables),           │
 │                                        ││commit-confirm                                                    │
@@ -13,7 +13,7 @@
 │  08 ROUTER                           · ││                                                                  │
 │  00 EXIT                               ││                                                                  │
 │                                        ││                                                                  │
-│── RECENT                               ││                                                                  │
+│── RECENT ──────────────────────────────││                                                                  │
 │  nothing yet — / to find               ││                                                                  │
 │                                        ││                                                                  │
 │                                        ││                                                                  │

@@ -70,8 +70,11 @@ pub const FANCY: Glyphs = Glyphs {
 /// cp437-only symbols for the kernel console font.
 pub const CONSOLE: Glyphs = Glyphs {
     border: THIN,
-    corners: None,
-    title: ("▐ ", " ▌"),
+    // Canonical chrome (TUI-UX-REVAMP "Visual spec"): heavy corners and the
+    // `◢ TITLE ◣` title, even on the kernel console. The old `▐ TITLE ▌` was
+    // the only non-canonical piece the CLI had left.
+    corners: Some(["┏", "┓", "┗", "┛"]),
+    title: ("◢ ", " ◣"),
     cursor: "► ",
     ok: "√",
     warn: "▲",
@@ -236,6 +239,25 @@ impl Theme {
         }
     }
 
+    /// Selection cursor glyph. With `NO_COLOR` it is a plain `> ` so the
+    /// selection is still marked when colour is stripped (accessibility).
+    pub fn cursor(&self) -> &'static str {
+        if self.mode == Mode::Mono {
+            "> "
+        } else {
+            self.g.cursor
+        }
+    }
+
+    /// The `→`-style arrow used for focus markers (`▸`, or `>` in mono).
+    pub fn focus_mark(&self) -> &'static str {
+        if self.mode == Mode::Mono {
+            ">"
+        } else {
+            self.g.arrow
+        }
+    }
+
     pub fn clip(&self, s: &str, max: usize) -> String {
         if s.chars().count() <= max {
             s.to_string()
@@ -308,7 +330,9 @@ pub fn header_bar(f: &mut Frame, area: Rect, section: &str, version: &str, right
     if used(&left) + sub.width() + right.width() < width {
         left.push(sub);
     }
-    let ver = Span::styled(format!("  v{version}"), t.fg(t.dim));
+    // `demo` is a label, not a version (no fake `v1.4.1` in the demo header).
+    let ver_text = if version == "demo" { "  demo".to_string() } else { format!("  v{version}") };
+    let ver = Span::styled(ver_text, t.fg(t.dim));
     if !version.is_empty() && used(&left) + ver.width() + right.width() < width {
         left.push(ver);
     }
@@ -364,20 +388,34 @@ pub fn progress_bar(tick: usize, width: usize) -> String {
         .collect()
 }
 
-/// HUD panel: thin frame, accent corners, `◢ TITLE ◣`. Returns the inner area.
+/// HUD panel: thin frame, heavy corners, `◢ TITLE ◣`. Returns the inner area.
+/// This is the canonical *focused* look; use [`panel_focus`] to dim a pane that
+/// does not own the keyboard.
 pub fn panel(f: &mut Frame, area: Rect, title: &str, t: &Theme) -> Rect {
+    panel_focus(f, area, title, true, t)
+}
+
+/// [`panel`] with an explicit focus state. A focused pane draws its border and
+/// title in `accent` and prefixes the title with `▸ ` (`>` in mono); an
+/// unfocused pane keeps the `border`/`dim` colours. The `▸` marker means focus
+/// is never signalled by colour alone.
+pub fn panel_focus(f: &mut Frame, area: Rect, title: &str, focused: bool, t: &Theme) -> Rect {
     let (l, r) = t.g.title;
-    let title_line = Line::from(vec![
-        Span::styled(l, t.fg(t.accent2)),
-        Span::styled(title.to_string(), t.bold(t.accent)),
-        Span::styled(r, t.fg(t.accent2)),
-    ]);
+    let chev = if focused { t.fg(t.accent2) } else { t.fg(t.border) };
+    let text = if focused { t.bold(t.accent) } else { t.fg(t.dim) };
+    let mut title_spans = vec![Span::styled(l, chev)];
+    if focused {
+        title_spans.push(Span::styled(format!("{} ", t.focus_mark()), t.bold(t.accent)));
+    }
+    title_spans.push(Span::styled(title.to_string(), text));
+    title_spans.push(Span::styled(r, chev));
+    let border_style = if focused { t.fg(t.accent) } else { t.fg(t.border) };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(t.g.border)
-        .border_style(t.fg(t.border))
+        .border_style(border_style)
         .style(t.base())
-        .title(title_line);
+        .title(Line::from(title_spans));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -392,11 +430,22 @@ pub fn panel(f: &mut Frame, area: Rect, title: &str, t: &Theme) -> Rect {
             (x1, y1, corners[3]),
         ] {
             if let Some(cell) = buf.cell_mut((x, y)) {
-                cell.set_symbol(sym).set_style(t.fg(t.accent));
+                cell.set_symbol(sym).set_style(border_style);
             }
         }
     }
     inner
+}
+
+/// Section caption inside a panel, e.g. `── ALERTS ─────` (`border` lead and
+/// fill, `accent` text). Matches wayang-fw's `widgets::caption`.
+pub fn caption(text: &str, width: u16, t: &Theme) -> Line<'static> {
+    let rest = (width as usize).saturating_sub(text.chars().count() + 4);
+    Line::from(vec![
+        Span::styled("── ", t.fg(t.border)),
+        Span::styled(text.to_string(), t.bold(t.accent)),
+        Span::styled(format!(" {}", "─".repeat(rest)), t.fg(t.border)),
+    ])
 }
 
 /// Footer key hints: keycaps followed by dim labels.
@@ -419,23 +468,19 @@ pub fn keycaps(items: &[(&str, &str)], t: &Theme) -> Line<'static> {
 /// Returns the line so callers can place it (the caller owns the area).
 pub fn tab_row_line(tabs: &[&str], active: usize, t: &Theme) -> Line<'static> {
     let mut spans = vec![Span::raw(" ")];
+    let mark = t.focus_mark();
     for (i, name) in tabs.iter().enumerate() {
         if i == active {
-            match t.bar {
-                Some(_) => spans.push(Span::styled(
-                    format!(" {name} "),
-                    Style::default().bg(t.accent).fg(t.on_badge).add_modifier(Modifier::BOLD),
-                )),
-                None => spans.push(Span::styled(format!("[{name}]"), t.bold(t.accent))),
-            }
+            // Glyph + reverse/selection, never colour alone (`NO_COLOR` keeps `>`).
+            spans.push(Span::styled(format!(" {mark} {name} "), t.highlight()));
         } else {
-            spans.push(Span::styled(format!(" {name} "), t.fg(t.dim)));
+            spans.push(Span::styled(format!("  {name}  "), t.fg(t.dim)));
         }
         if i + 1 < tabs.len() {
             spans.push(Span::styled("│", t.fg(t.border)));
         }
     }
-    spans.push(Span::styled(format!("  {} {}", t.g.arrow, "←→"), t.fg(t.dim)));
+    spans.push(Span::styled(format!("  {} {}", t.focus_mark(), "←→"), t.fg(t.dim)));
     Line::from(spans)
 }
 

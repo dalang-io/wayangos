@@ -1,9 +1,9 @@
- ◢◤ WAYANG OS // COMMAND DECK ▸ NETWORK  v1.4.1                                 DEMO DATA  ▰ naga   ✔ SLOT B
-┏◢ MODULES ◣─────────────────────────────┓┏◢ NETWORK ◣───────────────────────────────────────────────────────┓
+ ◢◤ WAYANG OS // COMMAND DECK ▸ NETWORK  demo                                   DEMO DATA  ▰ naga   ✔ SLOT B
+┏◢ ▸ MODULES ◣───────────────────────────┓┏◢ ▸ NETWORK ◣─────────────────────────────────────────────────────┓
 │  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ✔ ONLINE                                             │
 │  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││UPLINK      eth0 192.168.1.42/24                                  │
 │                                        ││                                                                  │
-│  01 SYSTEM                           ✔ ││── INTERFACES                                                     │
+│  01 SYSTEM                           ✔ ││── INTERFACES ────────────────────────────────────────────────────│
 │  02 UPDATES                          ✔ ││  eth0      up    192.168.1.42/24   primary                       │
 │▶ 03 NETWORK                          ✔ ││  eth1      down                                                  │
 │  04 WIFI                             ▲ ││  wlan0     down                    wifi                          │
@@ -13,7 +13,7 @@
 │  08 ROUTER                           · ││                                                                  │
 │  00 EXIT                               ││                                                                  │
 │                                        ││                                                                  │
-│── RECENT                               ││                                                                  │
+│── RECENT ──────────────────────────────││                                                                  │
 │  nothing yet — / to find               ││                                                                  │
 │                                        ││                                                                  │
 │                                        ││                                                                  │

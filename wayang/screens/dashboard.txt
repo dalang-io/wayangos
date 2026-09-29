@@ -1,19 +1,19 @@
- ◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  v1.4.1                                  DEMO DATA  ▰ naga   ✔ SLOT B
-┏◢ MODULES ◣─────────────────────────────┓┏◢ SYSTEM ◣────────────────────────────────────────────────────────┓
+ ◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  demo                                    DEMO DATA  ▰ naga   ✔ SLOT B
+┏◢ ▸ MODULES ◣───────────────────────────┓┏◢ ▸ SYSTEM ◣──────────────────────────────────────────────────────┓
 │  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ✔ OK                                                 │
 │  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││VERSION     1.4.1                                                 │
 │                                        ││CHANNEL     stable                                                │
 │▶ 01 SYSTEM                           ✔ ││HOST        naga ▰ up 3d 4h                                       │
 │  02 UPDATES                          ✔ ││DATA        /data mounted (persistent)                            │
 │  03 NETWORK                          ✔ ││                                                                  │
-│  04 WIFI                             ▲ ││── A/B SLOTS                                                      │
+│  04 WIFI                             ▲ ││── A/B SLOTS ─────────────────────────────────────────────────────│
 │  05 SSH                              ✔ ││  ▰ A  1.3.0                                                      │
 │  06 DCHECK                           ✔ ││  ▰ B  1.4.1     running, good, boots next                        │
 │  07 FIREWALL                         ▲ ││                                                                  │
 │  08 ROUTER                           · ││BOOT        next B ▰ good B ▰ attempts 0                          │
 │  00 EXIT                               ││BACKEND     grubenv                                               │
 │                                        ││                                                                  │
-│── RECENT                               ││enter ▸ refresh                                                   │
+│── RECENT ──────────────────────────────││enter ▸ refresh                                                   │
 │  nothing yet — / to find               ││                                                                  │
 │                                        ││                                                                  │
 │                                        ││                                                                  │

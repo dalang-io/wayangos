@@ -572,7 +572,7 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
         if i == app.bss_sel {
             let text = format!(
                 "{} {:<22} {:>6}  {}",
-                t.g.cursor.trim_end(),
+                t.cursor().trim_end(),
                 ssid,
                 sig,
                 b.security
@@ -621,7 +621,7 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
         if sel {
             lines.push(hud::line_with_hint(
                 vec![
-                    Span::styled(t.g.cursor, t.bold(t.accent2)),
+                    Span::styled(t.cursor(), t.bold(t.accent2)),
                     Span::styled(line, t.highlight()),
                 ],
                 "enter switch",

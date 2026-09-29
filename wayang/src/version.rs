@@ -3,6 +3,11 @@
 use crate::error::{AppError, Result};
 use crate::paths;
 
+/// Build marker reported by `wayang --version`. It identifies the CLI/HUD
+/// revision without touching the crate semver (the OS product version lives in
+/// `/etc/wayang/version`, not here).
+pub const BUILD_MARKER: &str = "ux-p1";
+
 pub fn read() -> Result<String> {
     let path = paths::version_file();
     let s = std::fs::read_to_string(&path).map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;

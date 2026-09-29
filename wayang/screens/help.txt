@@ -1,12 +1,12 @@
- ◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  v1.4.1                                  DEMO DATA  ▰ naga   ✔ SLOT B
-┏◢ MODULES ◣─────────────────────────────┓┏◢ SYSTEM ◣────────────────────────────────────────────────────────┓
+ ◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  demo                                    DEMO DATA  ▰ naga   ✔ SLOT B
+┏◢ ▸ MODULES ◣───────────────────────────┓┏◢ ▸ SYSTEM ◣──────────────────────────────────────────────────────┓
 │  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ✔ OK                                                 │
 │  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││VERSION     1.4.1                                                 │
 │                                        ││CHANNEL     stable                                                │
-│▶ 01 S┏◢ HELP — DECK — KEYS & CONCEPT MAP ◣──────────────────────────────────────────────────────────┓      │
-│  02 U│── GLOBAL                                        THEY KNOW                                    │      │
+│▶ 01 S┏◢ ▸ HELP — DECK — KEYS & CONCEPT MAP ◣────────────────────────────────────────────────────────┓      │
+│  02 U│── GLOBAL ───────────────────────────────────────THEY KNOW                                    │      │
 │  03 N│  ↑ ↓ j k         move the selection / field                                                  │      │
-│  04 W│  ← →             previous / next tab or pane    RouterOS IP > Addresses                      │      │
+│  04 W│  ← →             previous / next tab or pane    RouterOS IP > Addresses                      │──────│
 │  05 S│  tab / shift-tab next / previous tab (and field   ▸ NETWORK (addresses on the interface)     │      │
 │  06 D│while editing)                                   RouterOS IP > Routes / default               │      │
 │  07 F│  PgUp PgDn       page a long list                 ▸ ROUTES, and the uplink's default         │      │

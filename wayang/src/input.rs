@@ -183,7 +183,7 @@ pub fn draw(f: &mut Frame, area: Rect, t: &Theme, input: &Input, tick: usize) {
     };
     let cursor = if tick % 2 == 0 { "_" } else { " " };
     let field = Line::from(vec![
-        Span::styled(format!("{} ", t.g.cursor.trim_end()), t.bold(t.accent2)),
+        Span::styled(format!("{} ", t.cursor().trim_end()), t.bold(t.accent2)),
         Span::styled(shown, t.bold(t.fg).add_modifier(Modifier::UNDERLINED)),
         Span::styled(cursor.to_string(), t.fg(t.accent)),
     ]);
@@ -222,7 +222,7 @@ pub fn draw_picker(f: &mut Frame, area: Rect, t: &Theme, p: &Picker) {
         let text = t.clip(item, text_w);
         if i == p.sel {
             lines.push(Line::from(vec![
-                Span::styled(format!("{} ", t.g.cursor.trim_end()), t.bold(t.accent2)),
+                Span::styled(format!("{} ", t.cursor().trim_end()), t.bold(t.accent2)),
                 Span::styled(text, t.highlight()),
             ]));
         } else {
