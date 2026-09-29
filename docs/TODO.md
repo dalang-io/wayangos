@@ -56,6 +56,15 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       must not silently promote it to primary/default). Plus wizards and a
       Winbox/FortiGate/Cloudflare concept map for migrants. Plan:
       [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md). Touches both product repos.
+- [ ] **Product API (all three tools)** — `wayang`, `wayang-fw`,
+      `wayang-router` each get an **`api` subcommand** (loopback + bearer token)
+      exposing status/config/plan/commit (and per-tool reads: wan/routes/wg/bgp,
+      policies/drops/logs). Lets wayangi/an orchestrator drive a box **without
+      SSH**. Design + phases: [`docs/PRODUCT-API.md`](PRODUCT-API.md). Shared
+      transport crate `wayang-api`; queued after the UI waves.
+- [ ] **`wayang-tui` shared component library** (repo created) — extract
+      theme/widgets/focus/overlays from fw/router/CLI so the three HUDs are
+      consistent *by construction*; migrate all three to depend on it.
 
 ## wayangos (this repo)
 
