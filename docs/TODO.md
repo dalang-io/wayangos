@@ -43,6 +43,12 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       recomputed from `now`, not from `current_period_end`), so the customer is
       cut off on the anchor despite paying. Details + fix in wayangi
       `docs/FUTURE-WORKS.md`.
+- [ ] **WAF / L7 (self-hosted, sovereign)** — static Go WAF (Coraza + OWASP
+      CRS) exposed as `wayang-waf`, to replace foreign WAF products. Design +
+      PoC plan: wayang-fw `docs/WAF.md`. **Platform note:** mode **A**
+      (reverse-proxy) needs **no kernel change**; mode **B** (transparent
+      inline) needs **TPROXY/NFQUEUE** added to `configs/defconfig-intel`
+      (absent today) + a boot soak. Roadmap: wayang-fw `docs/ROADMAP.md` §v0.6.
 
 ## wayangos (this repo)
 
