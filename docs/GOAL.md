@@ -32,7 +32,7 @@ on the box (self-managed WireGuard, like a RouterOS `.rsc`, no agent).
 | # | Milestone | Status |
 |---|---|---|
 | M1 | Updater A/B + signed channel + anti-brick | done (1.0.x) |
-| M2 | Console (`wayang`, 01–09 modules), WiFi/network HUD, SSH keys | done |
+| M2 | Console (`wayang`, 01–08 modules), WiFi/network HUD, SSH keys | done |
 | M3 | Firewall usable (`wayang-fw`, nftables + static `nft`) | done |
 | M4 | Router MVP (VLAN/bridge/static routes/DHCP) | done |
 | M5 | Monitoring persistence (fw/router history) + `radvd` bundled | done |

@@ -20,8 +20,8 @@ nonet/hang/panic) and device-tested before tagging. The router kernel block is
 now **enabled** (M7 resolved — see below). CI (see below) builds on the box itself.
 
 1.0.21 ships the **safe kernel** (VLAN/bridge router MVP only) plus all the new
-userspace: `radvd` (IPv6 RA), persistent monitoring daemons, the `wayang` console
-(09 EDGEROUTER), `wayang edgerouter apply`, `dcheck`, `nft`/`wg`/`tc`/`bird`.
+userspace: `radvd` (IPv6 RA), persistent monitoring daemons, the `wayang`
+console, `wayang edgerouter apply`, `dcheck`, `nft`/`wg`/`tc`/`bird`.
 
 ## ✅ Resolved: router-kernel block ENABLED (M7, 2026-09-29)
 

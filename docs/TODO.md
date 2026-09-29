@@ -19,8 +19,9 @@ first**. See `AGENTS.md` §Current state.
 
 - [x] **WayangOS as a wayangi EdgeRouter** — unit type in the dashboard
       (`internal/edgewos`), self-managed WireGuard (no agent), hub provisioned
-      like RB; `wayang edgerouter apply/status/enroll/start/stop/restart` + the
-      09 EDGEROUTER console module; prod hub deployed with `WAYANGI_EDGE_WOS=1`;
+      like RB; `wayang edgerouter apply/status/enroll/start/stop/restart`
+      (the 09 EDGEROUTER console module was removed — it is CLI-only now);
+      prod hub deployed with `WAYANGI_EDGE_WOS=1`;
       QEMU-proven against the production hubs. See
       [docs/EDGEROUTER.md](EDGEROUTER.md) + wayangi's `docs/edge-wayangos.md`,
       `docs/EDGE-PARITY.md`. **The kernel block it needs is now enabled (M7 resolved, below).**
@@ -181,7 +182,7 @@ static v4/v6, DHCP client, forwarding, static routes):
 ## Done (recent)
 
 - [x] **Edge bundle import**: `wayang edgerouter apply <dir|.tar.gz> [--force]`
-      + the 09 EDGEROUTER `a`/`A` keys install a wayangi WayangOS Edge bundle
+      installs a wayangi WayangOS Edge bundle
       (`router.toml` + `fw.toml` → `/data/etc/{router,fw}/config.toml`, mode
       0644, refuse-overwrite/`.bak` on force, token enrolled from `token` or
       `install.sh`), printing the commit-confirm next steps and never applying

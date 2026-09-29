@@ -5,10 +5,9 @@
 //!
 //! Modules: SYSTEM (slots, boot state), UPDATES (check / update / upgrade /
 //! rollback, run in the background), NETWORK, WIFI and SSH (sub-screens), and
-//! FIREWALL / ROUTER / EDGEROUTER, which hand the terminal to wayang-fw /
-//! wayang-router or paste a wayangi dashboard token in place. Number keys only
-//! jump; nothing that changes the system runs without its own key, and rollback
-//! asks twice.
+//! FIREWALL / ROUTER, which hand the terminal to wayang-fw / wayang-router.
+//! Number keys only jump; nothing that changes the system runs without its own
+//! key, and rollback asks twice.
 //!
 //! Actions reuse the exact same code paths as the CLI subcommands; their
 //! console output is silenced via [`crate::ui`] while the HUD is on screen.
@@ -18,7 +17,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::mpsc::TryRecvError;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -29,10 +27,8 @@ use ratatui::widgets::{Clear, Gauge, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::cli::UpdateArgs;
-use crate::edgerouter;
 pub use crate::hud::Tone;
 use crate::hud::{self, Theme};
-use crate::input::{self, Input, Outcome};
 use crate::manifest::SlotMeta;
 use crate::net;
 use crate::netui;
@@ -55,11 +51,10 @@ pub enum Module {
     Dcheck,
     Firewall,
     Router,
-    EdgeRouter,
 }
 
-/// Command-deck entries in order; `1`..`9` jump, `0` / EXIT quits.
-pub const MODULES: [(Module, &str); 9] = [
+/// Command-deck entries in order; `1`..`8` jump, `0` / EXIT quits.
+pub const MODULES: [(Module, &str); 8] = [
     (Module::System, "SYSTEM"),
     (Module::Updates, "UPDATES"),
     (Module::Network, "NETWORK"),
@@ -68,7 +63,6 @@ pub const MODULES: [(Module, &str); 9] = [
     (Module::Dcheck, "DCHECK"),
     (Module::Firewall, "FIREWALL"),
     (Module::Router, "ROUTER"),
-    (Module::EdgeRouter, "EDGEROUTER"),
 ];
 
 /// A modal sub-screen opened from the deck.
@@ -124,8 +118,6 @@ pub struct Deck {
     pub nft: bool,
     /// Root's authorized keys (`/data` + live), for the SSH module tone.
     pub ssh_keys: usize,
-    /// wayangi EdgeRouter agent/token/tunnel state (module 09).
-    pub edge: edgerouter::Status,
 }
 
 impl Deck {
@@ -142,7 +134,6 @@ impl Deck {
             dcheck: Companion { configless: true, ..Companion::probe("dcheck", "dcheck") },
             nft: Path::new("/usr/sbin/nft").is_file(),
             ssh_keys: sshkeys::load().len(),
-            edge: edgerouter::status(),
         }
     }
 
@@ -170,22 +161,6 @@ impl Deck {
             dcheck: Companion { bin: Some("/usr/bin/dcheck".into()), confirmed: false, pending: false, configless: true },
             nft: true,
             ssh_keys: 2,
-            edge: edgerouter::Status {
-                binary: Some("/usr/sbin/wayangi".into()),
-                token: true,
-                tunnel_up: true,
-                running: true,
-                connected: true,
-                version: Some("v0.9.0".into()),
-                last_handshake: Some(12),
-                device: Some("naga".into()),
-                device_id: Some("01HZ8Q".into()),
-                account: Some("ops@dalang.io".into()),
-                plan: Some("edge /64".into()),
-                endpoint: Some("203.0.113.9:443".into()),
-                addresses: vec!["2a06:98c0::5/128".into(), "10.66.0.3/32".into()],
-                error: None,
-            },
         }
     }
 }
@@ -250,14 +225,6 @@ pub struct App {
     pub sub: Option<Sub>,
     /// Companion app to run full-screen next (taken by the runner).
     pub launch: Option<PathBuf>,
-    /// Open token input on the EDGEROUTER card.
-    pub edge_input: Option<Input>,
-    /// Open bundle-path input on the EDGEROUTER card.
-    pub edge_bundle_input: Option<Input>,
-    /// Whether the open bundle apply replaces existing configs (`A` vs `a`).
-    edge_apply_force: bool,
-    /// Token write/clear running in the background; polled each tick.
-    edge_job: Option<mpsc::Receiver<Result<String, String>>>,
     pub tick: usize,
 }
 
@@ -286,10 +253,6 @@ impl App {
             exit: false,
             sub: None,
             launch: None,
-            edge_input: None,
-            edge_bundle_input: None,
-            edge_apply_force: false,
-            edge_job: None,
             tick: 0,
         }
     }
@@ -316,14 +279,6 @@ impl App {
             self.help = false;
             return;
         }
-        if self.edge_input.is_some() {
-            self.on_edge_input_key(key);
-            return;
-        }
-        if self.edge_bundle_input.is_some() {
-            self.on_edge_bundle_key(key);
-            return;
-        }
         let armed = std::mem::take(&mut self.armed);
         let armed_other = std::mem::take(&mut self.armed_other);
         match key.code {
@@ -336,18 +291,10 @@ impl App {
             }
             KeyCode::Enter => self.open(self.sel),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('0') => self.exit = true,
-            KeyCode::Char(c @ '1'..='9') => {
+            KeyCode::Char(c @ '1'..='8') => {
                 self.sel = c as usize - '1' as usize;
                 self.open(self.sel);
             }
-            // edgerouter actions: only from the EDGEROUTER card
-            KeyCode::Char('e') if self.module() == Some(Module::EdgeRouter) => self.open_edge_input(),
-            KeyCode::Char('c') if self.module() == Some(Module::EdgeRouter) => self.clear_edge_token(),
-            KeyCode::Char('s') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Start),
-            KeyCode::Char('x') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Stop),
-            KeyCode::Char('t') if self.module() == Some(Module::EdgeRouter) => self.edge_agent(edgerouter::AgentOp::Restart),
-            KeyCode::Char('a') if self.module() == Some(Module::EdgeRouter) => self.open_edge_apply(false),
-            KeyCode::Char('A') if self.module() == Some(Module::EdgeRouter) => self.open_edge_apply(true),
             // update actions: only from the UPDATES card, never from a number key
             KeyCode::Char(c @ ('c' | 'u' | 'g' | 'x' | 'b')) if self.module() == Some(Module::Updates) => {
                 if let Some(j) = &self.job {
@@ -389,142 +336,7 @@ impl App {
         }
     }
 
-    // ---- EDGEROUTER (module 09) -----------------------------------------
-
-    fn open_edge_input(&mut self) {
-        self.edge_input = Some(Input::new(
-            "WAYANGI DEVICE TOKEN",
-            "Paste the per-device token from the wayangi dashboard:",
-            "stored in /data/etc/wayangi/token (mode 600); never shown again",
-        ));
-    }
-
-    fn on_edge_input_key(&mut self, key: KeyEvent) {
-        let Some(input) = self.edge_input.as_mut() else { return };
-        match input.on_key(key) {
-            Outcome::None => {}
-            Outcome::Cancel => self.edge_input = None,
-            Outcome::Submit(value) => self.submit_edge_token(value),
-        }
-    }
-
-    fn submit_edge_token(&mut self, value: String) {
-        match edgerouter::validate_token(&value) {
-            Err(e) => {
-                if let Some(i) = self.edge_input.as_mut() {
-                    i.error = Some(e);
-                }
-            }
-            Ok(token) => {
-                self.edge_input = None;
-                if self.demo {
-                    self.message = Some((Tone::Ok, "demo: would save the device token (nothing written)".into()));
-                    return;
-                }
-                self.start_edge_job("Saving the device token", move || {
-                    edgerouter::enroll(&token).map(|()| "Device token saved in /data/etc/wayangi/token.".to_string())
-                });
-            }
-        }
-    }
-
-    /// Open the bundle-path modal on the EDGEROUTER card. `force` is set by `A`
-    /// (replace existing configs, keeping a `.bak`).
-    fn open_edge_apply(&mut self, force: bool) {
-        self.edge_apply_force = force;
-        let hint = if force {
-            "existing /data/etc configs are replaced and kept as .bak"
-        } else {
-            "refuses to overwrite an existing config (use A to force)"
-        };
-        self.edge_bundle_input = Some(Input::new(
-            if force { "APPLY EDGE BUNDLE (FORCE)" } else { "APPLY EDGE BUNDLE" },
-            "Path to the wayangi Edge bundle (.tar.gz or a directory):",
-            hint,
-        ));
-    }
-
-    fn on_edge_bundle_key(&mut self, key: KeyEvent) {
-        let Some(input) = self.edge_bundle_input.as_mut() else { return };
-        match input.on_key(key) {
-            Outcome::None => {}
-            Outcome::Cancel => self.edge_bundle_input = None,
-            Outcome::Submit(value) => {
-                if value.is_empty() {
-                    if let Some(i) = self.edge_bundle_input.as_mut() {
-                        i.error = Some("enter the path to the bundle".into());
-                    }
-                    return;
-                }
-                self.edge_bundle_input = None;
-                self.submit_edge_bundle(value);
-            }
-        }
-    }
-
-    fn submit_edge_bundle(&mut self, path: String) {
-        if self.demo {
-            self.message = Some((Tone::Ok, "demo: would install the Edge bundle (nothing written)".into()));
-            return;
-        }
-        let force = self.edge_apply_force;
-        let label = if force { "Applying the Edge bundle (force)" } else { "Applying the Edge bundle" };
-        self.start_edge_job(label, move || {
-            edgerouter::apply(std::path::Path::new(&path), force).map(|r| r.summary())
-        });
-    }
-
-    fn clear_edge_token(&mut self) {
-        if self.demo {
-            self.message = Some((Tone::Ok, "demo: would clear the device token (nothing written)".into()));
-            return;
-        }
-        self.start_edge_job("Clearing the device token", || {
-            edgerouter::clear().map(|removed| {
-                if removed { "Device token cleared.".into() } else { "No saved token to clear.".into() }
-            })
-        });
-    }
-
-    /// start/stop/restart the wayangi agent in the background, polled by
-    /// `poll_edge_job` like the token write (never blocks the HUD).
-    fn edge_agent(&mut self, op: edgerouter::AgentOp) {
-        if self.demo {
-            self.message = Some((Tone::Ok, format!("demo: would {} the wayangi agent (nothing runs)", op.verb())));
-            return;
-        }
-        self.start_edge_job(op.label(), move || op.run());
-    }
-
-    fn start_edge_job(&mut self, label: &str, f: impl FnOnce() -> Result<String, String> + Send + 'static) {
-        if self.edge_job.is_some() {
-            self.message = Some((Tone::Warn, "An EDGEROUTER operation is still running.".into()));
-            return;
-        }
-        let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = tx.send(f());
-        });
-        self.edge_job = Some(rx);
-        self.message = Some((Tone::Warn, format!("{label}…")));
-    }
-
-    fn poll_edge_job(&mut self) {
-        let Some(rx) = &self.edge_job else { return };
-        match rx.try_recv() {
-            Ok(Ok(msg)) => {
-                self.edge_job = None;
-                self.message = Some((Tone::Ok, msg));
-                self.refresh();
-            }
-            Ok(Err(e)) => {
-                self.edge_job = None;
-                self.message = Some((Tone::Bad, e));
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => self.edge_job = None,
-        }
-    }
+    // ---- refresh ---------------------------------------------------------
 
     fn refresh(&mut self) {
         if self.demo {
@@ -548,7 +360,6 @@ impl App {
             None => self.exit = true,
             Some(Module::System) => self.refresh(),
             Some(Module::Updates) => {}
-            Some(Module::EdgeRouter) => {}
             Some(Module::Network) => self.sub = Some(Sub::Net(netui::App::new(demo))),
             Some(Module::Wifi) => self.sub = Some(Sub::Wifi(wifiui::App::new(demo))),
             Some(Module::Ssh) => self.sub = Some(Sub::Ssh(sshkeysui::App::new(demo))),
@@ -609,7 +420,6 @@ impl App {
     /// Picks up a finished background job.
     pub fn poll(&mut self) {
         self.tick = self.tick.wrapping_add(1);
-        self.poll_edge_job();
         let Some(job) = &self.job else { return };
         let Ok(result) = job.rx.try_recv() else { return };
         let kind = job.kind;
@@ -666,11 +476,6 @@ impl App {
             Module::Router => self.deck.rt.tone(),
             Module::Dcheck => self.deck.dcheck.tone(),
             Module::Ssh => Some(if self.deck.ssh_keys > 0 { Tone::Ok } else { Tone::Warn }),
-            Module::EdgeRouter => match self.deck.edge.health() {
-                edgerouter::Health::NotInstalled => None,
-                edgerouter::Health::TunnelUp => Some(Tone::Ok),
-                _ => Some(Tone::Warn),
-            },
         }
     }
 }
@@ -745,7 +550,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         draw_card(f, r, app, tick);
     }
 
-    let busy = (app.job.is_some() || app.edge_job.is_some()).then(|| hud::spinner(tick));
+    let busy = app.job.is_some().then(|| hud::spinner(tick));
     let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
     hud::status_row(f, status, msg, busy, "Pick a module; ? shows every key.", t);
 
@@ -760,19 +565,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
             ("?", "help"),
             ("q", "quit"),
         ],
-        Some(Module::EdgeRouter) => vec![
-            ("↑↓", "move"),
-            ("e", "token"),
-            ("a", "apply"),
-            ("A", "force"),
-            ("s", "start"),
-            ("x", "stop"),
-            ("t", "restart"),
-            ("c", "clear"),
-            ("?", "help"),
-            ("q", "quit"),
-        ],
-        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-9", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
+        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-8", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
     };
     let mut line = hud::keycaps(&keys, t);
     line.spans.insert(0, Span::raw(" "));
@@ -780,9 +573,6 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
     if app.help {
         draw_help(f, body, app);
-    }
-    if let Some(input) = &app.edge_input {
-        input::draw(f, area, t, input, tick);
     }
 }
 
@@ -1024,68 +814,6 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             ];
             ("SSH", l, None)
         }
-        Module::EdgeRouter => {
-            let e = &d.edge;
-            let health = e.health();
-            let mut l = vec![
-                status_field(tone, health.label(), t),
-                field(
-                    "AGENT",
-                    e.binary
-                        .as_ref()
-                        .map(|b| b.display().to_string())
-                        .unwrap_or_else(|| "not installed (bundle wayangi)".into()),
-                    t,
-                ),
-                field(
-                    "TOKEN",
-                    if e.token {
-                        "saved in /data/etc/wayangi/token (mode 600)"
-                    } else {
-                        "none: press e to paste one"
-                    },
-                    t,
-                ),
-                field("TUNNEL", if e.tunnel_up { "wayangi0 is up" } else { "wayangi0 is down" }, t),
-            ];
-            if e.known() || e.running || e.last_handshake.is_some() {
-                l.push(Line::from(""));
-                l.push(caption("LAST BOOTSTRAP", t));
-                if let Some(dev) = &e.device {
-                    let id = e.device_id.as_deref().map(|i| format!(" ({i})")).unwrap_or_default();
-                    l.push(field("DEVICE", format!("{dev}{id}"), t));
-                }
-                if let Some(a) = &e.account {
-                    l.push(field("ACCOUNT", a.clone(), t));
-                }
-                if let Some(p) = &e.plan {
-                    l.push(field("PLAN", p.clone(), t));
-                }
-                if !e.addresses.is_empty() {
-                    l.push(field("PREFIX", e.addresses.join(", "), t));
-                }
-                if let Some(h) = e.last_handshake {
-                    l.push(field("HANDSHAKE", format!("{h}s ago"), t));
-                }
-            }
-            l.push(Line::from(""));
-            let style = if matches!(health, edgerouter::Health::TunnelUp) { t.fg(t.dim) } else { t.bold(t.warn) };
-            l.push(Line::from(Span::styled(health.message(), style)));
-            if e.binary.is_none() {
-                l.push(Line::from(""));
-                l.push(Line::from(Span::styled(
-                    "Bundle it with scripts/build-wayangi.sh to /usr/sbin/wayangi.",
-                    t.fg(t.dim),
-                )));
-            } else {
-                l.push(Line::from(""));
-                l.push(hint(
-                    format!("e {arrow} token   a {arrow} apply bundle   s {arrow} start   x {arrow} stop   t {arrow} restart   c {arrow} clear"),
-                    t,
-                ));
-            }
-            ("EDGEROUTER", l, None)
-        }
         Module::Firewall | Module::Router => {
             let fw = m == Module::Firewall;
             let (c, name, what) = if fw {
@@ -1180,7 +908,7 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         caption("DECK", t),
         key("↑ ↓  j k", "move"),
         key("enter", "open the module"),
-        key("1 - 9", "jump to a module (01 system … 09 edgerouter)"),
+        key("1 - 8", "jump to a module (01 system … 08 router)"),
         key("r", "refresh everything"),
         key("q  0  esc", "quit"),
         caption("UPDATES", t),
@@ -1189,14 +917,6 @@ fn draw_help(f: &mut Frame, body: Rect, app: &App) {
         key("g", "upgrade (may cross a major version)"),
         key("b  b", "boot the other slot next (one-shot)"),
         key("x  x", "roll back to the other slot"),
-        caption("EDGEROUTER", t),
-        key("e", "paste the wayangi device token"),
-        key("a", "apply a WayangOS Edge bundle (.tar.gz or dir)"),
-        key("A", "apply a bundle, replacing existing configs"),
-        key("s", "start the wayangi agent (tunnel up)"),
-        key("x", "stop the wayangi agent"),
-        key("t", "restart the wayangi agent"),
-        key("c", "clear the saved token"),
         caption("SCREENS", t),
         key("q", "back to this deck (network, wifi, ssh, fw, router)"),
         Line::from(""),
@@ -1282,7 +1002,6 @@ pub fn demo_states() -> Vec<DemoState> {
         ),
         ("deck-network", Box::new(|app: &mut App| app.sel = 2)),
         ("deck-firewall", Box::new(|app: &mut App| app.sel = 6)),
-        ("deck-edgerouter", Box::new(|app: &mut App| app.sel = 8)),
         ("help", Box::new(|app: &mut App| app.help = true)),
         (
             "net",
@@ -1409,7 +1128,6 @@ mod tests {
             "06 DCHECK",
             "07 FIREWALL",
             "08 ROUTER",
-            "09 EDGEROUTER",
             "00 EXIT",
             "A/B SLOTS",
             "1.4.1",
@@ -1512,108 +1230,6 @@ mod tests {
         assert_eq!(app.launch.as_deref(), Some(Path::new("/data/bin/wayang-fw")));
         key(&mut app, KeyCode::Char('6'));
         assert_eq!(app.launch.as_deref(), Some(Path::new("/usr/bin/dcheck")));
-    }
-
-    #[test]
-    fn edgerouter_module_shows_state_and_takes_a_token() {
-        let mut app = App::new(true);
-        key(&mut app, KeyCode::Char('9'));
-        assert_eq!(app.module(), Some(Module::EdgeRouter));
-        let text = render(&app, 120, 36).unwrap();
-        assert!(text.contains("EDGEROUTER"), "{text}");
-        assert!(text.contains("TUNNEL UP"), "{text}");
-        assert!(text.contains("naga"), "{text}");
-
-        // e opens the token modal; a bad token keeps it open with an error
-        key(&mut app, KeyCode::Char('e'));
-        assert!(app.edge_input.is_some());
-        for c in "short".chars() {
-            key(&mut app, KeyCode::Char(c));
-        }
-        key(&mut app, KeyCode::Enter);
-        assert!(app.edge_input.is_some());
-        assert!(app.edge_input.as_ref().unwrap().error.is_some());
-
-        // esc cancels, then a valid token is accepted without writing in demo
-        key(&mut app, KeyCode::Esc);
-        assert!(app.edge_input.is_none());
-        key(&mut app, KeyCode::Char('e'));
-        for c in "0123456789abcdef0123456789abcdef".chars() {
-            key(&mut app, KeyCode::Char(c));
-        }
-        key(&mut app, KeyCode::Enter);
-        assert!(app.edge_input.is_none());
-        assert!(app.message.as_ref().unwrap().1.contains("demo"), "{:?}", app.message);
-
-        // c clears (demo only)
-        key(&mut app, KeyCode::Char('c'));
-        assert!(app.message.as_ref().unwrap().1.contains("demo"), "{:?}", app.message);
-    }
-
-    #[test]
-    fn edgerouter_agent_keys_run_in_background_only_on_the_card() {
-        let mut app = App::new(true);
-        // not on the EDGEROUTER card (SYSTEM has no char actions): s/x/t inert
-        key(&mut app, KeyCode::Char('1'));
-        key(&mut app, KeyCode::Char('s'));
-        key(&mut app, KeyCode::Char('x'));
-        key(&mut app, KeyCode::Char('t'));
-        assert!(app.message.is_none(), "{:?}", app.message);
-
-        key(&mut app, KeyCode::Char('9'));
-        assert_eq!(app.module(), Some(Module::EdgeRouter));
-        for (c, verb) in [('s', "start"), ('x', "stop"), ('t', "restart")] {
-            key(&mut app, KeyCode::Char(c));
-            let msg = &app.message.as_ref().unwrap().1;
-            assert!(msg.contains("demo") && msg.contains(verb), "{c}: {msg}");
-            assert!(app.edge_job.is_none(), "demo never spawns a job");
-        }
-    }
-
-    #[test]
-    fn edgerouter_apply_opens_a_path_input_only_on_the_card() {
-        let mut app = App::new(true);
-        // not on the card: a/A are inert
-        key(&mut app, KeyCode::Char('1'));
-        key(&mut app, KeyCode::Char('a'));
-        key(&mut app, KeyCode::Char('A'));
-        assert!(app.edge_bundle_input.is_none(), "no bundle input off the card");
-
-        key(&mut app, KeyCode::Char('9'));
-        key(&mut app, KeyCode::Char('a'));
-        assert!(app.edge_bundle_input.is_some());
-        assert!(!app.edge_apply_force);
-        // an empty path keeps the modal open with an error
-        key(&mut app, KeyCode::Enter);
-        assert!(app.edge_bundle_input.is_some());
-        assert!(app.edge_bundle_input.as_ref().unwrap().error.is_some());
-        // a path submits in demo without writing
-        for c in "/data/edge.tar.gz".chars() {
-            key(&mut app, KeyCode::Char(c));
-        }
-        key(&mut app, KeyCode::Enter);
-        assert!(app.edge_bundle_input.is_none());
-        assert!(app.message.as_ref().unwrap().1.contains("demo"), "{:?}", app.message);
-
-        // A opens the force variant; esc cancels
-        key(&mut app, KeyCode::Char('A'));
-        assert!(app.edge_bundle_input.is_some());
-        assert!(app.edge_apply_force, "A arms the force replace");
-        key(&mut app, KeyCode::Esc);
-        assert!(app.edge_bundle_input.is_none());
-    }
-
-    #[test]
-    fn edgerouter_tone_tracks_token_and_tunnel() {
-        let mut app = App::new(true);
-        assert_eq!(app.module_tone(Module::EdgeRouter), Some(Tone::Ok));
-        app.deck.edge.token = false;
-        assert_eq!(app.module_tone(Module::EdgeRouter), Some(Tone::Warn));
-        app.deck.edge.token = true;
-        app.deck.edge.tunnel_up = false;
-        assert_eq!(app.module_tone(Module::EdgeRouter), Some(Tone::Warn));
-        app.deck.edge.binary = None;
-        assert_eq!(app.module_tone(Module::EdgeRouter), None, "absent: no symbol");
     }
 
     #[test]

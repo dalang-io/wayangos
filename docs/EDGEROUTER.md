@@ -59,7 +59,7 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
       operator pastes the token on the box (`wayang edgerouter enroll <token>`)
       or installs the whole Edge bundle (`wayang edgerouter apply`, below).
 - [x] **Import/apply a dashboard bundle**: `wayang edgerouter apply <dir|.tar.gz>`
-      (+ the **09 EDGEROUTER** `a`/`A` keys) unpacks a wayangi **WayangOS Edge
+      unpacks a wayangi **WayangOS Edge
       bundle** to a temp dir, verifies it carries non-empty `router.toml` +
       `fw.toml` that look like the right kind (best-effort `[[…]]` markers),
       writes them to `/data/etc/router/config.toml` and `/data/etc/fw/config.toml`
@@ -68,13 +68,14 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
       `install.sh` — through the existing `enroll()` path (never printed). It
       deliberately does **not** apply/commit: the CLI prints the exact next steps
       (`wayang-router check` → commit, `wayang-fw check` → commit; commit-confirm
-      rolls back if unconfirmed) and the boot order. The HUD runs it as a
-      background job (`edge_job`), so it never blocks.
-- [x] **TUI/CLI** on WayangOS to paste the token: `wayang edgerouter
-      status|start|stop|restart|enroll <token>|clear` + the **09 EDGEROUTER**
-      console module (token written to `/data/etc/wayangi/token`, mode 0600;
-      shows agent/token/tunnel, the delegated prefix, handshake, account/plan
-      and last bootstrap). `start|stop|restart` drive the agent in the
+      rolls back if unconfirmed) and the boot order.
+- [x] **CLI** on WayangOS to paste the token: `wayang edgerouter
+      status|start|stop|restart|enroll <token>|clear` (token written to
+      `/data/etc/wayangi/token`, mode 0600; `status` shows agent/token/tunnel,
+      the delegated prefix, handshake, account/plan and last bootstrap). The
+      09 EDGEROUTER console module was removed (wayangi-EdgeRouter is a separate
+      project; config import is handled by wayang-router/wayang-fw themselves).
+      `start|stop|restart` drive the agent in the
       background (bounded, output captured; never argv so the token can't leak
       via `ps`) and then print the state.
 - [x] Boot order: `/data` → firewall → **WireGuard tunnel up (bootstrap)** →

@@ -494,6 +494,9 @@ pub enum AgentOp {
 }
 
 impl AgentOp {
+    // `verb`/`label` were used by the removed 09 EDGEROUTER HUD card; kept for
+    // the CLI and potential reuse (the console no longer has a module for them).
+    #[allow(dead_code)]
     pub fn verb(self) -> &'static str {
         match self {
             AgentOp::Start => "start",
@@ -502,6 +505,7 @@ impl AgentOp {
         }
     }
 
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             AgentOp::Start => "Starting the wayangi agent",
@@ -685,7 +689,9 @@ impl ApplyReport {
         println!("a reboot lands on the last *confirmed* config, never a pending one.");
     }
 
-    /// One-line summary for the HUD (the full next steps go to the CLI).
+    /// One-line summary for the HUD, kept for tests now that the HUD card is
+    /// gone (the full next steps go to the CLI).
+    #[allow(dead_code)]
     pub fn summary(&self) -> String {
         let token = if self.enrolled { "token enrolled" } else { "no token in the bundle" };
         format!(
