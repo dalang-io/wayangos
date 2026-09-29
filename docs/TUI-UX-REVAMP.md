@@ -1,8 +1,18 @@
 # TUI UX revamp — plan (dcheck · wayang-fw · wayang-router)
 
-Status: **plan** (2026-09-29). Applies to all three HUDs — they deliberately
-share one look-and-feel (dcheck is the reference). Owner: UX track; implement
-in `wayang-fw` and `wayang-router` (and align `dcheck`).
+Status: **in progress** (2026-09-29). Scope (owner decision): the **`wayang`
+CLI HUD**, **`wayang-fw`** and **`wayang-router`**. **`dcheck` is deferred** —
+it stays the historical look-and-feel reference, and the shared-kit extraction
+(§9) is P2/later.
+
+### Status
+
+| HUD | repo | P0 |
+|---|---|---|
+| `wayang` CLI | `wayangos` (`wayang/src/`) | ✅ done — `ca49082` (nav, tabs, keycaps, breadcrumb, `?`+concept map, RECENT, `/` deck jump, REVIEW for update/reset/net/wifi/ssh) |
+| `wayang-fw` | `wayang-fw` | ⏳ wave 1 |
+| `wayang-router` | `wayang-router` | ⏳ wave 1 |
+| `dcheck` | `dcheck` | ⏸ deferred (P2 shared kit) |
 
 ## 1. Why
 
