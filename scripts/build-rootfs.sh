@@ -1359,6 +1359,12 @@ install_tool iproute2/tc /usr/sbin/tc build-iproute2.sh
 install_tool bird/bird /usr/sbin/bird build-bird.sh
 [ -f "$BUILD/bird/birdc" ] && install_tool bird/birdc /usr/sbin/birdc build-bird.sh
 install_tool radvd/radvd /usr/sbin/radvd build-radvd.sh
+# wayang-router / wayang-fw are baked into the image (docs/ROUTER-TODO.md): a
+# fresh WayangOS already has the router + firewall CLIs, so an Edge config can
+# be applied without a separate /data/bin deploy. A /data/bin copy still wins at
+# boot (the init links it over /usr/bin) if one is deployed.
+install_tool wayang-router/wayang-router /usr/bin/wayang-router build-wayang-router.sh
+install_tool wayang-fw/wayang-fw /usr/bin/wayang-fw build-wayang-fw.sh
 
 # wayangi EdgeRouter agent (static; scripts/build-wayangi.sh). Optional: the
 # image ships without it if the script skipped. Enrolment state (token, device
