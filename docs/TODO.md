@@ -38,6 +38,11 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
 - [ ] **Clean up** the temporary hosted files used to get the box going:
       `https://wayang.dalang.io/tmp/dc5de5f99f23e677.tar.gz` (a bundle) and the
       `/tmp/*-router` / `/tmp/*-fw` binaries.
+- [ ] **wayangi billing P0** — an early renewal paid inside the
+      `renewalLeadDays = 3` window does not extend the period (the anchor is
+      recomputed from `now`, not from `current_period_end`), so the customer is
+      cut off on the anchor despite paying. Details + fix in wayangi
+      `docs/FUTURE-WORKS.md`.
 
 ## wayangos (this repo)
 
