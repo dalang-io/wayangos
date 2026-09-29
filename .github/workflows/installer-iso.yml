@@ -216,6 +216,8 @@ jobs:
             wayangos-build/bird
             wayangos-build/radvd
             wayangos-build/wayangi
+            wayangos-build/wayang-router
+            wayangos-build/wayang-fw
             wayangos-build/wifi
           key: wos-tools-${{ hashFiles('scripts/build-nft.sh', 'scripts/build-wg.sh', 'scripts/build-iproute2.sh', 'scripts/build-bird.sh', 'scripts/build-radvd.sh', 'scripts/build-wayangi.sh', 'scripts/build-wayang-router.sh', 'scripts/build-wayang-fw.sh', 'scripts/build-wifi-tools.sh', 'scripts/stage-firmware.sh') }}
           restore-keys: wos-tools-
@@ -270,6 +272,8 @@ jobs:
             wayangos-build/bird/
             wayangos-build/radvd/
             wayangos-build/wayangi/
+            wayangos-build/wayang-router/
+            wayangos-build/wayang-fw/
             wayangos-build/wifi/
             dist/wayang-x86_64-unknown-linux-musl
             dist/wayang-installer-x86_64-unknown-linux-musl
