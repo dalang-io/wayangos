@@ -1,5 +1,5 @@
  ◢◤ WAYANG OS // COMMAND DECK ▸ FIREWALL  demo                                  DEMO DATA  ▰ naga   ✔ SLOT B
-┏◢ ▸ MODULES ◣───────────────────────────┓┏◢ ▸ FIREWALL ◣────────────────────────────────────────────────────┓
+┏◢ ▸ MODULES ◣───────────────────────────┓┏◢ FIREWALL ◣──────────────────────────────────────────────────────┓
 │  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ▲ NO CONFIG                                          │
 │  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││APP         wayang-fw: zones, policies, NAT (nftables),           │
 │                                        ││commit-confirm                                                    │

@@ -605,6 +605,39 @@ mod tests {
         assert!(Theme::new(Mode::Neon, &FANCY).console_palette().is_none());
     }
 
+    fn panel_text(t: &Theme, focused: bool) -> String {
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 3)).unwrap();
+        term.draw(|f| {
+            panel_focus(f, f.area(), "TARGET", focused, t);
+        })
+        .unwrap();
+        let buf = term.backend().buffer();
+        (0..3)
+            .flat_map(|y| (0..30).map(move |x| buf[(x, y)].symbol().to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn focus_is_a_glyph_not_colour() {
+        // Fancy: `▸ TITLE`; unfocused panels have no marker.
+        let ansi = Theme::new(Mode::Ansi, &FANCY);
+        assert!(panel_text(&ansi, true).contains("▸ TARGET"));
+        assert!(!panel_text(&ansi, false).contains('▸'));
+        // NO_COLOR: the marker is a plain `>`, so focus survives with no colour.
+        let mono = Theme::new(Mode::Mono, &FANCY);
+        assert!(panel_text(&mono, true).contains("> TARGET"));
+        assert!(!panel_text(&mono, false).contains('>'));
+        assert_ne!(panel_text(&mono, true), panel_text(&mono, false));
+    }
+
+    #[test]
+    fn caption_fills_to_the_width_in_border_colour() {
+        let t = Theme::new(Mode::Ansi, &FANCY);
+        let line = caption("ACTIONS", 24, &t).to_string();
+        assert!(line.starts_with("── ACTIONS ─"), "{line}");
+        assert_eq!(line.chars().count(), 24, "{line}");
+    }
+
     #[test]
     fn progress_bar_sweeps() {
         let a = progress_bar(0, 10);

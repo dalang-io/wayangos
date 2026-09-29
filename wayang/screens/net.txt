@@ -1,6 +1,6 @@
  ◢◤ WAYANG OS // NETWORK ▸ INTERFACES ▸ eth0                                      persists /data/etc/network
   ▸ INTERFACES │  CONFIG    ▸ ←→
-┏◢ ▸ INTERFACES ◣────────────────────────────────────────────┓┏◢ ▸ MODE — EDIT: form ◣───────────────────────┓
+┏◢ ▸ INTERFACES ◣────────────────────────────────────────────┓┏◢ MODE — EDIT: form ◣─────────────────────────┓
 │  W IFACE      LINK DRIVER   MAC               IPV4         ││  DHCP    automatic lease (udhcpc)            │
 │▶   eth0       up   e1000e   52:54:00:12:34:56 192.168.1.42/││  STATIC  fixed address, gateway and DNS      │
 │  ~ wlan0     down rtl8xxxu 00:e0:4c:68:01:23 -             ││                                              │
@@ -9,7 +9,7 @@
 │▲ wireless   * current primary   + also lease at boot       ││                                              │
 │                                                            ││                                              │
 │                                                            │┗──────────────────────────────────────────────┛
-│                                                            │┏◢ ▸ ADDRESS — EDIT: form ◣────────────────────┓
+│                                                            │┏◢ ADDRESS — EDIT: form ◣──────────────────────┓
 │                                                            ││                                              │
 │                                                            ││✔ DHCP needs no fields                        │
 │                                                            ││the interface gets address, route and DNS     │

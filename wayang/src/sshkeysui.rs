@@ -533,7 +533,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "AUTHORIZED KEYS", t);
+    let inner = hud::panel_focus(f, area, "AUTHORIZED KEYS", app.pane == 0, t);
     let row_w = inner.width.saturating_sub(1) as usize;
     let mut lines = vec![Line::from(Span::styled(
         format!("  {:<9} {:<44} {}", "TYPE", "FINGERPRINT", "COMMENT"),
@@ -564,7 +564,7 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "DETAILS — EDIT: form", t);
+    let inner = hud::panel_focus(f, area, "DETAILS — EDIT: form", app.pane == 1, t);
     let mut lines = Vec::new();
     match app.keys.get(app.sel) {
         Some(k) => {

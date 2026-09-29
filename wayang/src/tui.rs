@@ -970,7 +970,8 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let t = &app.t;
     let arrow = if t.g.corners.is_some() { "▸" } else { ">" };
     let Some(m) = app.module() else {
-        let inner = hud::panel(f, area, "EXIT", t);
+        // The deck's preview card never owns the keyboard: MODULES does.
+        let inner = hud::panel_focus(f, area, "EXIT", false, t);
         let lines = vec![
             Line::from(Span::styled("Leave the console.", t.fg(t.fg))),
             Line::from(Span::styled("Everything keeps running; `wayang` brings this back.", t.fg(t.dim))),
@@ -1199,7 +1200,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             (if fw { "FIREWALL" } else { "ROUTER" }, l, None)
         }
     };
-    let inner = hud::panel(f, area, title, t);
+    let inner = hud::panel_focus(f, area, title, false, t);
     let wrap = Wrap { trim: false };
     match gauge {
         None => f.render_widget(Paragraph::new(lines).wrap(wrap), inner),
@@ -1540,6 +1541,39 @@ mod tests {
                 assert!(!text.trim().is_empty(), "{name} at {w}x{h}");
             }
         }
+    }
+
+    #[test]
+    fn focused_deck_pane_and_dim_card() {
+        // The MODULES list owns the keyboard; the preview card is unfocused.
+        let app = App::new(true);
+        let text = render(&app, 120, 36).unwrap();
+        assert!(text.contains("◢ ▸ MODULES ◣"), "{text}");
+        assert!(text.contains("◢ SYSTEM ◣"), "the card is dim (no marker):\n{text}");
+        assert!(!text.contains("◢ ▸ SYSTEM ◣"), "{text}");
+    }
+
+    #[test]
+    fn sub_screen_focus_follows_the_active_pane() {
+        let mut app = App::new(true);
+        app.sub = Some(Sub::Net(netui::App::new(true)));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ INTERFACES ◣"), "{text}");
+        assert!(!text.contains("◢ ▸ MODE"), "the config pane is unfocused:\n{text}");
+        // → moves the keyboard to CONFIG; the mode/address pane lights up.
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ MODE — EDIT: form ◣"), "{text}");
+        assert!(!text.contains("◢ ▸ INTERFACES ◣"), "{text}");
+    }
+
+    #[test]
+    fn focus_marker_survives_no_colour() {
+        let mut app = App::new(true);
+        app.t = Theme::new(hud::Mode::Mono, &hud::FANCY);
+        let text = render(&app, 120, 36).unwrap();
+        assert!(text.contains("◢ > MODULES ◣"), "mono marks focus with `>`:\n{text}");
+        assert!(!text.contains("◢ > SYSTEM ◣"), "the card stays unfocused:\n{text}");
     }
 
     #[test]

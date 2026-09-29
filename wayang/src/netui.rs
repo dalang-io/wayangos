@@ -791,7 +791,8 @@ fn iface_line(iface: &net::Iface, selected: bool, also: bool, t: &Theme) -> Line
 
 fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "INTERFACES", t);
+    // The list owns the keyboard while the INTERFACES tab is active.
+    let inner = hud::panel_focus(f, area, "INTERFACES", app.pane == 0, t);
     let mut lines = vec![Line::from(Span::styled(
         format!("  W {:<10} {:<4} {:<8} {:<17} {:<15} P A", "IFACE", "LINK", "DRIVER", "MAC", "IPV4"),
         t.fg(t.dim),
@@ -820,7 +821,10 @@ fn net_row_focus(app: &App, row: Row) -> bool {
 
 fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "MODE — EDIT: form", t);
+    // On the CONFIG tab the MODE panel is focused while a mode/family row is
+    // selected; a field row focuses the ADDRESS panel instead.
+    let focused = matches!(app.rows().get(app.field_sel), Some(Row::Mode | Row::Family));
+    let inner = hud::panel_focus(f, area, "MODE — EDIT: form", app.pane == 1 && focused, t);
     let mut lines = Vec::new();
     let row_w = inner.width.saturating_sub(1) as usize;
     for m in [Mode::Dhcp, Mode::Static] {
@@ -867,7 +871,8 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_fields(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "ADDRESS — EDIT: form", t);
+    let focused = matches!(app.rows().get(app.field_sel), Some(Row::Field(_)));
+    let inner = hud::panel_focus(f, area, "ADDRESS — EDIT: form", app.pane == 1 && focused, t);
     let mut lines = Vec::new();
     let row_w = inner.width.saturating_sub(1) as usize;
     if app.choice.mode == Mode::Dhcp {

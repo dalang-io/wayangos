@@ -1,5 +1,5 @@
  ◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  demo                       DEMO DATA  ▰ naga   ✖ UPDATER UNAVAILABLE
-┏◢ ▸ MODULES ◣───────────────────────────┓┏◢ ▸ SYSTEM ◣──────────────────────────────────────────────────────┓
+┏◢ ▸ MODULES ◣───────────────────────────┓┏◢ SYSTEM ◣────────────────────────────────────────────────────────┓
 │  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ✖ UNAVAILABLE                                        │
 │  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││VERSION     1.4.1                                                 │
 │                                        ││CHANNEL     stable                                                │

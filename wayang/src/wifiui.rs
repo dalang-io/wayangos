@@ -545,7 +545,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "ACCESS POINTS", t);
+    let inner = hud::panel_focus(f, area, "ACCESS POINTS", app.pane == 0, t);
     let row_w = inner.width.saturating_sub(1) as usize;
     let mut lines = vec![Line::from(Span::styled(
         format!("  {:<22} {:>6}  {}", "SSID", "SIGNAL", "SECURITY"),
@@ -598,7 +598,7 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "WIRELESS IFACE", t);
+    let inner = hud::panel_focus(f, area, "WIRELESS IFACE", app.pane == 1, t);
     let mut lines = Vec::new();
     if app.ifaces.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -644,7 +644,7 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "DETAILS — EDIT: form", t);
+    let inner = hud::panel_focus(f, area, "DETAILS — EDIT: form", app.pane == 2, t);
     let mut lines = Vec::new();
     match app.bss.get(app.bss_sel) {
         Some(b) => {
