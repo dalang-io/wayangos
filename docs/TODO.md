@@ -49,6 +49,13 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       (reverse-proxy) needs **no kernel change**; mode **B** (transparent
       inline) needs **TPROXY/NFQUEUE** added to `configs/defconfig-intel`
       (absent today) + a boot soak. Roadmap: wayang-fw `docs/ROADMAP.md` §v0.6.
+- [ ] **TUI UX revamp (PRIORITISED)** — one navigation grammar across
+      wayang-fw/wayang-router/dcheck (`↑↓` within, `←→` between tabs, `tab`,
+      `/` jump, `?` help), inline keycap hints + visible tab rows, and
+      **REVIEW-before-apply with no hidden side effects** (adding a static WAN
+      must not silently promote it to primary/default). Plus wizards and a
+      Winbox/FortiGate/Cloudflare concept map for migrants. Plan:
+      [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md). Touches both product repos.
 
 ## wayangos (this repo)
 
