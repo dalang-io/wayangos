@@ -190,8 +190,17 @@ static v4/v6, DHCP client, forwarding, static routes):
 - [ ] Edge 1-NIC (WAN-only) support — same open item as wayangi above.
 - Lab: `/tmp/wayang-tools/{bzImage-lab,initramfs-lab.img}` on the builder
   (QEMU only; all router kernel options on).
+- [ ] **RouterOS-parity gaps** (gap review 2026-09-29) — PPPoE, remote-access
+      VPN, stateful HA (conntrack sync), DHCP relay, DNS server
+      (static/conditional/DoT), multicast (IGMP proxy), L2 extras
+      (STP/RSTP, IGMP snooping, port isolation, MAC-VLAN, loop protect),
+      Netflow/sFlow + per-host accounting, scheduler + Netwatch,
+      certificates + ACME, RADIUS. New phases **v0.8 (access & L2)** and
+      **v0.9 (NOC & ops)** + a full gap matrix in wayang-router
+      `docs/ROADMAP.md`.
 - Released **v0.3.0** (Edge schema), **v0.3.1** (never strand the last uplink),
-  **v0.3.2** (`wan-monitor` → `wan-failover`).
+  **v0.3.2** (`wan-monitor` → `wan-failover`), **v0.3.3** (program the
+  `wan_group` table at bring-up via rtnetlink).
 
 ## dcheck (dalang-io/dcheck)
 
