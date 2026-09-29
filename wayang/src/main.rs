@@ -68,6 +68,7 @@ usage:
   wayang sign   --key FILE [--keyid NAME] MANIFEST.json
   wayang verify FILE.wup [--esp DEV]
   wayang mark-ok [--esp DEV]
+  wayang reset [--yes]               reset config to defaults (router/fw/wayangi/network; clears a pending update)
   wayang addkey github:USER | gitlab:USER | FILE | 'ssh-ed25519 AAAA... comment'
   wayang --demo [--screens DIR [--svg]] [--size COLSxROWS]   render HUD screens (text, SVG)
 
@@ -197,6 +198,7 @@ fn main() -> ExitCode {
         Command::Sign { key, keyid, manifest } => keys::sign_file(&key, keyid.as_deref(), &manifest),
         Command::Verify { bundle, esp } => verify::run(&bundle, esp.as_deref()),
         Command::MarkOk { esp } => run_mark_ok(esp.as_deref()),
+        Command::Reset { yes } => run_reset(yes),
         Command::AddKey { spec } => sshkeys::addkey_cmd(&spec).map_err(error::AppError::err),
     };
 
@@ -244,6 +246,60 @@ fn run_mark_ok(esp: Option<&str>) -> Result<i32> {
     let boot = mount::open(esp)?;
     let active = staging::mark_ok(&boot)?;
     println!("Good slot: {} (attempts reset)", active.as_str());
+    Ok(0)
+}
+
+/// `wayang reset`: return this box's configuration to defaults. Removes the
+/// imported router/firewall/wayangi/network config and clears any pending OS
+/// update (the box boots the slot it is running). Never touches /data/bin,
+/// /data/var (history) or the SSH keys. Requires the literal `yes` unless
+/// `--yes`/`-y`/`--force` was given.
+fn run_reset(yes: bool) -> Result<i32> {
+    if !yes {
+        use std::io::{BufRead, Write};
+        eprintln!("This resets WayangOS config on this box to defaults:");
+        eprintln!("  - removes /data/etc/router, /data/etc/fw, /data/etc/wayangi,");
+        eprintln!("    /data/etc/network");
+        eprintln!("  - clears any pending OS update (boots the running slot)");
+        eprintln!("Kept: /data/bin, /data/var (history), SSH keys.");
+        eprint!("Type 'yes' to continue: ");
+        let _ = std::io::stderr().flush();
+        let mut line = String::new();
+        let _ = std::io::stdin().lock().read_line(&mut line);
+        if line.trim().to_ascii_lowercase() != "yes" {
+            println!("aborted (nothing changed)");
+            return Ok(1);
+        }
+    }
+    let mut removed = Vec::new();
+    for d in [
+        paths::router_dir(),
+        paths::fw_dir(),
+        paths::wayangi_dir(),
+        paths::data_network_dir(),
+    ] {
+        if d.exists() {
+            match std::fs::remove_dir_all(&d) {
+                Ok(()) => removed.push(d.display().to_string()),
+                Err(e) => eprintln!("warning: {}: {e}", d.display()),
+            }
+        }
+    }
+    match mount::open(None) {
+        Ok(boot) => match staging::reset_to_running(&boot) {
+            Ok(s) => println!("pending update cleared; boots slot {}", s.as_str()),
+            Err(e) => eprintln!("warning: update state: {e}"),
+        },
+        Err(e) => eprintln!("warning: boot state not available: {e}"),
+    }
+    if removed.is_empty() {
+        println!("Nothing to reset (already default).");
+    } else {
+        for r in &removed {
+            println!("removed {r}");
+        }
+        println!("Reset to defaults. Reboot to apply.");
+    }
     Ok(0)
 }
 

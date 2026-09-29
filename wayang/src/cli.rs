@@ -48,6 +48,10 @@ pub enum Command {
     Sign { key: PathBuf, keyid: Option<String>, manifest: PathBuf },
     Verify { bundle: PathBuf, esp: Option<String> },
     MarkOk { esp: Option<String> },
+    /// `wayang reset`: return this box's configuration to defaults (remove the
+    /// router/firewall/wayangi/network config and clear a pending OS update).
+    /// Requires the literal `yes` (or `--yes`/`-y`) to proceed.
+    Reset { yes: bool },
     /// `wayang addkey`: the single SSH-key implementation behind
     /// `wayang-addkey` and the SSH screen.
     AddKey { spec: String },
@@ -261,6 +265,16 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::MarkOk { esp })
         }
         "addkey" => Ok(Command::AddKey { spec: rest.join(" ") }),
+        "reset" => {
+            let mut yes = false;
+            for a in rest {
+                match a.as_str() {
+                    "--yes" | "-y" | "--force" => yes = true,
+                    other => return Err(format!("unknown option for `reset`: {other}")),
+                }
+            }
+            Ok(Command::Reset { yes })
+        }
         "-h" | "--help" | "help" => Ok(Command::Help),
         "-V" | "--version" => Ok(Command::PrintVersion),
         other => Err(format!("unknown command '{other}' (try `wayang --help`)")),

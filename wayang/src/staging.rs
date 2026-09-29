@@ -141,6 +141,21 @@ pub fn stage_other(boot: &BootRoot) -> Result<Slot> {
     Ok(target)
 }
 
+/// `wayang reset`: clear a pending update — point the next boot at the slot we
+/// are running and reset the attempt counter (forget the saved "previous").
+/// `wayang_good` is left as-is.
+pub fn reset_to_running(boot: &BootRoot) -> Result<Slot> {
+    let mut store = state_store(boot)?;
+    let active = slot::running_slot()
+        .or_else(|| Some(slot::boot_slot(&store)))
+        .unwrap_or(Slot::A);
+    store.set("wayang_slot", active.as_str());
+    store.set("wayang_prev", active.as_str());
+    store.set("wayang_attempts", "0");
+    store.save().map_err(AppError::err)?;
+    Ok(active)
+}
+
 /// `wayang update --fallback`: point the next boot at `wayang_good`. Only
 /// valid while running a slot that is *not* the good one (a failed boot of a
 /// freshly staged / boot-other slot); `wayang_prev` is not trusted here.
