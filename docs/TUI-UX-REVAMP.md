@@ -1,28 +1,28 @@
 # TUI UX revamp — plan (dcheck · wayang-fw · wayang-router)
 
-Status: **in progress** (2026-09-29). Scope (owner decision): the **`wayang`
+Status: **in progress** (2026-09-30). Scope (owner decision): the **`wayang`
 CLI HUD**, **`wayang-fw`** and **`wayang-router`**. **`dcheck` is deferred** —
-it stays the historical look-and-feel reference, and the shared-kit extraction
-(§9) is P2/later.
+it stays the historical look-and-feel reference.
 
 ### Status
 
-| HUD | repo | P0 |
+| HUD | repo | state |
 |---|---|---|
-| `wayang` CLI | `wayangos` (`wayang/src/`) | ✅ done — `ca49082` (nav, tabs, keycaps, breadcrumb, `?`+concept map, RECENT, `/` deck jump, REVIEW for update/reset/net/wifi/ssh) |
-| `wayang-fw` | `wayang-fw` | ✅ done — `c9dd87f` (0.4.0: tabs, keycaps, `?`+concept map, RECENT, `/` jump, REVIEW+nft preview, policy wizard, FortiOS import review, `E` code TOML) |
-| `wayang-router` | `wayang-router` | ✅ done — `a8bc823` (0.4.0: tabs incl. new UPLINKS, REVIEW, no silent primary + `[primary]`/`p`, `?`, `/` jump, RECENT, `f` form↔code) |
-| `dcheck` | `dcheck` | ⏸ deferred (P2 shared kit) |
+| `wayang` CLI | `wayangos` (`wayang/src/`) | ✅ P0 `ca49082` · P1 `8b407da`/`eaa92b9`/`655c82c` · visual+focus `38b368d`/`a797448`/`faf9d4d` (206 tests) |
+| `wayang-fw` | `wayang-fw` | ✅ P0 `c9dd87f` (0.4.0) · P1 `b764f78` (0.4.1) · focus ⏳ |
+| `wayang-router` | `wayang-router` | ✅ P0 `a8bc823` · P1 `af4ad8b` (0.4.1) · focus `d0ee09e` (**0.4.2**) |
+| `dcheck` | `dcheck` | ⏸ deferred |
 
-Released: **wayang-router v0.4.1** + **wayang-fw v0.4.1** (tags + GitHub releases +
-mirror `wayang.dalang.io/edge/tools/`; OS pins bumped). **P1 done**: deep `/`
-quick-jump into objects, per-row inline keycaps (budget-aware), accessibility
-(colour is never the only signal); router gained a guided **WAN wizard** +
-read-only **POLICY** tab; fw gained a **FortiOS import-review prompt**; the
-`wayang` CLI P1 = SIGPIPE fix (`… | head` no longer aborts), deeper `/` jump,
-sub-screen RECENT echo. **P2** (shared kit / dcheck adoption) is parked per the
-owner. The `wayang` CLI ships inside WayangOS (no separate tag); it is
-installed on the test box for manual testing.
+**Visual spec + focused-pane highlight** (§5) are canonical here. The **shared
+component library [`wayang-tui`](https://github.com/dalang-io/wayang-tui)** has
+been created (scaffold); the next step extracts `theme`/`widgets`/`focus`/
+`overlays` from the three products into it and has each product depend on it (so
+consistency is *by construction*). A **product API** (`api` subcommand per tool)
+is designed in [`docs/PRODUCT-API.md`](PRODUCT-API.md).
+
+Released: **wayang-router v0.4.1**, **wayang-fw v0.4.1** (tags + GitHub releases +
+mirror; OS pins bumped; `v0.4.2` for router's focus wave). `wayang` CLI ships
+inside WayangOS (no separate tag); installed on the test box for manual testing.
 
 ## 1. Why
 
@@ -132,6 +132,38 @@ Rules: one split layout (list + target) everywhere; the TARGET panel is always
 the same place; a modal form replaces the list area (not the whole screen) so
 context stays visible. Wide (≥120) vs narrow (80, e.g. serial) layouts defined
 per screen; charts fall back to half-blocks on `TERM=linux` (already done).
+
+### Visual spec (canonical — all three HUDs must match)
+
+Palette (neon_dark, 24-bit; ansi/mono fallbacks; `<TOOL>_COLOR`/`NO_COLOR`/`--light`/`--mono`):
+`accent (0,229,255) · accent2 (255,46,151) · dim (112,132,152) · border (28,74,92) ·
+ok (57,255,136) · warn (255,176,0) · bad (255,59,59) · fg (196,210,224) · bg (10,14,20) ·
+bar (18,26,38) · selection (bg 74,14,52 / fg white) · on_badge (10,14,20)`.
+
+Chrome (one implementation):
+* **Panel**: thin border in `border`; **heavy corners** `┏ ┓ ┗ ┛` in `accent`; title
+  `◢ TITLE ◣` (title `accent`+bold, chevrons `accent2`); optional right-aligned title.
+  The CLI's `▐ TITLE ▌` title is **non-canonical** — it must become `◢ TITLE ◣`.
+* **Caption** inside a panel: `── TEXT ─────` (`border` lead/fill, `accent` text).
+* **Keycaps**: ` key ` on `bar` bg + `accent` fg, label in `dim`.
+* **Header**: `bar` bg — brand · **breadcrumb `MODULE ▸ TAB ▸ item`** · state badge
+  (glyph **and** word, never colour alone) · revision.
+* **Footer**: context keycaps + right-aligned status.
+* **Selection row**: `selection` (reverse); in mono, a `>` marker + bold.
+* **Badges/status**: glyph + word; mono renders `[✔ OK]`.
+
+**Focused-pane highlight (new — every HUD).** Exactly one pane owns the keyboard at a
+time; it is unmistakable without colour:
+* the **focused** pane's border + title are drawn in `accent`; **unfocused** panes keep
+  `border`/dim titles;
+* the focused pane's title is prefixed `▸ ` (unfocused: none);
+* the active **tab** already carries `▸`; a focused **list** shows the `selection` row that
+  moves with `↑↓`; a focused **form** shows the field cursor;
+* in mono/`--plain`, focus is `▸` + bold only (works with no colour).
+
+Scope of "panes": the command **deck** (MODULES list focused; preview card dim) and each
+module's split (main list vs TARGET/detail) and tab groups. A modal/form takes focus when
+open.
 
 ## 6. Forms & apply semantics (fixes issue #1)
 
