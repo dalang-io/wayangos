@@ -162,7 +162,7 @@ CONFIG_NET_REDIRECT=y
 # watchdog via i2c-i801 (already =y in the base config); lpc_ich covers older
 # ICH chipsets and QEMU q35; i6300esb is what scripts/test-selftest-qemu.sh
 # emulates for the proof; soft watchdog is the universal fallback. BusyBox
-# `watchdog` opens /dev/watchdog (wayang-selftest pets it).
+# `watchdog` opens /dev/watchdog (nothing opens it now the self-test is gone).
 CONFIG_WATCHDOG_CORE=y
 CONFIG_ITCO_WDT=y
 CONFIG_LPC_ICH=y
@@ -174,12 +174,8 @@ CONFIG_DEBUG_KERNEL=y
 CONFIG_SOFTLOCKUP_DETECTOR=y
 CONFIG_HARDLOCKUP_DETECTOR=y
 CONFIG_DETECT_HUNG_TASK=y
-# Built-in cmdline, appended to whatever GRUB passes (wayang/grub-disk.cfg:
-# loglevel=3 wayang.data=... wayang.slot=...), so installer, both slots and
-# every update inherit the safety net without touching the template.
-# wayang.selftest=120 defers `wayang mark-ok` to the boot self-test: the slot
-# confirms only if the gateway still answers after 120 s, else
-# `wayang update --fallback` + reboot; a hang/panic resets the box and GRUB's
-# 3-attempt budget falls back on its own (docs/ROUTER-KERNEL-BISECT.md).
-CONFIG_CMDLINE_BOOL=y
-CONFIG_CMDLINE="panic=10 oops=panic softlockup_panic=1 hardlockup_panic=1 hung_task_panic=1 nmi_watchdog=1 wayang.selftest=120"
+# NO kernel-baked CMDLINE/selftest: the CONFIG_CMDLINE safety net
+# (wayang.selftest=120 + panic-on-lockup) caused reboot loops on a fresh
+# install / when connectivity could not be confirmed in 120 s. Removed 1.0.25.
+# `wayang mark-ok` runs in rcS; a bad update falls back via GRUB's attempt
+# budget alone. The watchdog *drivers* stay (nothing opens /dev/watchdog now).
