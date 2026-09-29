@@ -165,6 +165,38 @@ Scope of "panes": the command **deck** (MODULES list focused; preview card dim) 
 module's split (main list vs TARGET/detail) and tab groups. A modal/form takes focus when
 open.
 
+## 5b. No-flash startup & cross-app handoff
+
+**Problem (reported).** Opening a HUD flashes a blank screen first — worst on a
+**light** terminal and over **SSH**. Two causes:
+
+1. Entering the alternate screen clears it, and the first *real* frame is only
+   drawn after data is sampled (proc reads, nft/wg queries, leases) → an empty
+   frame shows for a beat. On a light terminal that empty frame is white; over
+   SSH the latency makes it obvious.
+2. **Handoff between tools** (`wayang` → FIREWALL/ROUTER, and back) briefly
+   returns to the normal screen between the two TUIs → a "flashblank".
+
+**Fix — one shared rule, so all three behave the same:**
+
+1. **First frame is the splash.** The very first thing after entering the
+   alternate screen is a *loading* frame — brand logo + `loading <tool>…` +
+   spinner + the breadcrumb — drawn **before** any sampling. Never an empty alt
+   screen. Data loads after (or in the background) and only then replaces it.
+   Same on return from a child tool.
+2. **Theme the clear.** Set the terminal background with **OSC 11** to the
+   palette `bg` at startup (and restore on exit); clear with the `bg` fill, not
+   `Reset`. The clear is then theme-coloured, never a white flash (light mode /
+   SSH).
+3. **Handoff transition.** The parent draws `▸ launching <tool>…` and keeps the
+   alternate screen until the child has drawn its own splash; the child's first
+   frame is its splash; the parent draws a `loading …` frame on return. Target:
+   no full-screen blank at any point.
+4. Ship this as a shared **`splash` / `transition` component in `wayang-tui`**
+   so the three tools are identical here too.
+5. The splash stays bounded and **never blocks** — it must not delay the first
+   keypress handling or add startup latency.
+
 ## 6. Forms & apply semantics (fixes issue #1)
 
 * **Stage vs commit stays**, but make it explicit and teachable:

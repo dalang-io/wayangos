@@ -56,6 +56,12 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       must not silently promote it to primary/default). Plus wizards and a
       Winbox/FortiGate/Cloudflare concept map for migrants. Plan:
       [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md). Touches both product repos.
+- [ ] **No-flash startup & cross-app handoff (all three HUDs)** — the first
+      frame must be a splash drawn *before* sampling (never an empty alternate
+      screen), the clear must be themed via OSC 11 (no white flash on a light
+      terminal / SSH), and a transition frame must cover `wayang` ↔
+      fw/router handoff. Shared `splash`/`transition` component in `wayang-tui`.
+      Design: [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md) §5b.
 - [ ] **Product API (all three tools)** — `wayang`, `wayang-fw`,
       `wayang-router` each get an **`api` subcommand** (loopback + bearer token)
       exposing status/config/plan/commit (and per-tool reads: wan/routes/wg/bgp,
