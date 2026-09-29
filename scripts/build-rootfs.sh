@@ -901,9 +901,12 @@ case "$1" in
             # gives the default route + DNS to the primary interface alone, so a
             # second NIC plugged into a router still gets an IP for management.
             prim="$(tr -d '[:space:]' < "$PRIMARY_RUN" 2>/dev/null)"
+            # Every wired NIC runs a persistent `udhcpc -b` even with no carrier
+            # yet: -b retries forever, so a cable plugged in LATER gets a lease
+            # automatically (hotplug / "colok langsung DHCP"). udhcpc.script
+            # still gives the default route + DNS to the primary interface alone.
             for i in $(wired); do
                 [ "$i" = "$prim" ] && continue
-                carrier "$i" || continue
                 echo "  DHCP (secondary) on $i"
                 udhcpc -b -i "$i" -s /etc/udhcpc.script >/dev/null 2>&1
             done
@@ -917,7 +920,6 @@ case "$1" in
                     case "$line" in ''|'#'*) continue ;; esac
                     [ -d "/sys/class/net/$line" ] || continue
                     [ "$line" = "$prim" ] && continue
-                    carrier "$line" || continue
                     echo "  DHCP (also) on $line"
                     udhcpc -b -i "$line" -s /etc/udhcpc.script >/dev/null 2>&1
                 done < "$ALSO_FILE"
