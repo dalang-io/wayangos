@@ -109,10 +109,10 @@ config** (no wayangi agent on the box).
 | Repo | HEAD / tag | Notes |
 |---|---|---|
 | `dalang-io/wayangos` (this) | `master` @ 1.0.27, tag `v1.0.27` | block enabled; `wayang reset`; selftest removed; hotplug DHCP; CI self-hosted (~5 m, channel-publish secrets set) |
-| `dalang-io/wayang-fw` | `master` `a8518fc`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, `docs/NFT-REF.md`, monitor |
-| `dalang-io/wayang-router` | `master` `84c796e`, tag `v0.3.2` | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor history); **never strand the last uplink** (v0.3.1); **`wan-monitor` → `wan-failover`** (v0.3.2); `engine` hardening (unparseable confirmed config = error); `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
+| `dalang-io/wayang-fw` | `master` `7383298`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, monitor; **per-zone DHCP/DNS via dnsmasq** (`[[dhcp]]`/`[[dns]]`, `scripts/build-dnsmasq.sh`, `docs/DHCP-DNS.md`) |
+| `dalang-io/wayang-router` | `master` `d68e57d`, tag `v0.3.2` | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor history); **never strand the last uplink** (v0.3.1); **`wan-monitor` → `wan-failover`** (v0.3.2); **bridge port-level VLANs** (`[[interface.port]]`); `engine` hardening; `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
 | `dalang-io/dcheck` | `master` `33dc1af` | health list + Prometheus + undelete/macOS |
-| `dalang-io/wayangi` (dashboard) | `main` `b8b2227` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod |
+| `dalang-io/wayangi` (dashboard) | `main` `70b4b38` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod; **`wos-x86-1` 1-NIC WAN-only model** + no hard-coded WAN probe |
 
 ## Tech references written this round (read these before editing configs)
 

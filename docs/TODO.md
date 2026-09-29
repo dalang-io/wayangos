@@ -89,14 +89,16 @@ first**. See `AGENTS.md` §Current state.
 
 ### New backlog (2026-09-29)
 
-- [ ] **1-NIC WAN-only Edge model** (a customer may have a single NIC). Add a
-      model to wayangi (`internal/edgewos`) and let the renderer run with **no
-      LAN** (today `Site.Validate` requires a LAN port and `lanPlan`/the public
-      `/32` serving assume one). Open design decision: with no LAN, does the box
-      use the public `/32` itself or nothing?
-- [ ] **wayangi: stop hard-coding the WAN health probe `1.1.1.1`** — a false
-      health-check failure on the sole uplink flapped the box on 2026-09-29; use
-      the gateway or a configured target.
+- [x] **1-NIC WAN-only Edge model** (wayangi `70b4b38`, 2026-09-29): new model
+      `wos-x86-1` (WAN `eth0`, **no LAN**); the renderer skips LAN/DHCP-server/RA;
+      the public `/32`+`/64` are pinned on the **primary tunnel** (the box owns
+      them). The WAN health probe is no longer hard-coded `1.1.1.1` (gateway /
+      `WAYANGI_EDGE_WOS_PROBE` / hub-endpoint fallback). *Manual device static
+      connectivity still needed on the test box (SR9700 duplex - use eth0).*
+- [x] **wayangi: the WAN health probe is no longer hard-coded** (`70b4b38`) —
+      it uses the WAN gateway / `WAYANGI_EDGE_WOS_PROBE` / hub-endpoint fallback
+      (wayang-router still requires a `check` on a gateway-less DHCP uplink). A
+      false check on the sole uplink used to flap the box.
 - [ ] **wayangi**: `edge_wos` site kind / DB `class`+`platform`; WOS-only
       deployment (`EnableEdgeWOS` still hard-requires `EnableEdgeRB`).
 - [ ] **Verify IPv6 RA/SLAAC on a real device.** `radvd` is bundled and the
@@ -120,7 +122,8 @@ first**. See `AGENTS.md` §Current state.
 
 See `docs/ROADMAP.md` (v0.2+). Remaining:
 
-- [ ] per-zone DHCP/DNS (dnsmasq — not bundled yet);
+- [x] per-zone DHCP/DNS via **dnsmasq** (`7383298`): `[[dhcp]]`/`[[dns]]` per zone → one rendered dnsmasq config; engine start/SIGHUP/stop;
+      `scripts/build-dnsmasq.sh` (static dnsmasq 2.93, pinned); `docs/DHCP-DNS.md`. *Not yet wired into the WayangOS image.*
 - [ ] interface config from the HUD.
 - [ ] Firewall enforcement is **QEMU-tested only** — run the lab
       `tests/lab/lab.py` and then validate on real hardware.
@@ -146,7 +149,8 @@ static v4/v6, DHCP client, forwarding, static routes):
       ECMP**, **multi-WAN failover + policy routing**, **delegated IPv6 prefix +
       SLAAC router advertisements** (radvd; warn-and-noop when absent).
       **All of this now ships**: the kernel block is enabled from 1.0.23.
-- [ ] IPsec IKEv2; PPPoE; bridge port-level VLANs; Wi-Fi AP.
+- [x] **bridge port-level VLANs** (`d68e57d`, 2026-09-29): `[[interface.port]]` (pvid/tagged/untagged) under a `type="bridge"` interface → VLAN-aware bridging via rtnetlink, idempotent + rollback, caps-gated on `CONFIG_BRIDGE_VLAN_FILTERING`; real-kernel netns test.
+- [ ] IPsec IKEv2; PPPoE; Wi-Fi AP.
 - [ ] Edge 1-NIC (WAN-only) support — same open item as wayangi above.
 - Lab: `/tmp/wayang-tools/{bzImage-lab,initramfs-lab.img}` on the builder
   (QEMU only; all router kernel options on).
