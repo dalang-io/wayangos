@@ -1,0 +1,34 @@
+ ◢◤ WAYANG OS // WIFI ▸┏◢ COUNTRY ◣───────────────────────────────────────────────────┓  wlan0 not connected
+ [ACCESS POINTS]│ WIREL│Regulatory domain for the wireless radio:                     │
+┏◢ ACCESS POINTS ◣─────│                                                              │──────────────────────┓
+│  SSID                │▶ (not set)                                                   │:68:01:23             │
+│▶ CoffeeShop          │  AD  Andorra                                                 │an)                   │
+│  OldRouter           │  AE  United Arab Emirates                                    │                      │
+│  OpenCafe            │  AF  Afghanistan                                             │                      │
+│                      │  AG  Antigua and Barbuda                                     │                      │
+│                      │  AI  Anguilla                                                │──────────────────────┛
+│                      │  AL  Albania                                                 │──────────────────────┓
+│                      │  AM  Armenia                                                 │                      │
+│                      │  AO  Angola                                                  │                      │
+│                      │  AQ  Antarctica                                              │                      │
+│                      │  AR  Argentina                                               │                      │
+│                      │  AS  American Samoa                                          │                      │
+│                      │  AT  Austria                                                 │                      │
+│                      │  AU  Australia                                               │ the passphrase       │
+│                      │  AW  Aruba                                                   │                      │
+│                      │  AX  Åland Islands                                           │                      │
+│                      │  AZ  Azerbaijan                                              │                      │
+│                      │  BA  Bosnia and Herzegovina                                  │                      │
+│                      │  BB  Barbados                                                │                      │
+│                      │  BD  Bangladesh                                              │                      │
+│                      │  BE  Belgium                                                 │                      │
+│                      │  BF  Burkina Faso                                            │                      │
+│                      │  BG  Bulgaria                                                │                      │
+│                      │  BH  Bahrain                                                 │                      │
+│                      │  BI  Burundi                                                 │                      │
+│                      │  BJ  Benin                                                   │                      │
+│                      │  BL  Saint Barthélemy                                        │                      │
+│                      │  BM  Bermuda                                                 │                      │
+┗──────────────────────│                                                              │──────────────────────┛
+  ✔ OK  Scan: 3 network│1 / 250   ↑↓ move   enter choose   esc cancel                 │
+ [↑↓] pick  [enter] con┗──────────────────────────────────────────────────────────────┛

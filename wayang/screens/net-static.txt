@@ -1,0 +1,34 @@
+ ◢◤ WAYANG OS // NETWORK ▸ INTERFACES ▸ eth0                                      persists /data/etc/network
+ [INTERFACES]│ CONFIG   ▸ ←→
+┏◢ INTERFACES ◣──────────────────────────────────────────────┓┏◢ MODE — EDIT: form ◣─────────────────────────┓
+│  W IFACE      LINK DRIVER   MAC               IPV4         ││  DHCP    automatic lease (udhcpc)            │
+│▶   eth0       up   e1000e   52:54:00:12:34:56 192.168.1.42/││  STATIC  fixed address, gateway and DNS      │
+│  ~ wlan0     down rtl8xxxu 00:e0:4c:68:01:23 -             ││                                              │
+│    enp0s20u1 down r8152    00:e0:4c:68:01:24 -             ││  FAMILY  IPv4 IPv6 BOTH                      │
+│                                                            ││                                              │
+│▲ wireless   * current primary   + also lease at boot       ││↑↓ field · space toggle · a apply             │
+│                                                            ││                                              │
+│                                                            │┗──────────────────────────────────────────────┛
+│                                                            │┏◢ ADDRESS — EDIT: form ◣──────────────────────┓
+│                                                            ││  1 ADDRESS 192.168.1.50/24                   │
+│                                                            ││  2 GATEWAY 192.168.1.1                       │
+│                                                            ││  3 DNS     1.1.1.1 8.8.8.8                   │
+│                                                            ││                                              │
+│                                                            ││  4 ADDRESS 2001:db8::50/64                   │
+│                                                            ││  5 GATEWAY 2001:db8::1                       │
+│                                                            ││  6 DNS     2001:4860:4860::8888              │
+│                                                            ││                                              │
+│                                                            ││gateway and DNS are optional                  │
+│                                                            ││                                              │
+│                                                            ││                                              │
+│                                                            ││                                              │
+│                                                            ││                                              │
+│                                                            ││                                              │
+│                                                            ││                                              │
+│                                                            ││                                              │
+│                                                            ││                                              │
+│                                                            ││                                              │
+│                                                            ││                                              │
+┗────────────────────────────────────────────────────────────┛┗──────────────────────────────────────────────┛
+  ✔ OK  Ready to apply.
+ [↑↓] pick  [enter] config  [a] apply  [u/d] link  [?] help  [q] back

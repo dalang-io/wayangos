@@ -13,6 +13,17 @@ use crate::input::{self, Input, Outcome, Pick, Picker};
 use crate::sys;
 use crate::tui::Tone;
 use crate::wifi;
+use crate::{help, review};
+
+/// Visible tab row; `←→`/`tab` moves between the panes.
+const TABS: [&str; 3] = ["ACCESS POINTS", "WIRELESS IFACE", "DETAILS"];
+
+/// A mutation awaiting REVIEW.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Pending {
+    /// Connect to `ssid` on `iface` with `psk`.
+    Connect { iface: String, ssid: String, psk: String },
+}
 
 pub struct App {
     pub t: Theme,
@@ -24,8 +35,14 @@ pub struct App {
     pub bss: Vec<wifi::Bss>,
     pub bss_sel: usize,
     pub country: String,
+    /// Active tab/pane: 0 = ACCESS POINTS, 1 = IFACE, 2 = DETAILS.
+    pub pane: usize,
     input: Option<Input>,
     picker: Option<Picker>,
+    /// Pending REVIEW before a connect runs.
+    review: Option<(Pending, review::Review)>,
+    pub help: bool,
+    pub help_scroll: usize,
     pub message: Option<(Tone, String)>,
     tick: usize,
     pub exit: bool,
@@ -43,8 +60,12 @@ impl App {
             bss: Vec::new(),
             bss_sel: 0,
             country: String::new(),
+            pane: 0,
             input: None,
             picker: None,
+            review: None,
+            help: false,
+            help_scroll: 0,
             message: None,
             tick: 0,
             exit: false,
@@ -164,15 +185,29 @@ impl App {
         }
     }
 
-    fn connect(&mut self, psk: &str) {
+    fn request_connect(&mut self, psk: &str) {
         let (Some(iface), Some(bss)) = (self.selected_iface(), self.bss.get(self.bss_sel)) else {
             self.message = Some((Tone::Bad, "Scan and pick a network first.".into()));
             return;
         };
         let iface = iface.name.clone();
         let ssid = bss.ssid.clone();
+        let effect = vec![
+            format!("write /data/etc/wpa_supplicant.conf for \"{ssid}\""),
+            format!("bring {iface} up and run wpa_supplicant"),
+            format!("run udhcpc on {iface}"),
+            format!("pin {iface} as the primary uplink (dhcp)"),
+        ];
+        let mut r = review::Review::new(format!("CONNECT to \"{ssid}\" on {iface}"), effect);
+        if !self.country.is_empty() {
+            r = r.note(format!("Regulatory domain is set to {}.", self.country));
+        }
+        self.review = Some((Pending::Connect { iface, ssid, psk: psk.to_string() }, r));
+    }
+
+    fn connect_now(&mut self, iface: &str, ssid: &str, psk: &str) {
         let country = if self.country.is_empty() { None } else { Some(self.country.as_str()) };
-        match wifi::connect(&iface, &ssid, psk, country, self.demo) {
+        match wifi::connect(iface, ssid, psk, country, self.demo) {
             Ok(msg) => {
                 self.message = Some((Tone::Ok, msg));
                 self.refresh_links();
@@ -182,6 +217,22 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        if self.review.is_some() {
+            let decision = self.review.as_mut().map(|(_, r)| r.on_key(key));
+            match decision {
+                Some(review::Decision::Confirm) => {
+                    if let Some((Pending::Connect { iface, ssid, psk }, _)) = self.review.take() {
+                        self.connect_now(&iface, &ssid, &psk);
+                    }
+                }
+                Some(review::Decision::Cancel) => {
+                    self.review = None;
+                    self.message = Some((Tone::Warn, "Cancelled: nothing changed.".into()));
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.picker.is_some() {
             self.on_picker_key(key);
             return;
@@ -190,34 +241,92 @@ impl App {
             self.on_input_key(key);
             return;
         }
-        let rows = if self.bss.is_empty() { self.ifaces.len() } else { self.bss.len() };
+        if self.help {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+                KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(5),
+                KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(5),
+                KeyCode::Home => self.help_scroll = 0,
+                KeyCode::Char('p') => {
+                    self.message = Some(match help::print_keys("WIFI") {
+                        Ok(p) => (Tone::Ok, format!("Wrote {}", p.display())),
+                        Err(e) => (Tone::Bad, e),
+                    });
+                }
+                code if help::closes(code) => {
+                    self.help = false;
+                    self.help_scroll = 0;
+                }
+                _ => {}
+            }
+            return;
+        }
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') if rows > 0 => {
-                if self.bss.is_empty() {
-                    self.iface_sel = (self.iface_sel + rows - 1) % rows;
-                } else {
-                    self.bss_sel = (self.bss_sel + rows - 1) % rows;
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab if rows > 0 => {
-                if self.bss.is_empty() {
-                    self.iface_sel = (self.iface_sel + 1) % rows;
-                } else {
-                    self.bss_sel = (self.bss_sel + 1) % rows;
-                }
-            }
-            KeyCode::Char('i') if !self.ifaces.is_empty() => {
-                self.iface_sel = (self.iface_sel + 1) % self.ifaces.len();
-                self.bss.clear();
-                self.bss_sel = 0;
-                self.message = Some((Tone::Ok, format!("Interface: {}", self.ifaces[self.iface_sel].name)));
-            }
+            // `←→` / tab switch panes; they never leave the module.
+            KeyCode::Left | KeyCode::BackTab => self.pane = self.pane.saturating_sub(1),
+            KeyCode::Right | KeyCode::Tab => self.pane = (self.pane + 1).min(TABS.len() - 1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_sel(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_sel(1),
+            KeyCode::Home => match self.pane {
+                0 => self.bss_sel = 0,
+                1 => self.iface_sel = 0,
+                _ => {}
+            },
+            KeyCode::End => match self.pane {
+                0 => self.bss_sel = self.bss.len().saturating_sub(1),
+                1 => self.iface_sel = self.ifaces.len().saturating_sub(1),
+                _ => {}
+            },
+            // enter activates the active pane: connect, pick iface, or country.
+            KeyCode::Enter => match self.pane {
+                0 => self.open_passphrase(),
+                1 => self.cycle_iface(),
+                _ => self.open_country(),
+            },
+            KeyCode::Char('i') => self.cycle_iface(),
             KeyCode::Char('s') | KeyCode::Char('r') => self.scan(),
             KeyCode::Char('c') => self.open_country(),
-            KeyCode::Enter | KeyCode::Char('w') => self.open_passphrase(),
-            KeyCode::Esc | KeyCode::Char('q') => self.exit = true,
+            KeyCode::Char('w') => self.open_passphrase(),
+            KeyCode::Char('?') => self.help = true,
+            KeyCode::Esc => {
+                if self.pane > 0 {
+                    self.pane -= 1;
+                } else {
+                    self.exit = true;
+                }
+            }
+            KeyCode::Char('q') | KeyCode::Char('b') => self.exit = true,
             _ => {}
         }
+    }
+
+    fn move_sel(&mut self, delta: isize) {
+        match self.pane {
+            0 => {
+                let n = self.bss.len();
+                if n > 0 {
+                    self.bss_sel = ((self.bss_sel as isize + delta).rem_euclid(n as isize)) as usize;
+                }
+            }
+            1 => {
+                let n = self.ifaces.len();
+                if n > 0 {
+                    self.iface_sel = ((self.iface_sel as isize + delta).rem_euclid(n as isize)) as usize;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn cycle_iface(&mut self) {
+        if self.ifaces.is_empty() {
+            return;
+        }
+        self.iface_sel = (self.iface_sel + 1) % self.ifaces.len();
+        self.bss.clear();
+        self.bss_sel = 0;
+        self.message = Some((Tone::Ok, format!("Interface: {}", self.ifaces[self.iface_sel].name)));
     }
 
     fn on_input_key(&mut self, key: KeyEvent) {
@@ -233,7 +342,7 @@ impl App {
                 }
                 Ok(()) => {
                     self.input = None;
-                    self.connect(&value);
+                    self.request_connect(&value);
                 }
             },
         }
@@ -285,17 +394,19 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
-            Constraint::Min(10),
+            Constraint::Length(1),
+            Constraint::Min(8),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
         .split(area);
 
     draw_header(f, rows[0], app);
+    hud::tab_row(f, rows[1], &TABS, app.pane, t);
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
-        .split(rows[1]);
+        .split(rows[2]);
     draw_bss(f, cols[0], app);
     let right = Layout::default()
         .direction(Direction::Vertical)
@@ -303,28 +414,28 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .split(cols[1]);
     draw_ifaces(f, right[0], app);
     draw_details(f, right[1], app);
-    draw_result(f, rows[2], app);
+    draw_result(f, rows[3], app);
 
-    let keys = hud::keycaps(
-        &[
-            ("↑↓", "pick"),
-            ("s", "scan"),
-            ("i", "iface"),
-            ("c", "country"),
-            ("enter", "connect"),
-            ("q", "back"),
-        ],
-        t,
-    );
-    let mut keys = keys;
-    keys.spans.insert(0, Span::raw(" "));
-    f.render_widget(Paragraph::new(keys), rows[3]);
+    let keys: Vec<(&str, &str)> = match app.pane {
+        0 => vec![("↑↓", "pick"), ("enter", "connect"), ("s", "scan"), ("c", "country"), ("?", "help"), ("b", "back")],
+        1 => vec![("↑↓", "pick"), ("enter", "switch"), ("s", "scan"), ("?", "help"), ("b", "back")],
+        _ => vec![("c", "country"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
+    };
+    let mut kline = hud::keycaps(&keys, t);
+    kline.spans.insert(0, Span::raw(" "));
+    f.render_widget(Paragraph::new(kline), rows[4]);
 
     if let Some(input) = &app.input {
         input::draw(f, area, t, input, tick);
     }
     if let Some(picker) = &app.picker {
         input::draw_picker(f, area, t, picker);
+    }
+    if app.help {
+        help::draw(f, area, t, "WIFI", app.help_scroll);
+    }
+    if let Some((_, rev)) = &app.review {
+        review::draw(f, area, t, rev);
     }
 }
 
@@ -343,12 +454,14 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
         Span::styled(format!("{name} "), t.bold(t.accent)),
         Span::styled(format!("{text}  "), t.fg(color)),
     ];
-    hud::header_bar(f, area, "WIFI", "", right, t);
+    let crumb = t.breadcrumb(&["WIFI", TABS[app.pane.min(2)], &name]);
+    hud::header_bar(f, area, &crumb, "", right, t);
 }
 
 fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let inner = hud::panel(f, area, "ACCESS POINTS", t);
+    let row_w = inner.width.saturating_sub(1) as usize;
     let mut lines = vec![Line::from(Span::styled(
         format!("  {:<22} {:>6}  {}", "SSID", "SIGNAL", "SECURITY"),
         t.fg(t.dim),
@@ -356,11 +469,11 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
     if app.bss.is_empty() {
         lines.push(Line::raw(""));
         let hint = if app.ifaces.is_empty() {
-            "no wireless interface"
+            "no wireless interface found in /sys/class/net"
         } else if !sys::which("iw") && !app.demo {
-            "`iw` is not installed"
+            "`iw` is not installed (see docs/NETWORK.md)"
         } else {
-            "press s to scan"
+            "no scan yet: press s to scan for networks"
         };
         lines.push(Line::from(Span::styled(
             format!("{} {hint}", t.g.warn),
@@ -379,7 +492,12 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
                 sig,
                 b.security
             );
-            lines.push(Line::from(Span::styled(text, t.highlight())));
+            lines.push(hud::line_with_hint(
+                vec![Span::styled(text, t.highlight())],
+                "enter connect",
+                row_w,
+                t,
+            ));
         } else {
             let color = if b.security == "OPEN" { t.warn } else { t.ok };
             lines.push(Line::from(vec![
@@ -416,10 +534,15 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
         };
         let line = format!("{:<8} {:<9} {:<17} {}", iface.name, iface.driver, iface.mac, status);
         if sel {
-            lines.push(Line::from(vec![
-                Span::styled(t.g.cursor, t.bold(t.accent2)),
-                Span::styled(line, t.highlight()),
-            ]));
+            lines.push(hud::line_with_hint(
+                vec![
+                    Span::styled(t.g.cursor, t.bold(t.accent2)),
+                    Span::styled(line, t.highlight()),
+                ],
+                "enter switch",
+                inner.width.saturating_sub(1) as usize,
+                t,
+            ));
         } else {
             lines.push(Line::from(vec![
                 Span::raw("  "),
@@ -436,7 +559,7 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "DETAILS", t);
+    let inner = hud::panel(f, area, "DETAILS — EDIT: form", t);
     let mut lines = Vec::new();
     match app.bss.get(app.bss_sel) {
         Some(b) => {
@@ -514,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn connecting_in_demo_succeeds() {
+    fn connecting_in_demo_succeeds_after_review() {
         let mut app = App::new(true);
         app.on_key(KeyEvent::from(KeyCode::Enter));
         for c in "hunter2hunter2".chars() {
@@ -522,7 +645,35 @@ mod tests {
         }
         app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(app.input.is_none());
+        assert!(app.review.is_some(), "connect opens REVIEW");
+        assert!(app.picker.is_none());
+        // cancel first: nothing connects
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert!(app.review.is_none());
+        // now do it again and confirm
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        for c in "hunter2hunter2".chars() {
+            app.on_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+    }
+
+    #[test]
+    fn arrows_switch_panes_and_esc_steps_back() {
+        let mut app = App::new(true);
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        assert_eq!(app.pane, 1);
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        assert_eq!(app.pane, 2);
+        app.on_key(KeyEvent::from(KeyCode::Left));
+        assert_eq!(app.pane, 1);
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert_eq!(app.pane, 0);
+        assert!(!app.exit);
+        app.on_key(KeyEvent::from(KeyCode::Char('b')));
+        assert!(app.exit);
     }
 
     #[test]

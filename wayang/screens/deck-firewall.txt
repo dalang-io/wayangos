@@ -1,0 +1,34 @@
+ ◢◤ WAYANG OS // COMMAND DECK ▸ FIREWALL  v1.4.1                                DEMO DATA  ▰ naga   ✔ SLOT B
+┏◢ MODULES ◣─────────────────────────────┓┏◢ FIREWALL ◣──────────────────────────────────────────────────────┓
+│  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ▲ NO CONFIG                                          │
+│  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││APP         wayang-fw: zones, policies, NAT (nftables),           │
+│                                        ││commit-confirm                                                    │
+│  01 SYSTEM                           ✔ ││BINARY      /data/bin/wayang-fw                                   │
+│  02 UPDATES                          ✔ ││CONFIG      nothing committed yet (boot leaves the box alone)     │
+│  03 NETWORK                          ✔ ││ENGINE      nftables ready                                        │
+│  04 WIFI                             ▲ ││                                                                  │
+│  05 SSH                              ✔ ││enter ▸ open wayang-fw (q there comes back here)                  │
+│  06 DCHECK                           ✔ ││                                                                  │
+│▶ 07 FIREWALL                         ▲ ││                                                                  │
+│  08 ROUTER                           · ││                                                                  │
+│  00 EXIT                               ││                                                                  │
+│                                        ││                                                                  │
+│── RECENT                               ││                                                                  │
+│  nothing yet — / to find               ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+┗────────────────────────────────────────┛┗──────────────────────────────────────────────────────────────────┛
+ Pick a module; ? shows every key.
+ [↑↓] move  [enter] open  [1-8] jump  [/] find  [?] help  [q] quit

@@ -33,6 +33,7 @@ use crate::manifest::SlotMeta;
 use crate::net;
 use crate::netui;
 use crate::paths;
+use crate::{help, input, review};
 use crate::slot::{self, Slot};
 use crate::sshkeys;
 use crate::sshkeysui;
@@ -40,6 +41,9 @@ use crate::status::{self, Status};
 use crate::ui;
 use crate::update;
 use crate::wifiui;
+
+/// One command-deck card: `(title, lines, gauge)`.
+type CardLines = (&'static str, Vec<Line<'static>>, Option<(usize, f64, String)>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Module {
@@ -182,6 +186,7 @@ pub enum JobKind {
     Upgrade,
     Rollback,
     BootOther,
+    Reset,
 }
 
 pub struct Job {
@@ -219,13 +224,33 @@ pub struct App {
     pub armed: bool,
     /// "Boot other slot" key pressed once.
     pub armed_other: bool,
+    /// The config-reset action was armed (SYSTEM card).
+    pub armed_reset: bool,
     pub help: bool,
+    pub help_scroll: usize,
+    /// Pending REVIEW before a mutating action runs.
+    pub review: Option<(Action, review::Review)>,
+    /// Recently run actions (command-deck RECENT strip).
+    pub recent: Vec<String>,
+    /// `/` quick-jump query, if open.
+    pub jump: Option<input::Input>,
     pub exit: bool,
     /// Open sub-screen (network/wifi), if any.
     pub sub: Option<Sub>,
     /// Companion app to run full-screen next (taken by the runner).
     pub launch: Option<PathBuf>,
     pub tick: usize,
+}
+
+/// A mutating action the deck can run after its REVIEW is confirmed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    Check,
+    Update,
+    Upgrade,
+    Rollback,
+    BootOther,
+    Reset,
 }
 
 impl App {
@@ -249,7 +274,12 @@ impl App {
             job: None,
             armed: false,
             armed_other: false,
+            armed_reset: false,
             help: false,
+            help_scroll: 0,
+            review: None,
+            recent: Vec::new(),
+            jump: None,
             exit: false,
             sub: None,
             launch: None,
@@ -275,22 +305,93 @@ impl App {
             }
             return;
         }
+        // REVIEW modal: enter/y confirms, esc/n/q cancels.
+        if self.review.is_some() {
+            let decision = self.review.as_mut().map(|(_, r)| r.on_key(key));
+            match decision {
+                Some(review::Decision::Confirm) => {
+                    if let Some((action, _)) = self.review.take() {
+                        self.run_action(action);
+                    }
+                }
+                Some(review::Decision::Cancel) => {
+                    self.review = None;
+                    self.message = Some((Tone::Warn, "Cancelled: nothing changed.".into()));
+                }
+                _ => {}
+            }
+            return;
+        }
+        // `/` quick jump.
+        if let Some(input) = self.jump.as_mut() {
+            match input.on_key(key) {
+                input::Outcome::Cancel => self.jump = None,
+                input::Outcome::Submit(q) => {
+                    self.jump = None;
+                    self.jump_to(&q);
+                }
+                input::Outcome::None => {}
+            }
+            return;
+        }
+        // `?` help overlay (scrollable, `p` prints).
         if self.help {
-            self.help = false;
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+                KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(5),
+                KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(5),
+                KeyCode::Home => self.help_scroll = 0,
+                KeyCode::Char('p') => {
+                    self.message = Some(match help::print_keys("DECK") {
+                        Ok(p) => (Tone::Ok, format!("Wrote {}", p.display())),
+                        Err(e) => (Tone::Bad, e),
+                    });
+                }
+                code if help::closes(code) => {
+                    self.help = false;
+                    self.help_scroll = 0;
+                }
+                _ => {}
+            }
             return;
         }
         let armed = std::mem::take(&mut self.armed);
         let armed_other = std::mem::take(&mut self.armed_other);
+        let armed_reset = std::mem::take(&mut self.armed_reset);
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.sel = self.sel.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => self.sel = (self.sel + 1).min(MODULES.len()),
+            KeyCode::Down | KeyCode::Char('j') => self.sel = (self.sel + 1).min(MODULES.len()),
+            KeyCode::PageUp => self.sel = self.sel.saturating_sub(3),
+            KeyCode::PageDown => self.sel = (self.sel + 3).min(MODULES.len()),
+            KeyCode::Home => self.sel = 0,
+            KeyCode::End => self.sel = MODULES.len(),
+            // `←→` switch tabs/panes and never leave the module; the deck is one pane.
+            KeyCode::Left | KeyCode::Right => {}
+            KeyCode::Tab => self.sel = (self.sel + 1).min(MODULES.len()),
+            KeyCode::BackTab => self.sel = self.sel.saturating_sub(1),
             KeyCode::Char('?') => self.help = true,
+            KeyCode::Char('/') => {
+                self.jump = Some(input::Input::new(
+                    "QUICK JUMP",
+                    "Type a module or screen (fuzzy):",
+                    "e.g. net, wifi, ssh, update, disk",
+                ));
+            }
             KeyCode::Char('r') => {
                 self.refresh();
                 self.message = Some((Tone::Ok, "Refreshed.".into()));
             }
             KeyCode::Enter => self.open(self.sel),
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('0') => self.exit = true,
+            KeyCode::Esc | KeyCode::Char('0') => self.exit = true,
+            KeyCode::Char('q') => {
+                if self.job.is_some() {
+                    self.message =
+                        Some((Tone::Warn, "An action is running; wait for it, or press 0 to leave.".into()));
+                } else {
+                    self.exit = true;
+                }
+            }
             KeyCode::Char(c @ '1'..='8') => {
                 self.sel = c as usize - '1' as usize;
                 self.open(self.sel);
@@ -301,31 +402,168 @@ impl App {
                     self.message = Some((Tone::Warn, format!("{} is still running.", j.label)));
                     return;
                 }
-                match c {
-                    'c' => self.start_job(JobKind::Check),
-                    'u' => self.start_job(JobKind::Update),
-                    'g' => self.start_job(JobKind::Upgrade),
-                    'b' if armed_other => self.start_job(JobKind::BootOther),
-                    'b' => {
+                let action = match c {
+                    'c' => Action::Check,
+                    'u' => Action::Update,
+                    'g' => Action::Upgrade,
+                    'x' => Action::Rollback,
+                    _ => Action::BootOther,
+                };
+                // rollback / boot-other stay arm-then-act: the first press arms,
+                // the second opens the REVIEW.
+                match action {
+                    Action::Rollback if !armed => {
+                        self.armed = true;
+                        self.message = Some((
+                            Tone::Warn,
+                            format!("Press x again to stage slot {} (rollback).", self.status.active.idle().as_str()),
+                        ));
+                        return;
+                    }
+                    Action::BootOther if !armed_other => {
                         self.armed_other = true;
                         self.message = Some((
                             Tone::Warn,
                             format!("Press b again to boot slot {} next (one-shot).", self.status.active.idle().as_str()),
                         ));
+                        return;
                     }
-                    _ if armed => self.start_job(JobKind::Rollback),
-                    _ => {
-                        self.armed = true;
-                        self.message = Some((
-                            Tone::Warn,
-                            format!("Press x again to boot slot {} next (rollback).", self.status.active.idle().as_str()),
-                        ));
-                    }
+                    _ => {}
                 }
+                self.request(action);
+            }
+            // SYSTEM card: reset to defaults, armed then REVIEWed.
+            KeyCode::Char('x') if self.module() == Some(Module::System) => {
+                if !armed_reset {
+                    self.armed_reset = true;
+                    self.message =
+                        Some((Tone::Warn, "Press x again to reset the box's config to defaults.".into()));
+                    return;
+                }
+                self.request(Action::Reset);
             }
             _ => {}
         }
     }
+
+    /// Open a REVIEW for a mutating action (or run a read-only one directly).
+    fn request(&mut self, action: Action) {
+        if self.job.is_some() {
+            self.message = Some((Tone::Warn, "An action is already running; wait for it.".into()));
+            return;
+        }
+        if action == Action::Check {
+            self.run_action(action);
+            return;
+        }
+        let rev = self.review_for(action);
+        self.review = Some((action, rev));
+    }
+
+    fn review_for(&self, action: Action) -> review::Review {
+        let idle = self.status.active.idle();
+        let other = idle.as_str();
+        let (title, effect, note): (String, Vec<String>, Option<String>) = match action {
+            Action::Check => unreachable!(),
+            Action::Update => (
+                "UPDATE (same major version)".into(),
+                vec![
+                    format!("check channel {} for a newer release", self.status.channel),
+                    "download the signed bundle".into(),
+                    "verify its signature and manifest".into(),
+                    format!("stage it in slot {other}; it boots on the next reboot"),
+                ],
+                Some("A boot that never reaches `wayang mark-ok` falls back on its own.".into()),
+            ),
+            Action::Upgrade => (
+                "UPGRADE (may cross a major version)".into(),
+                vec![
+                    format!("check channel {} for the newest release", self.status.channel),
+                    "download the signed bundle".into(),
+                    "verify its signature and manifest".into(),
+                    format!("stage it in slot {other}; it boots on the next reboot"),
+                ],
+                Some("A boot that never reaches `wayang mark-ok` falls back on its own.".into()),
+            ),
+            Action::Rollback => (
+                format!("ROLLBACK to slot {other}"),
+                vec![
+                    format!("stage slot {other} to boot next"),
+                    "the running slot's data is untouched".into(),
+                    "revert by booting the other slot again".into(),
+                ],
+                Some("This changes which slot boots next.".into()),
+            ),
+            Action::BootOther => (
+                format!("BOOT slot {other} next (one-shot)"),
+                vec![
+                    format!("set a one-shot boot to slot {other}"),
+                    "the following boot returns to the normal order".into(),
+                ],
+                Some("This changes which slot boots next, once.".into()),
+            ),
+            Action::Reset => (
+                "RESET CONFIG to defaults".into(),
+                vec![
+                    "remove /data/etc/router (wayang-router config)".into(),
+                    "remove /data/etc/fw (wayang-fw config)".into(),
+                    "remove /data/etc/wayangi (EdgeRouter token/state)".into(),
+                    "remove /data/etc/network (uplink choice)".into(),
+                    "clear any pending OS update (boot the running slot)".into(),
+                ],
+                Some("Kept: /data/bin, /data/var (history) and the SSH keys.".into()),
+            ),
+        };
+        let mut r = review::Review::new(title, effect);
+        if let Some(n) = note {
+            r = r.note(n);
+        }
+        r
+    }
+
+    /// Run a confirmed action.
+    fn run_action(&mut self, action: Action) {
+        let label = match action {
+            Action::Check => "Checking for updates",
+            Action::Update => "Updating",
+            Action::Upgrade => "Upgrading",
+            Action::Rollback => "Rolling back",
+            Action::BootOther => "Staging boot",
+            Action::Reset => "Resetting config",
+        };
+        self.record(label);
+        match action {
+            Action::Reset => self.start_reset_job(),
+            Action::Check => self.start_job(JobKind::Check),
+            Action::Update => self.start_job(JobKind::Update),
+            Action::Upgrade => self.start_job(JobKind::Upgrade),
+            Action::Rollback => self.start_job(JobKind::Rollback),
+            Action::BootOther => self.start_job(JobKind::BootOther),
+        }
+    }
+
+    /// Record an action in the command-deck RECENT strip (newest first).
+    fn record(&mut self, what: impl Into<String>) {
+        self.recent.insert(0, what.into());
+        self.recent.truncate(5);
+    }
+
+    /// `/` quick jump: fuzzy over the module names plus a few aliases.
+    fn jump_to(&mut self, query: &str) {
+        let hits = match_modules(query);
+        match hits.first().copied() {
+            Some(i) => {
+                self.sel = i;
+                self.open(i);
+            }
+            None => {
+                if !query.trim().is_empty() {
+                    self.message = Some((Tone::Warn, format!("No module matches '{query}'.")));
+                }
+            }
+        }
+    }
+
 
     pub fn sub_exited(&self) -> bool {
         match &self.sub {
@@ -392,6 +630,7 @@ impl App {
             JobKind::Upgrade => "Upgrading",
             JobKind::Rollback => "Rolling back",
             JobKind::BootOther => "Staging boot",
+            JobKind::Reset => "Resetting config",
         };
         if self.demo {
             self.message = Some((Tone::Ok, format!("demo: {} (nothing runs)", label.to_lowercase())));
@@ -417,6 +656,29 @@ impl App {
         self.job = Some(Job { label: label.into(), rx, kind, progress, started: Instant::now() });
     }
 
+    /// Reset the box's config in the background (shares the CLI's implementation).
+    fn start_reset_job(&mut self) {
+        if self.demo {
+            self.message = Some((Tone::Ok, "demo: resetting config (nothing runs)".into()));
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            ui::set_quiet(true);
+            crate::reset_config();
+            let r: Result<i32, String> = Ok(0);
+            let _ = tx.send(r);
+        });
+        self.message = Some((Tone::Warn, "Resetting config…".into()));
+        self.job = Some(Job {
+            label: "Resetting config".into(),
+            rx,
+            kind: JobKind::Reset,
+            progress: None,
+            started: Instant::now(),
+        });
+    }
+
     /// Picks up a finished background job.
     pub fn poll(&mut self) {
         self.tick = self.tick.wrapping_add(1);
@@ -424,7 +686,7 @@ impl App {
         let Ok(result) = job.rx.try_recv() else { return };
         let kind = job.kind;
         self.job = None;
-        self.message = Some(match result {
+        let msg = match result {
             Ok(0) if kind == JobKind::Check => {
                 (Tone::Ok, "An update is available: u installs it into the other slot.".into())
             }
@@ -432,12 +694,20 @@ impl App {
             Ok(0) if kind == JobKind::BootOther => {
                 (Tone::Warn, "Boot to the other slot staged: reboot to apply.".into())
             }
+            Ok(0) if kind == JobKind::Reset => (Tone::Ok, "Config reset to defaults. Reboot to apply.".into()),
             Ok(0) => (Tone::Ok, "Update staged in the other slot: reboot to apply.".into()),
             Ok(2) => (Tone::Ok, "Up to date: no update available.".into()),
             Ok(code) => (Tone::Bad, format!("Finished with exit code {code}.")),
             Err(e) => (Tone::Bad, e),
-        });
+        };
+        self.record(msg.1.clone());
+        self.message = Some(msg);
         self.refresh();
+    }
+
+    /// A staged update is visible: the next boot is not the running slot.
+    pub fn pending_update(&self) -> bool {
+        self.status.boot_next != self.status.active
     }
 
     fn system_tone(&self) -> Tone {
@@ -535,7 +805,14 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     }
     right.push(hud::badge(color, sym, &label, t));
     right.push(Span::raw(" "));
-    hud::header_bar(f, header, "SYSTEM CONSOLE", st.version.as_deref().unwrap_or(""), right, t);
+    let crumb = match app.module() {
+        Some(m) => {
+            let name = MODULES.iter().find(|(mm, _)| *mm == m).map(|(_, n)| *n).unwrap_or("");
+            t.breadcrumb(&["COMMAND DECK", name])
+        }
+        None => "COMMAND DECK".to_string(),
+    };
+    hud::header_bar(f, header, &crumb, st.version.as_deref().unwrap_or(""), right, t);
 
     let wide = body.width >= 72 && body.height >= 10;
     let deck_w = if body.width >= 110 { 42 } else { 32 };
@@ -552,27 +829,53 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
     let busy = app.job.is_some().then(|| hud::spinner(tick));
     let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
-    hud::status_row(f, status, msg, busy, "Pick a module; ? shows every key.", t);
+    let idle = if app.pending_update() {
+        "A staged update boots next; u replaces it, x rolls back."
+    } else {
+        "Pick a module; ? shows every key."
+    };
+    hud::status_row(f, status, msg, busy, idle, t);
 
+    // Context footer: at most six, most relevant first.
     let keys: Vec<(&str, &str)> = match app.module() {
         Some(Module::Updates) => vec![
-            ("↑↓", "move"),
-            ("c", "check"),
             ("u", "update"),
             ("g", "upgrade"),
-            ("b", "boot other"),
+            ("c", "check"),
             ("x", "rollback"),
+            ("b", "boot other"),
+            ("?", "help"),
+        ],
+        Some(Module::System) => vec![
+            ("enter", "refresh"),
+            ("x", "reset"),
+            ("1-8", "jump"),
+            ("/", "find"),
             ("?", "help"),
             ("q", "quit"),
         ],
-        _ => vec![("↑↓", "move"), ("enter", "open"), ("1-8", "jump"), ("r", "refresh"), ("?", "help"), ("q", "quit")],
+        _ => vec![
+            ("↑↓", "move"),
+            ("enter", "open"),
+            ("1-8", "jump"),
+            ("/", "find"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
     };
     let mut line = hud::keycaps(&keys, t);
     line.spans.insert(0, Span::raw(" "));
     f.render_widget(Paragraph::new(line), footer);
 
     if app.help {
-        draw_help(f, body, app);
+        help::draw(f, body, t, "DECK", app.help_scroll);
+    }
+    if let Some((_, rev)) = &app.review {
+        review::draw(f, body, t, rev);
+    }
+    if let Some(jump) = &app.jump {
+        input::draw(f, body, t, jump, tick);
+        draw_jump_hits(f, body, jump, t);
     }
 }
 
@@ -605,6 +908,23 @@ fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
         lines.push(item(i, &format!("{:02}", i + 1), name, t.sev(app.module_tone(*m))));
     }
     lines.push(item(MODULES.len(), "00", "EXIT", Span::raw("")));
+    // RECENT / QUICK strip: the last actions plus any staged update.
+    if inner.height as usize > lines.len() + 3 {
+        lines.push(Line::from(""));
+        lines.push(caption("RECENT", t));
+        if app.pending_update() {
+            lines.push(Line::from(Span::styled(
+                format!("{} pending update staged", t.g.warn),
+                t.bold(t.warn),
+            )));
+        }
+        for r in app.recent.iter().take(2) {
+            lines.push(Line::from(Span::styled(format!("  {}", t.clip(r, row_w)), t.fg(t.dim))));
+        }
+        if app.recent.is_empty() && !app.pending_update() {
+            lines.push(Line::from(Span::styled("  nothing yet — / to find", t.fg(t.dim))));
+        }
+    }
     f.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -648,7 +968,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let st = &app.status;
     let d = &app.deck;
     let tone = app.module_tone(m);
-    let (title, lines, gauge): (&str, Vec<Line>, Option<(usize, f64, String)>) = match m {
+    let (title, lines, gauge): CardLines = match m {
         Module::System => {
             let good = st.good.map(Slot::as_str).unwrap_or("-");
             let mut l = vec![
@@ -896,32 +1216,64 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     }
 }
 
-fn draw_help(f: &mut Frame, body: Rect, app: &App) {
-    let t = &app.t;
-    let r = hud::centered(body, 66, 18);
-    f.render_widget(Clear, r);
-    let inner = hud::panel(f, r, "COMMAND REFERENCE", t);
-    let key = |k: &str, d: &str| {
-        Line::from(vec![Span::styled(format!("  {k:<12}"), t.bold(t.accent)), Span::styled(d.to_string(), t.fg(t.fg))])
-    };
-    let lines = vec![
-        caption("DECK", t),
-        key("↑ ↓  j k", "move"),
-        key("enter", "open the module"),
-        key("1 - 8", "jump to a module (01 system … 08 router)"),
-        key("r", "refresh everything"),
-        key("q  0  esc", "quit"),
-        caption("UPDATES", t),
-        key("c", "check for an update"),
-        key("u", "update (same major version)"),
-        key("g", "upgrade (may cross a major version)"),
-        key("b  b", "boot the other slot next (one-shot)"),
-        key("x  x", "roll back to the other slot"),
-        caption("SCREENS", t),
-        key("q", "back to this deck (network, wifi, ssh, fw, router)"),
-        Line::from(""),
-        Line::from(Span::styled("  any key closes this reference", t.fg(t.dim))),
-    ];
+fn module_alias(m: Module) -> &'static str {
+    match m {
+        Module::System => "system slots boot",
+        Module::Updates => "update upgrade rollback channel",
+        Module::Network => "net network uplink ip interface",
+        Module::Wifi => "wifi wireless ssid wlan",
+        Module::Ssh => "ssh key authorized",
+        Module::Dcheck => "dcheck disk storage health",
+        Module::Firewall => "firewall fw nft policy",
+        Module::Router => "router route dhcp vlan",
+    }
+}
+
+/// Fuzzy module matches for a `/` query (number, name or alias).
+fn match_modules(q: &str) -> Vec<usize> {
+    let q = q.trim().to_ascii_lowercase();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    if let Ok(n) = q.parse::<usize>() {
+        if (1..=MODULES.len()).contains(&n) {
+            return vec![n - 1];
+        }
+    }
+    MODULES
+        .iter()
+        .enumerate()
+        .filter(|(_, (m, name))| {
+            let hay = format!("{} {}", name.to_ascii_lowercase(), module_alias(*m));
+            hay.contains(&q) || hay.split_whitespace().any(|w| w.starts_with(&q))
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// The matched destinations under the `/` input box.
+fn draw_jump_hits(f: &mut Frame, body: Rect, jump: &input::Input, t: &Theme) {
+    let hits = match_modules(&jump.buf);
+    if hits.is_empty() {
+        return;
+    }
+    let ir = hud::centered(body, 76, 9);
+    let h = (hits.len() as u16 + 2).min(8).min(body.bottom().saturating_sub(ir.y + 9));
+    if h < 3 {
+        return;
+    }
+    let rect = Rect { x: ir.x, y: ir.y + 9, width: ir.width, height: h };
+    f.render_widget(Clear, rect);
+    let inner = hud::panel(f, rect, "JUMP TO", t);
+    let mut lines = Vec::new();
+    for i in hits.iter().take(inner.height as usize) {
+        let (_, name) = MODULES[*i];
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:02} ", i + 1), t.fg(t.dim)),
+            Span::styled(name.to_string(), t.bold(t.fg)),
+            Span::styled("   enter opens it", t.fg(t.dim)),
+        ]));
+    }
     f.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -1004,6 +1356,34 @@ pub fn demo_states() -> Vec<DemoState> {
         ("deck-firewall", Box::new(|app: &mut App| app.sel = 6)),
         ("help", Box::new(|app: &mut App| app.help = true)),
         (
+            "review-update",
+            Box::new(|app: &mut App| {
+                app.sel = 1;
+                app.request(Action::Update);
+            }),
+        ),
+        (
+            "review-reset",
+            Box::new(|app: &mut App| {
+                app.request(Action::Reset);
+            }),
+        ),
+        (
+            "recent",
+            Box::new(|app: &mut App| {
+                app.recent = vec!["Updating".into(), "Checking for updates".into()];
+            }),
+        ),
+        (
+            "jump",
+            Box::new(|app: &mut App| {
+                app.jump = Some(input::Input::new("QUICK JUMP", "Type a module or screen (fuzzy):", ""));
+                if let Some(j) = app.jump.as_mut() {
+                    j.buf = "net".into();
+                }
+            }),
+        ),
+        (
             "net",
             Box::new(|app: &mut App| {
                 app.sub = Some(Sub::Net(netui::App::new(true)));
@@ -1065,19 +1445,14 @@ pub fn dump_stdout(size: &str) -> Result<(), String> {
 pub fn dump_screens(dir: &str, size: &str, svg: bool) -> Result<(), String> {
     let (w, h) = parse_size(size)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{dir}: {e}"))?;
+    // Deterministic theme so snapshots never depend on the caller's terminal.
+    let mode = if svg { hud::Mode::Neon } else { hud::Mode::Ansi };
     for (name, setup) in demo_states() {
         let mut app = App::new(true);
-        if svg {
-            app.t = Theme::new(hud::Mode::Neon, &hud::FANCY);
-            if let Some(s) = app.sub.as_mut() {
-                set_theme(s);
-            }
-        }
+        app.t = Theme::new(mode, &hud::FANCY);
         setup(&mut app);
-        if svg {
-            if let Some(s) = app.sub.as_mut() {
-                set_theme(s);
-            }
+        if let Some(s) = app.sub.as_mut() {
+            set_theme_with(s, mode);
         }
         let path = format!("{dir}/{name}.txt");
         let text = crate::screen::render_text(&app, w, h, draw)?;
@@ -1091,8 +1466,8 @@ pub fn dump_screens(dir: &str, size: &str, svg: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn set_theme(s: &mut Sub) {
-    let t = || Theme::new(hud::Mode::Neon, &hud::FANCY);
+fn set_theme_with(s: &mut Sub, mode: hud::Mode) {
+    let t = || Theme::new(mode, &hud::FANCY);
     match s {
         Sub::Net(a) => a.t = t(),
         Sub::Wifi(a) => a.t = t(),
@@ -1118,7 +1493,7 @@ mod tests {
         let text = render(&app, 120, 36).unwrap();
         for s in [
             "WAYANG OS",
-            "SYSTEM CONSOLE",
+            "COMMAND DECK",
             "MODULES",
             "01 SYSTEM",
             "02 UPDATES",
@@ -1160,7 +1535,7 @@ mod tests {
     }
 
     #[test]
-    fn rollback_asks_twice() {
+    fn rollback_arms_then_reviews_then_runs() {
         let mut app = App::new(true);
         key(&mut app, KeyCode::Char('2'));
         key(&mut app, KeyCode::Char('x'));
@@ -1171,11 +1546,15 @@ mod tests {
         key(&mut app, KeyCode::Up);
         key(&mut app, KeyCode::Char('x'));
         key(&mut app, KeyCode::Char('x'));
+        assert!(app.review.is_some(), "the second x opens REVIEW, nothing runs yet");
+        assert!(app.job.is_none());
+        key(&mut app, KeyCode::Enter);
+        assert!(app.review.is_none());
         assert!(app.message.as_ref().unwrap().1.contains("rolling back"), "{:?}", app.message);
     }
 
     #[test]
-    fn boot_other_asks_twice_then_stages() {
+    fn boot_other_arms_then_reviews_then_stages() {
         let mut app = App::new(true);
         key(&mut app, KeyCode::Char('2'));
         key(&mut app, KeyCode::Char('b'));
@@ -1190,7 +1569,132 @@ mod tests {
         key(&mut app, KeyCode::Char('b'));
         key(&mut app, KeyCode::Char('b'));
         assert!(!app.armed_other);
+        assert!(app.review.is_some(), "the second b opens REVIEW");
+        key(&mut app, KeyCode::Enter);
         assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("staging boot"), "{:?}", app.message);
+    }
+
+    #[test]
+    fn review_can_be_cancelled_without_running() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('2'));
+        key(&mut app, KeyCode::Char('u'));
+        let (_, rev) = app.review.as_ref().expect("u opens REVIEW");
+        assert!(rev.effect.iter().any(|l| l.contains("stage it in slot")), "{:?}", rev.effect);
+        key(&mut app, KeyCode::Esc);
+        assert!(app.review.is_none() && app.job.is_none(), "esc cancels; nothing runs");
+        assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("nothing changed"));
+        // check does not need a review
+        key(&mut app, KeyCode::Char('c'));
+        assert!(app.review.is_none());
+        assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("checking") || app.job.is_some());
+    }
+
+    #[test]
+    fn reset_arms_reviews_and_never_runs_in_demo() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('1'));
+        key(&mut app, KeyCode::Char('x'));
+        assert!(app.armed_reset, "first x arms");
+        assert!(app.review.is_none());
+        key(&mut app, KeyCode::Char('x'));
+        assert!(app.review.is_some(), "second x opens REVIEW");
+        key(&mut app, KeyCode::Enter);
+        assert!(app.job.is_none(), "demo never runs a job");
+        assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("resetting config"));
+    }
+
+    #[test]
+    fn arrows_switch_panes_and_never_leave_the_deck() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Right);
+        key(&mut app, KeyCode::Left);
+        assert!(!app.exit && app.sel == 0, "←→ never leave or move the deck selection");
+        key(&mut app, KeyCode::End);
+        assert_eq!(app.sel, MODULES.len());
+        key(&mut app, KeyCode::Home);
+        assert_eq!(app.sel, 0);
+        key(&mut app, KeyCode::PageDown);
+        assert_eq!(app.sel, 3);
+    }
+
+    #[test]
+    fn q_is_guarded_while_a_job_runs() {
+        let mut app = App::new(true);
+        app.sel = 1;
+        let (tx, rx) = mpsc::channel();
+        std::mem::forget(tx);
+        app.job = Some(Job {
+            label: "Updating".into(),
+            rx,
+            kind: JobKind::Update,
+            progress: None,
+            started: Instant::now(),
+        });
+        key(&mut app, KeyCode::Char('q'));
+        assert!(!app.exit, "q warns instead of quitting mid-action");
+        assert!(app.message.as_ref().unwrap().1.contains("running"));
+    }
+
+    #[test]
+    fn committed_screens_match_the_renderer() {
+        // Guards the checked-in snapshots; regenerate with:
+        //   cargo run -- --screens screens --size 110x34
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("screens");
+        if !dir.is_dir() {
+            return;
+        }
+        for (name, setup) in demo_states() {
+            let path = dir.join(format!("{name}.txt"));
+            if !path.is_file() {
+                continue;
+            }
+            let mut app = App::new(true);
+            app.t = Theme::new(hud::Mode::Ansi, &hud::FANCY);
+            setup(&mut app);
+            if let Some(s) = app.sub.as_mut() {
+                set_theme_with(s, hud::Mode::Ansi);
+            }
+            let text = render(&app, 110, 34).unwrap();
+            let on_disk = std::fs::read_to_string(&path).unwrap();
+            assert_eq!(text, on_disk, "screens/{name}.txt is stale; regenerate with `--screens screens`");
+        }
+    }
+
+    #[test]
+    fn multi_pane_screens_have_a_tab_row_and_arrows_stay() {
+        let mut app = App::new(true);
+        for (num, tab) in [('3', "INTERFACES"), ('4', "ACCESS POINTS"), ('5', "AUTHORIZED KEYS")] {
+            key(&mut app, KeyCode::Char(num));
+            let text = render(&app, 120, 36).unwrap();
+            assert!(text.contains(tab), "module {num} shows its tab row:\n{text}");
+            key(&mut app, KeyCode::Right);
+            key(&mut app, KeyCode::Left);
+            assert!(!app.exit && app.sub.is_some(), "arrows stay inside module {num}");
+            key(&mut app, KeyCode::Char('b'));
+            assert!(app.sub.is_none() && !app.exit, "b returns to the deck");
+        }
+    }
+
+    #[test]
+    fn slash_jumps_to_a_module_and_help_scrolls() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('/'));
+        assert!(app.jump.is_some());
+        for c in "wifi".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        key(&mut app, KeyCode::Enter);
+        assert!(app.jump.is_none());
+        assert!(matches!(app.sub, Some(Sub::Wifi(_))), "jump opens WIFI");
+        key(&mut app, KeyCode::Char('q')); // back to the deck
+        key(&mut app, KeyCode::Char('?'));
+        assert!(app.help);
+        key(&mut app, KeyCode::Down);
+        assert!(app.help, "scroll keys keep help open");
+        assert_eq!(app.help_scroll, 1);
+        key(&mut app, KeyCode::Char('?'));
+        assert!(!app.help, "? closes it");
     }
 
     #[test]

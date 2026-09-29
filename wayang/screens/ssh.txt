@@ -1,0 +1,34 @@
+ ◢◤ WAYANG OS // SSH ▸ AUTHORIZED KEYS ▸ 2 key(s)                           2 key(s)  persists /data/etc/ssh
+ [AUTHORIZED KEYS]│ DETAILS   ▸ ←→
+┏◢ AUTHORIZED KEYS ◣─────────────────────────────────────────────┓┏◢ DETAILS — EDIT: form ◣──────────────────┓
+│  TYPE      FINGERPRINT                                  COMMENT││TYPE    ED25519                           │
+│▶ ED25519   SHA256:VLrLLGQdUVCOxdvxB1vxSISsKjQ7WgEaGB5m… you@lap││SHA256:VLrLLGQdUVCOxdvxB1vxSISsKjQ7WgEaGB5│
+│  ECDSA     SHA256:2SJGXV5Ait8bKMFY02C2zXiESVRXDxS/JeK2… you@des││COMMENT you@laptop                        │
+│                                                                ││SOURCE  github:you                        │
+│                                                                ││                                          │
+│                                                                ││New keys are written to                   │
+│                                                                ││/data/etc/ssh/authorized_keys             │
+│                                                                ││and appended to /root/.ssh/authorized_keys│
+│                                                                ││                                          │
+│                                                                ││a adds a key (paste, GitHub or GitLab)    │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+│                                                                ││                                          │
+┗────────────────────────────────────────────────────────────────┛┗──────────────────────────────────────────┛
+  ✔ OK  2 authorized key(s).
+ [↑↓] pick  [a] add  [d] remove  [r] reload  [?] help  [b] back

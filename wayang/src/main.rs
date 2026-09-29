@@ -11,6 +11,7 @@ mod esp;
 mod fetch;
 mod grubenv;
 mod hash;
+mod help;
 mod hud;
 mod input;
 mod keys;
@@ -19,6 +20,7 @@ mod mount;
 mod net;
 mod netui;
 mod paths;
+mod review;
 mod screen;
 mod sema;
 mod sign;
@@ -266,12 +268,33 @@ fn run_reset(yes: bool) -> Result<i32> {
         let _ = std::io::stderr().flush();
         let mut line = String::new();
         let _ = std::io::stdin().lock().read_line(&mut line);
-        if line.trim().to_ascii_lowercase() != "yes" {
+        if !line.trim().eq_ignore_ascii_case("yes") {
             println!("aborted (nothing changed)");
             return Ok(1);
         }
     }
-    let mut removed = Vec::new();
+    let report = reset_config();
+    let removed = report.iter().filter(|r| r.starts_with("removed ")).count();
+    for r in &report {
+        if r.starts_with("warning:") {
+            eprintln!("{r}");
+        } else {
+            println!("{r}");
+        }
+    }
+    if removed == 0 {
+        println!("Nothing to reset (already default).");
+    } else {
+        println!("Reset to defaults. Reboot to apply.");
+    }
+    Ok(0)
+}
+
+/// The mutating half of `run_reset`, shared with the HUD's REVIEW flow: remove
+/// the config dirs and clear a pending update, collecting a report. Failures
+/// become `warning:` lines (reset never aborts half-way), as the CLI always did.
+pub(crate) fn reset_config() -> Vec<String> {
+    let mut report = Vec::new();
     for d in [
         paths::router_dir(),
         paths::fw_dir(),
@@ -280,27 +303,19 @@ fn run_reset(yes: bool) -> Result<i32> {
     ] {
         if d.exists() {
             match std::fs::remove_dir_all(&d) {
-                Ok(()) => removed.push(d.display().to_string()),
-                Err(e) => eprintln!("warning: {}: {e}", d.display()),
+                Ok(()) => report.push(format!("removed {}", d.display())),
+                Err(e) => report.push(format!("warning: {}: {e}", d.display())),
             }
         }
     }
     match mount::open(None) {
         Ok(boot) => match staging::reset_to_running(&boot) {
-            Ok(s) => println!("pending update cleared; boots slot {}", s.as_str()),
-            Err(e) => eprintln!("warning: update state: {e}"),
+            Ok(s) => report.push(format!("pending update cleared; boots slot {}", s.as_str())),
+            Err(e) => report.push(format!("warning: update state: {e}")),
         },
-        Err(e) => eprintln!("warning: boot state not available: {e}"),
+        Err(e) => report.push(format!("warning: boot state not available: {e}")),
     }
-    if removed.is_empty() {
-        println!("Nothing to reset (already default).");
-    } else {
-        for r in &removed {
-            println!("removed {r}");
-        }
-        println!("Reset to defaults. Reboot to apply.");
-    }
-    Ok(0)
+    report
 }
 
 /// Run an interactive screen on a TTY, or print its usage when piped so

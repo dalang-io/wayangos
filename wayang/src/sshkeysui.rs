@@ -19,6 +19,17 @@ use crate::hud::{self, Theme};
 use crate::input::{self, Input, Outcome, Pick, Picker};
 use crate::sshkeys::{self, SshKey};
 use crate::tui::Tone;
+use crate::{help, review};
+
+/// Visible tab row; `←→`/`tab` moves between the panes.
+const TABS: [&str; 2] = ["AUTHORIZED KEYS", "DETAILS"];
+
+/// A mutation awaiting REVIEW.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Pending {
+    Add(Vec<SshKey>),
+    Remove { blob: String, desc: String },
+}
 
 /// What the open text input is for: paste a key line, or type the username
 /// behind a GitHub/GitLab fetch.
@@ -33,8 +44,14 @@ pub struct App {
     pub demo: bool,
     pub keys: Vec<SshKey>,
     pub sel: usize,
+    /// Active tab/pane: 0 = KEYS, 1 = DETAILS.
+    pub pane: usize,
     input: Option<(AddMode, Input)>,
     picker: Option<Picker>,
+    /// Pending REVIEW before an add/remove runs.
+    review: Option<(Pending, review::Review)>,
+    pub help: bool,
+    pub help_scroll: usize,
     pub message: Option<(Tone, String)>,
     /// Background GitHub/GitLab fetch; polled each tick.
     job: Option<Receiver<Result<Vec<SshKey>, String>>>,
@@ -49,8 +66,12 @@ impl App {
             demo,
             keys,
             sel: 0,
+            pane: 0,
             input: None,
             picker: None,
+            review: None,
+            help: false,
+            help_scroll: 0,
             message: None,
             job: None,
             exit: false,
@@ -127,12 +148,26 @@ impl App {
         ));
     }
 
-    /// Add already-validated keys (from a paste or a fetch).
-    fn finish_add(&mut self, new: Vec<SshKey>) {
+    /// Review then add already-validated keys (from a paste or a fetch).
+    fn request_add(&mut self, new: Vec<SshKey>) {
         if new.is_empty() {
             self.message = Some((Tone::Warn, "No keys found.".into()));
             return;
         }
+        let mut effect = vec!["write /data/etc/ssh/authorized_keys (survives updates)".to_string()];
+        for k in &new {
+            effect.push(format!("{} {} ({})", k.kind(), k.fingerprint(), k.comment));
+        }
+        effect.push("append to /root/.ssh/authorized_keys (this boot)".to_string());
+        let note = Some("A new key can log in as root; you can remove it here later.".to_string());
+        let mut r = review::Review::new(format!("AUTHORIZE {} key(s)", new.len()), effect);
+        if let Some(n) = note {
+            r = r.note(n);
+        }
+        self.review = Some((Pending::Add(new), r));
+    }
+
+    fn do_add(&mut self, new: Vec<SshKey>) {
         if self.demo {
             let n = sshkeys::merge(&mut self.keys, new);
             self.message = Some((Tone::Ok, format!("demo: added {n} key(s) (nothing written)")));
@@ -171,7 +206,7 @@ impl App {
         match rx.try_recv() {
             Ok(Ok(keys)) => {
                 self.job = None;
-                self.finish_add(keys);
+                self.request_add(keys);
             }
             Ok(Err(e)) => {
                 self.job = None;
@@ -182,20 +217,32 @@ impl App {
         }
     }
 
-    fn remove(&mut self) {
+    fn request_remove(&mut self) {
         let Some(k) = self.keys.get(self.sel) else {
             self.message = Some((Tone::Bad, "No key selected.".into()));
             return;
         };
         let blob = k.blob.clone();
         let desc = format!("{} {}", k.kind(), k.fingerprint());
+        let r = review::Review::new(
+            "REMOVE SSH KEY",
+            vec![
+                format!("remove {desc} from /data/etc/ssh/authorized_keys"),
+                "remove it from /root/.ssh/authorized_keys (this boot)".into(),
+            ],
+        )
+        .note("If this is your only key, you could lock yourself out.");
+        self.review = Some((Pending::Remove { blob, desc }, r));
+    }
+
+    fn do_remove(&mut self, blob: &str, desc: &str) {
         if self.demo {
             self.keys.retain(|k| k.blob != blob);
             self.sel = self.sel.min(self.keys.len().saturating_sub(1));
             self.message = Some((Tone::Ok, format!("demo: removed {desc} (nothing written)")));
             return;
         }
-        match sshkeys::remove(&blob) {
+        match sshkeys::remove(blob) {
             Ok(true) => {
                 self.keys.retain(|k| k.blob != blob);
                 self.sel = self.sel.min(self.keys.len().saturating_sub(1));
@@ -207,6 +254,25 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        if self.review.is_some() {
+            let decision = self.review.as_mut().map(|(_, r)| r.on_key(key));
+            match decision {
+                Some(review::Decision::Confirm) => {
+                    if let Some((pending, _)) = self.review.take() {
+                        match pending {
+                            Pending::Add(keys) => self.do_add(keys),
+                            Pending::Remove { blob, desc } => self.do_remove(&blob, &desc),
+                        }
+                    }
+                }
+                Some(review::Decision::Cancel) => {
+                    self.review = None;
+                    self.message = Some((Tone::Warn, "Cancelled: nothing changed.".into()));
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.picker.is_some() {
             self.on_picker_key(key);
             return;
@@ -215,26 +281,66 @@ impl App {
             self.on_input_key(key);
             return;
         }
-        // While a fetch runs only quitting is allowed, so operations can't queue.
-        if self.job.is_some() {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
-                self.exit = true;
+        if self.help {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+                KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(5),
+                KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(5),
+                KeyCode::Home => self.help_scroll = 0,
+                KeyCode::Char('p') => {
+                    self.message = Some(match help::print_keys("SSH") {
+                        Ok(p) => (Tone::Ok, format!("Wrote {}", p.display())),
+                        Err(e) => (Tone::Bad, e),
+                    });
+                }
+                code if help::closes(code) => {
+                    self.help = false;
+                    self.help_scroll = 0;
+                }
+                _ => {}
             }
             return;
         }
-        let rows = self.keys.len();
+        // While a fetch runs, don't let a stray key queue another operation or
+        // drop the pending result.
+        if self.job.is_some() {
+            self.message = Some((Tone::Warn, "An action is running; wait for it to finish.".into()));
+            return;
+        }
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') if rows > 0 => self.sel = (self.sel + rows - 1) % rows,
-            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab if rows > 0 => {
-                self.sel = (self.sel + 1) % rows;
+            KeyCode::Left | KeyCode::BackTab => self.pane = self.pane.saturating_sub(1),
+            KeyCode::Right | KeyCode::Tab => self.pane = (self.pane + 1).min(TABS.len() - 1),
+            KeyCode::Up | KeyCode::Char('k') => {
+                let n = self.keys.len();
+                if n > 0 {
+                    self.sel = (self.sel + n - 1) % n;
+                }
             }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let n = self.keys.len();
+                if n > 0 {
+                    self.sel = (self.sel + 1) % n;
+                }
+            }
+            KeyCode::Home => self.sel = 0,
+            KeyCode::End => self.sel = self.keys.len().saturating_sub(1),
+            KeyCode::Enter => self.pane = 1 - self.pane.min(1),
             KeyCode::Char('a') => self.open_add_menu(),
-            KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => self.remove(),
+            KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => self.request_remove(),
             KeyCode::Char('r') => {
                 self.refresh();
                 self.message = Some((Tone::Ok, "Keys reloaded.".into()));
             }
-            KeyCode::Esc | KeyCode::Char('q') => self.exit = true,
+            KeyCode::Char('?') => self.help = true,
+            KeyCode::Esc => {
+                if self.pane > 0 {
+                    self.pane -= 1;
+                } else {
+                    self.exit = true;
+                }
+            }
+            KeyCode::Char('q') | KeyCode::Char('b') => self.exit = true,
             _ => {}
         }
     }
@@ -264,7 +370,7 @@ impl App {
                 AddMode::Paste => {
                     if let Some(k) = SshKey::parse(&value, "typed") {
                         self.input = None;
-                        self.finish_add(vec![k]);
+                        self.request_add(vec![k]);
                     } else if sshkeys::remote_spec(&value).is_ok() {
                         self.input = None;
                         self.start_fetch(value);
@@ -295,42 +401,50 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
-            Constraint::Min(8),
+            Constraint::Length(1),
+            Constraint::Min(6),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
         .split(area);
 
     draw_header(f, rows[0], app);
+    hud::tab_row(f, rows[1], &TABS, app.pane, t);
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-        .split(rows[1]);
+        .split(rows[2]);
     draw_keys(f, cols[0], app);
     draw_details(f, cols[1], app);
     let busy = app.job.as_ref().map(|_| hud::spinner(tick));
     let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
-    hud::status_row(f, rows[2], msg, busy, "a adds a key, d removes one.", t);
+    hud::status_row(f, rows[3], msg, busy, "a adds a key, d removes one.", t);
 
-    let keys = hud::keycaps(
+    let mut keys = hud::keycaps(
         &[
             ("↑↓", "pick"),
             ("a", "add"),
             ("d", "remove"),
             ("r", "reload"),
-            ("q", "back"),
+            ("?", "help"),
+            ("b", "back"),
         ],
         t,
     );
-    let mut keys = keys;
     keys.spans.insert(0, Span::raw(" "));
-    f.render_widget(Paragraph::new(keys), rows[3]);
+    f.render_widget(Paragraph::new(keys), rows[4]);
 
     if let Some((_, input)) = &app.input {
         input::draw(f, area, t, input, tick);
     }
     if let Some(picker) = &app.picker {
         input::draw_picker(f, area, t, picker);
+    }
+    if app.help {
+        help::draw(f, area, t, "SSH", app.help_scroll);
+    }
+    if let Some((_, rev)) = &app.review {
+        review::draw(f, area, t, rev);
     }
 }
 
@@ -340,12 +454,14 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
         format!("{} key(s)  persists /data/etc/ssh  ", app.keys.len()),
         t.fg(t.dim),
     )];
-    hud::header_bar(f, area, "SSH", "", right, t);
+    let crumb = t.breadcrumb(&["SSH", TABS[app.pane.min(1)], &format!("{} key(s)", app.keys.len())]);
+    hud::header_bar(f, area, &crumb, "", right, t);
 }
 
 fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let inner = hud::panel(f, area, "AUTHORIZED KEYS", t);
+    let row_w = inner.width.saturating_sub(1) as usize;
     let mut lines = vec![Line::from(Span::styled(
         format!("  {:<9} {:<44} {}", "TYPE", "FINGERPRINT", "COMMENT"),
         t.fg(t.dim),
@@ -353,17 +469,19 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
     if app.keys.is_empty() {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(format!("{} no authorized keys", t.g.warn), t.fg(t.warn))));
-        lines.push(Line::from(Span::styled("press a to add one", t.fg(t.dim))));
+        lines.push(Line::from(Span::styled("press a to add one (paste, GitHub or GitLab)", t.fg(t.dim))));
     }
     for (i, k) in app.keys.iter().enumerate() {
         let fp = t.clip(&k.fingerprint(), 44);
         let comment = if k.comment.is_empty() { k.source.clone() } else { k.comment.clone() };
         let line = format!("{:<9} {:<44} {}", k.kind(), fp, comment);
         if i == app.sel {
-            lines.push(Line::from(Span::styled(
-                format!("{} {}", t.g.cursor.trim_end(), line),
-                t.highlight(),
-            )));
+            lines.push(hud::line_with_hint(
+                vec![Span::styled(format!("{} {}", t.g.cursor.trim_end(), line), t.highlight())],
+                "d remove",
+                row_w,
+                t,
+            ));
         } else {
             lines.push(Line::from(vec![Span::raw("  "), Span::styled(line, t.fg(t.fg))]));
         }
@@ -373,7 +491,7 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "DETAILS", t);
+    let inner = hud::panel(f, area, "DETAILS — EDIT: form", t);
     let mut lines = Vec::new();
     match app.keys.get(app.sel) {
         Some(k) => {
@@ -427,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn add_menu_pastes_a_key_then_remove() {
+    fn add_menu_pastes_a_key_then_remove_each_after_review() {
         let mut app = App::new(true);
         let before = app.keys.len();
         key(&mut app, KeyCode::Char('a'));
@@ -438,11 +556,28 @@ mod tests {
         type_str(&mut app, ED);
         key(&mut app, KeyCode::Enter);
         assert!(app.input.is_none());
+        assert!(app.review.is_some(), "adding opens REVIEW");
+        assert_eq!(app.keys.len(), before, "nothing is written before the confirm");
+        key(&mut app, KeyCode::Enter); // confirm
         assert_eq!(app.keys.len(), before + 1);
         assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
-        // the new key is appended, so select it and delete
+        // the new key is appended, so select it and delete (with a REVIEW)
         app.sel = before;
         key(&mut app, KeyCode::Char('d'));
+        assert!(app.review.is_some(), "removing opens REVIEW");
+        assert_eq!(app.keys.len(), before + 1);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.keys.len(), before);
+    }
+
+    #[test]
+    fn remove_can_be_cancelled() {
+        let mut app = App::new(true);
+        let before = app.keys.len();
+        key(&mut app, KeyCode::Char('d'));
+        assert!(app.review.is_some());
+        key(&mut app, KeyCode::Esc);
+        assert!(app.review.is_none());
         assert_eq!(app.keys.len(), before);
     }
 
@@ -499,6 +634,20 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         assert!(app.job.is_none());
+        assert!(app.review.is_some(), "the fetched keys wait for a REVIEW");
+        key(&mut app, KeyCode::Enter);
         assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+    }
+
+    #[test]
+    fn arrows_switch_panes_and_esc_steps_back() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Right);
+        assert_eq!(app.pane, 1);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.pane, 0);
+        assert!(!app.exit);
+        key(&mut app, KeyCode::Char('b'));
+        assert!(app.exit);
     }
 }

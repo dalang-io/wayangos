@@ -1,0 +1,34 @@
+ ◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  v1.4.1                     DEMO DATA  ▰ naga   ✖ UPDATER UNAVAILABLE
+┏◢ MODULES ◣─────────────────────────────┓┏◢ SYSTEM ◣────────────────────────────────────────────────────────┓
+│  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ✖ UNAVAILABLE                                        │
+│  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││VERSION     1.4.1                                                 │
+│                                        ││CHANNEL     stable                                                │
+│▶ 01 SYSTEM                           ✖ ││HOST        naga ▰ up 3d 4h                                       │
+│  02 UPDATES                          ✖ ││DATA        /data mounted (persistent)                            │
+│  03 NETWORK                          ✔ ││                                                                  │
+│  04 WIFI                             ▲ ││── A/B SLOTS                                                      │
+│  05 SSH                              ✔ ││  ▰ A  1.3.0                                                      │
+│  06 DCHECK                           ✔ ││  ▰ B  1.4.1     running, good, boots next                        │
+│  07 FIREWALL                         ▲ ││                                                                  │
+│  08 ROUTER                           · ││BOOT        next B ▰ good B ▰ attempts 0                          │
+│  00 EXIT                               ││BACKEND     grubenv                                               │
+│                                        ││                                                                  │
+│── RECENT                               ││no ESP found (set WAYANG_ESP or pass --esp DEV)                   │
+│  nothing yet — / to find               ││                                                                  │
+│                                        ││enter ▸ refresh                                                   │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+┗────────────────────────────────────────┛┗──────────────────────────────────────────────────────────────────┛
+  ✖ ERROR  trusted keys: not found
+ [enter] refresh  [x] reset  [1-8] jump  [/] find  [?] help  [q] quit

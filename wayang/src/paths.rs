@@ -110,6 +110,12 @@ pub fn run_dir() -> PathBuf {
     under_root("var/run", "/var/run")
 }
 
+/// `/data/var` — persistent runtime state that survives updates (history, key
+/// charts). `/data` is the only writable persistent mount.
+pub fn data_var_dir() -> PathBuf {
+    data_dir().join("var")
+}
+
 fn under_root(rel: &str, abs: &str) -> PathBuf {
     match root() {
         Some(r) => r.join(rel),

@@ -108,7 +108,7 @@ fn parse_content_length(headers: &str) -> u64 {
         .filter_map(|l| l.split_once(':'))
         .filter(|(k, _)| k.trim().eq_ignore_ascii_case("content-length"))
         .filter_map(|(_, v)| v.trim().parse::<u64>().ok())
-        .last()
+        .next_back()
         .unwrap_or(0)
 }
 

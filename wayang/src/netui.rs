@@ -15,6 +15,7 @@ use crate::hud::{self, Theme};
 use crate::input::{self, Input, Outcome};
 use crate::net::{self, Family, Mode, NetChoice};
 use crate::tui::Tone;
+use crate::{help, review};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Field {
@@ -26,6 +27,26 @@ enum Field {
     V6Dns,
 }
 
+/// A row in the CONFIG pane's focus order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Row {
+    Mode,
+    Family,
+    Field(Field),
+}
+
+/// A mutation awaiting REVIEW.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pending {
+    Apply,
+    Link(bool),
+    Dhcp,
+    Also,
+}
+
+/// The visible tab row; `←→`/`tab` moves between them.
+const TABS: [&str; 2] = ["INTERFACES", "CONFIG"];
+
 pub struct App {
     pub t: Theme,
     pub demo: bool,
@@ -34,11 +55,19 @@ pub struct App {
     /// Interfaces in the persisted `also` list (leased address-only at boot).
     pub also: Vec<String>,
     pub choice: NetChoice,
+    /// Active tab/pane: 0 = INTERFACES, 1 = CONFIG.
+    pub pane: usize,
+    /// Focused row within the CONFIG pane.
+    pub field_sel: usize,
     input: Option<(Field, Input)>,
     pub message: Option<(Tone, String)>,
     /// Background operation (apply / link up-down / dhcp); polled each tick so
     /// the HUD never blocks on the network.
     job: Option<Receiver<Result<String, String>>>,
+    /// Pending REVIEW before a mutation runs.
+    review: Option<(Pending, review::Review)>,
+    pub help: bool,
+    pub help_scroll: usize,
     pub exit: bool,
 }
 
@@ -70,9 +99,14 @@ impl App {
             sel,
             also,
             choice,
+            pane: 0,
+            field_sel: 0,
             input: None,
             message: None,
             job: None,
+            review: None,
+            help: false,
+            help_scroll: 0,
             exit: false,
         }
     }
@@ -131,36 +165,239 @@ impl App {
         self.input = Some((f, Input::new(title, prompt, hint).value(value)));
     }
 
+    /// Rows in the CONFIG pane's focus order for the current choice.
+    fn rows(&self) -> Vec<Row> {
+        let mut r = vec![Row::Mode];
+        if self.choice.mode == Mode::Static {
+            r.push(Row::Family);
+            if self.choice.family.has_v4() {
+                r.extend([Row::Field(Field::V4Addr), Row::Field(Field::V4Gw), Row::Field(Field::V4Dns)]);
+            }
+            if self.choice.family.has_v6() {
+                r.extend([Row::Field(Field::V6Addr), Row::Field(Field::V6Gw), Row::Field(Field::V6Dns)]);
+            }
+        }
+        r
+    }
+
+    fn move_sel(&mut self, delta: isize) {
+        if self.pane == 0 {
+            let n = self.ifaces.len();
+            if n == 0 {
+                return;
+            }
+            self.sel = ((self.sel as isize + delta).rem_euclid(n as isize)) as usize;
+        } else {
+            let n = self.rows().len();
+            if n == 0 {
+                return;
+            }
+            self.field_sel = ((self.field_sel as isize + delta).clamp(0, n as isize - 1)) as usize;
+        }
+    }
+
+    fn toggle_mode(&mut self) {
+        self.choice.mode = match self.choice.mode {
+            Mode::Dhcp => Mode::Static,
+            Mode::Static => Mode::Dhcp,
+        };
+    }
+
+    fn cycle_family(&mut self) {
+        if self.choice.mode == Mode::Static {
+            self.choice.family = self.choice.family.next();
+            let n = self.rows().len();
+            self.field_sel = self.field_sel.min(n.saturating_sub(1));
+        }
+    }
+
+    /// Enter on a CONFIG row: toggle the mode, cycle the family, or edit a field.
+    fn activate_row(&mut self) {
+        match self.rows().get(self.field_sel).copied() {
+            Some(Row::Mode) => self.toggle_mode(),
+            Some(Row::Family) => self.cycle_family(),
+            Some(Row::Field(f)) => self.open_field(f),
+            None => {}
+        }
+    }
+
+    /// `space`: toggle the selected mode/family row (never commits).
+    fn toggle_row(&mut self) {
+        match self.rows().get(self.field_sel).copied() {
+            Some(Row::Mode) => self.toggle_mode(),
+            Some(Row::Family) => self.cycle_family(),
+            _ => {}
+        }
+    }
+
+    fn request_review(&mut self, pending: Pending, title: String, effect: Vec<String>, note: Option<String>) {
+        let mut r = review::Review::new(title, effect);
+        if let Some(n) = note {
+            r = r.note(n);
+        }
+        self.review = Some((pending, r));
+    }
+
+    /// Apply opens a REVIEW that names the default-route/primary change.
+    fn request_apply(&mut self) {
+        let Some(iface) = self.ifaces.get(self.sel) else {
+            self.message = Some((Tone::Bad, "No interface to apply.".into()));
+            return;
+        };
+        self.choice.iface = Some(iface.name.clone());
+        if let Err(e) = self.choice.validate() {
+            self.message = Some((Tone::Bad, e));
+            return;
+        }
+        let name = iface.name.clone();
+        let current = self.ifaces.iter().find(|i| i.primary).map(|i| i.name.clone());
+        let mut effect = vec![
+            format!("write /data/etc/network/primary  ->  {name}"),
+            format!("write /data/etc/network/config  ({})", self.choice.summary()),
+        ];
+        match self.choice.mode {
+            Mode::Dhcp => effect.push(format!("run udhcpc on {name} for a lease")),
+            Mode::Static => {
+                if self.choice.family.has_v4() {
+                    effect.push(format!("add {} dev {name}", self.choice.ipv4_address));
+                }
+                if self.choice.family.has_v6() {
+                    effect.push(format!("add {} dev {name}", self.choice.ipv6_address));
+                }
+            }
+        }
+        effect.push("replace the default route and /etc/resolv.conf".into());
+        let note = Some(match &current {
+            Some(c) if *c != name => {
+                format!("This promotes {name} to the primary uplink (default route); {c} is demoted.")
+            }
+            _ => format!("This makes {name} the primary uplink at boot."),
+        });
+        self.request_review(Pending::Apply, format!("APPLY network on {name}"), effect, note);
+    }
+
+    fn request_pending(&mut self, pending: Pending) {
+        let Some(iface) = self.selected() else {
+            self.message = Some((Tone::Bad, "No interface selected.".into()));
+            return;
+        };
+        let (title, effect, note) = match pending {
+            Pending::Link(up) => (
+                format!("LINK {} {}", iface, if up { "up" } else { "down" }),
+                vec![format!("ip link set {iface} {}", if up { "up" } else { "down" })],
+                Some("The link only; the address and primary are unchanged.".into()),
+            ),
+            Pending::Dhcp => (
+                format!("DHCP lease on {iface}"),
+                vec![
+                    format!("bring {iface} up and run udhcpc once"),
+                    "keep the current primary pinned (address only)".into(),
+                ],
+                None,
+            ),
+            Pending::Also => {
+                let on = !net::is_also(&self.also, &iface);
+                (
+                    format!("ALSO-LEASE {iface} at boot: {}", if on { "on" } else { "off" }),
+                    vec![format!("{} {iface} in /data/etc/network/also", if on { "add" } else { "remove" })],
+                    None,
+                )
+            }
+            Pending::Apply => unreachable!(),
+        };
+        self.request_review(pending, title, effect, note);
+    }
+
+    fn run_pending(&mut self, pending: Pending) {
+        match pending {
+            Pending::Apply => self.apply(),
+            Pending::Link(up) => self.link(up),
+            Pending::Dhcp => self.dhcp(),
+            Pending::Also => self.toggle_also(),
+        }
+    }
+
     pub fn on_key(&mut self, key: KeyEvent) {
+        if self.review.is_some() {
+            let decision = self.review.as_mut().map(|(_, r)| r.on_key(key));
+            match decision {
+                Some(review::Decision::Confirm) => {
+                    if let Some((p, _)) = self.review.take() {
+                        self.run_pending(p);
+                    }
+                }
+                Some(review::Decision::Cancel) => {
+                    self.review = None;
+                    self.message = Some((Tone::Warn, "Cancelled: nothing changed.".into()));
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.input.is_some() {
             self.on_input_key(key);
             return;
         }
-        // While a background job runs, only allow quitting; everything else is
-        // ignored so the user can't queue conflicting operations.
-        if self.job.is_some() {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
-                self.exit = true;
+        if self.help {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+                KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(5),
+                KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(5),
+                KeyCode::Home => self.help_scroll = 0,
+                KeyCode::Char('p') => {
+                    self.message = Some(match help::print_keys("NETWORK") {
+                        Ok(p) => (Tone::Ok, format!("Wrote {}", p.display())),
+                        Err(e) => (Tone::Bad, e),
+                    });
+                }
+                code if help::closes(code) => {
+                    self.help = false;
+                    self.help_scroll = 0;
+                }
+                _ => {}
             }
             return;
         }
-        let rows = self.ifaces.len();
+        // While a background job runs, only the result matters; don't let a
+        // stray key queue a conflicting operation or drop the pending result.
+        if self.job.is_some() {
+            self.message = Some((Tone::Warn, "An action is running; wait for it to finish.".into()));
+            return;
+        }
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') if rows > 0 => {
-                self.sel = (self.sel + rows - 1) % rows;
+            // `←→` / tab switch panes; they never leave the module.
+            KeyCode::Left | KeyCode::BackTab => self.pane = self.pane.saturating_sub(1),
+            KeyCode::Right | KeyCode::Tab => self.pane = (self.pane + 1).min(TABS.len() - 1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_sel(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_sel(1),
+            KeyCode::PageUp => self.move_sel(-3),
+            KeyCode::PageDown => self.move_sel(3),
+            KeyCode::Home => {
+                if self.pane == 0 {
+                    self.sel = 0;
+                } else {
+                    self.field_sel = 0;
+                }
             }
-            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab if rows > 0 => {
-                self.sel = (self.sel + 1) % rows;
+            KeyCode::End => {
+                if self.pane == 0 {
+                    self.sel = self.ifaces.len().saturating_sub(1);
+                } else {
+                    self.field_sel = self.rows().len().saturating_sub(1);
+                }
             }
-            KeyCode::Char('m') => {
-                self.choice.mode = match self.choice.mode {
-                    Mode::Dhcp => Mode::Static,
-                    Mode::Static => Mode::Dhcp,
-                };
+            KeyCode::Enter => {
+                if self.pane == 0 {
+                    self.pane = 1;
+                    self.field_sel = 0;
+                } else {
+                    self.activate_row();
+                }
             }
-            KeyCode::Char('f') if self.choice.mode == Mode::Static => {
-                self.choice.family = self.choice.family.next();
-            }
+            KeyCode::Char(' ') => self.toggle_row(),
+            KeyCode::Char('m') => self.toggle_mode(),
+            KeyCode::Char('f') => self.cycle_family(),
             KeyCode::Char(c @ '1'..='6') if self.choice.mode == Mode::Static => {
                 let f = match c {
                     '1' => Field::V4Addr,
@@ -182,12 +419,20 @@ impl App {
                 self.refresh();
                 self.message = Some((Tone::Ok, "Interfaces refreshed.".into()));
             }
-            KeyCode::Char('u') => self.link(true),
-            KeyCode::Char('d') => self.link(false),
-            KeyCode::Char('h') => self.dhcp(),
-            KeyCode::Char('l') => self.toggle_also(),
-            KeyCode::Enter | KeyCode::Char('a') => self.apply(),
-            KeyCode::Esc | KeyCode::Char('q') => self.exit = true,
+            KeyCode::Char('u') => self.request_pending(Pending::Link(true)),
+            KeyCode::Char('d') => self.request_pending(Pending::Link(false)),
+            KeyCode::Char('h') => self.request_pending(Pending::Dhcp),
+            KeyCode::Char('l') => self.request_pending(Pending::Also),
+            KeyCode::Char('a') => self.request_apply(),
+            KeyCode::Char('?') => self.help = true,
+            KeyCode::Esc => {
+                if self.pane > 0 {
+                    self.pane -= 1;
+                } else {
+                    self.exit = true;
+                }
+            }
+            KeyCode::Char('q') | KeyCode::Char('b') => self.exit = true,
             _ => {}
         }
     }
@@ -376,17 +621,19 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
-            Constraint::Min(10),
+            Constraint::Length(1),
+            Constraint::Min(8),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
         .split(area);
 
     draw_header(f, rows[0], app);
+    hud::tab_row(f, rows[1], &TABS, app.pane, t);
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(56), Constraint::Percentage(44)])
-        .split(rows[1]);
+        .split(rows[2]);
     draw_ifaces(f, cols[0], app);
     let right = Layout::default()
         .direction(Direction::Vertical)
@@ -394,38 +641,35 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .split(cols[1]);
     draw_mode(f, right[0], app);
     draw_fields(f, right[1], app);
-    draw_result(f, rows[2], app, tick);
+    draw_result(f, rows[3], app, tick);
 
-    let keys = hud::keycaps(
-        &[
-            ("↑↓", "pick"),
-            ("m", "mode"),
-            ("f", "family"),
-            ("1-6", "edit"),
-            ("u/d", "link"),
-            ("h", "dhcp now"),
-            ("l", "also boot"),
-            ("enter", "apply"),
-            ("r", "refresh"),
-            ("q", "back"),
-        ],
-        t,
-    );
-    let mut keys = keys;
-    keys.spans.insert(0, Span::raw(" "));
-    f.render_widget(Paragraph::new(keys), rows[3]);
+    // Context footer: at most six, most relevant first.
+    let keys: Vec<(&str, &str)> = if app.pane == 0 {
+        vec![("↑↓", "pick"), ("enter", "config"), ("a", "apply"), ("u/d", "link"), ("?", "help"), ("q", "back")]
+    } else {
+        vec![("↑↓", "field"), ("enter", "edit"), ("space", "toggle"), ("a", "apply"), ("?", "help"), ("q", "back")]
+    };
+    let mut kline = hud::keycaps(&keys, t);
+    kline.spans.insert(0, Span::raw(" "));
+    f.render_widget(Paragraph::new(kline), rows[4]);
 
     if let Some((_, input)) = &app.input {
         input::draw(f, area, t, input, tick);
+    }
+    if app.help {
+        help::draw(f, area, t, "NETWORK", app.help_scroll);
+    }
+    if let Some((_, rev)) = &app.review {
+        review::draw(f, area, t, rev);
     }
 }
 
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let right = vec![
-        Span::styled("persists /data/etc/network  ", t.fg(t.dim)),
-    ];
-    hud::header_bar(f, area, "NETWORK", "", right, t);
+    let item = app.selected().unwrap_or_else(|| app.choice.summary());
+    let crumb = t.breadcrumb(&["NETWORK", TABS[app.pane.min(1)], &item]);
+    let right = vec![Span::styled("persists /data/etc/network  ", t.fg(t.dim))];
+    hud::header_bar(f, area, &crumb, "", right, t);
 }
 
 fn iface_line(iface: &net::Iface, selected: bool, also: bool, t: &Theme) -> Line<'static> {
@@ -488,28 +732,43 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
+fn net_row_focus(app: &App, row: Row) -> bool {
+    app.pane == 1 && app.rows().get(app.field_sel).copied() == Some(row)
+}
+
 fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "MODE", t);
+    let inner = hud::panel(f, area, "MODE — EDIT: form", t);
     let mut lines = Vec::new();
+    let row_w = inner.width.saturating_sub(1) as usize;
     for m in [Mode::Dhcp, Mode::Static] {
         let sel = app.choice.mode == m;
         let note = match m {
             Mode::Dhcp => "automatic lease (udhcpc)",
             Mode::Static => "fixed address, gateway and DNS",
         };
-        lines.push(Line::from(vec![
-            Span::styled(if sel { t.g.cursor } else { "  " }.to_string(), t.fg(t.accent)),
-            Span::styled(
-                format!("{:<8}", m.label()),
-                if sel { t.bold(t.ok) } else { t.fg(t.fg) },
-            ),
-            Span::styled(note, t.fg(t.dim)),
-        ]));
+        let focused = sel && net_row_focus(app, Row::Mode);
+        let cur = if focused { t.g.cursor } else { "  " };
+        let hint = if focused { "space toggle" } else { "" };
+        lines.push(hud::line_with_hint(
+            vec![
+                Span::styled(cur.to_string(), t.bold(t.accent2)),
+                Span::styled(format!("{:<8}", m.label()), if sel { t.bold(t.ok) } else { t.fg(t.fg) }),
+                Span::styled(note, t.fg(t.dim)),
+            ],
+            hint,
+            row_w,
+            t,
+        ));
     }
     if app.choice.mode == Mode::Static {
         lines.push(Line::raw(""));
-        let mut fam = vec![Span::styled("FAMILY  ", t.fg(t.dim))];
+        let focused = net_row_focus(app, Row::Family);
+        let cur = if focused { t.g.cursor } else { "  " };
+        let mut fam = vec![
+            Span::styled(cur.to_string(), t.bold(t.accent2)),
+            Span::styled("FAMILY  ", t.fg(t.dim)),
+        ];
         for famly in [Family::Ipv4, Family::Ipv6, Family::Both] {
             let sel = app.choice.family == famly;
             fam.push(Span::styled(
@@ -517,20 +776,18 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
                 if sel { t.bold(t.accent2) } else { t.fg(t.dim) },
             ));
         }
-        lines.push(Line::from(fam));
+        lines.push(hud::line_with_hint(fam, if focused { "space cycle" } else { "" }, row_w, t));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled(
-        "m toggles mode, f cycles family",
-        t.fg(t.dim),
-    )));
+    lines.push(Line::from(Span::styled("↑↓ field · space toggle · a apply", t.fg(t.dim))));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 fn draw_fields(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "ADDRESS", t);
+    let inner = hud::panel(f, area, "ADDRESS — EDIT: form", t);
     let mut lines = Vec::new();
+    let row_w = inner.width.saturating_sub(1) as usize;
     if app.choice.mode == Mode::Dhcp {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(format!("{} DHCP needs no fields", t.g.ok), t.bold(t.ok))));
@@ -538,17 +795,17 @@ fn draw_fields(f: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(Span::styled("from the network automatically.", t.fg(t.dim))));
     } else {
         if app.choice.family.has_v4() {
-            lines.push(net_field(t, "1", "ADDRESS", &app.choice.ipv4_address, "192.168.1.50/24"));
-            lines.push(net_field(t, "2", "GATEWAY", &app.choice.ipv4_gateway, "192.168.1.1"));
-            lines.push(net_field(t, "3", "DNS", &app.choice.ipv4_dns, "1.1.1.1 8.8.8.8"));
+            lines.push(net_field(t, "1", "ADDRESS", &app.choice.ipv4_address, "192.168.1.50/24", net_row_focus(app, Row::Field(Field::V4Addr)), row_w));
+            lines.push(net_field(t, "2", "GATEWAY", &app.choice.ipv4_gateway, "192.168.1.1", net_row_focus(app, Row::Field(Field::V4Gw)), row_w));
+            lines.push(net_field(t, "3", "DNS", &app.choice.ipv4_dns, "1.1.1.1 8.8.8.8", net_row_focus(app, Row::Field(Field::V4Dns)), row_w));
         }
         if app.choice.family.has_v6() {
             if app.choice.family.has_v4() {
                 lines.push(Line::raw(""));
             }
-            lines.push(net_field(t, "4", "ADDRESS", &app.choice.ipv6_address, "2001:db8::50/64"));
-            lines.push(net_field(t, "5", "GATEWAY", &app.choice.ipv6_gateway, "2001:db8::1"));
-            lines.push(net_field(t, "6", "DNS", &app.choice.ipv6_dns, "2001:4860:4860::8888"));
+            lines.push(net_field(t, "4", "ADDRESS", &app.choice.ipv6_address, "2001:db8::50/64", net_row_focus(app, Row::Field(Field::V6Addr)), row_w));
+            lines.push(net_field(t, "5", "GATEWAY", &app.choice.ipv6_gateway, "2001:db8::1", net_row_focus(app, Row::Field(Field::V6Gw)), row_w));
+            lines.push(net_field(t, "6", "DNS", &app.choice.ipv6_dns, "2001:4860:4860::8888", net_row_focus(app, Row::Field(Field::V6Dns)), row_w));
         }
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled("gateway and DNS are optional", t.fg(t.dim))));
@@ -556,18 +813,24 @@ fn draw_fields(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
-fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str) -> Line<'static> {
+fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str, focused: bool, row_w: usize) -> Line<'static> {
     let shown = if value.is_empty() {
         Span::styled(format!("{hint}  (press {n})"), t.fg(t.dim))
     } else {
         Span::styled(value.to_string(), t.bold(t.fg))
     };
-    hud::field(&format!("{n} {label}"), 12, vec![shown], t)
+    let cur = if focused { t.g.cursor } else { "  " };
+    let left = vec![
+        Span::styled(cur.to_string(), t.bold(t.accent2)),
+        Span::styled(format!("{n} {label:<8}"), if focused { t.bold(t.accent) } else { t.fg(t.dim) }),
+        shown,
+    ];
+    hud::line_with_hint(left, if focused { "enter edit" } else { "" }, row_w, t)
 }
 
 fn draw_result(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
-    hud::status_row(f, area, msg, app.busy().then(|| hud::spinner(tick)), "Pick an interface, then enter to apply.", &app.t);
+    hud::status_row(f, area, msg, app.busy().then(|| hud::spinner(tick)), "↑↓ pick, enter config, a apply.", &app.t);
 }
 
 /// Run the screen on the real terminal.
@@ -598,10 +861,13 @@ mod tests {
     }
 
     #[test]
-    fn dhcp_here_is_demo_safe() {
+    fn dhcp_here_is_demo_safe_and_reviewed() {
         let mut app = App::new(true);
         app.on_key(KeyEvent::from(KeyCode::Char('h')));
-        assert!(app.busy(), "dhcp starts a background job");
+        assert!(app.review.is_some(), "dhcp opens REVIEW first");
+        assert!(!app.busy(), "nothing runs before the confirm");
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(app.busy(), "confirm starts a background job");
         for _ in 0..200 {
             app.poll_job();
             if !app.busy() {
@@ -614,10 +880,12 @@ mod tests {
     }
 
     #[test]
-    fn also_toggle_is_demo_safe() {
+    fn also_toggle_is_demo_safe_and_reviewed() {
         let mut app = App::new(true);
         assert!(net::is_also(&app.also, "enp0s20u1"), "demo shows an also entry");
         app.on_key(KeyEvent::from(KeyCode::Char('l')));
+        assert!(app.review.is_some(), "also toggle opens REVIEW");
+        app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(app.busy(), "also toggle starts a background job");
         for _ in 0..200 {
             app.poll_job();
@@ -628,6 +896,18 @@ mod tests {
         }
         assert!(!app.busy());
         assert!(matches!(app.message, Some((Tone::Ok, _))));
+    }
+
+    #[test]
+    fn apply_review_names_the_primary_promotion_and_can_be_cancelled() {
+        let mut app = App::new(true);
+        // pick the non-primary interface, apply: the review must say it is promoted
+        app.sel = app.ifaces.iter().position(|i| !i.primary).unwrap();
+        app.on_key(KeyEvent::from(KeyCode::Char('a')));
+        let (_, rev) = app.review.as_ref().expect("a opens REVIEW");
+        assert!(rev.note.as_ref().unwrap().contains("primary uplink"), "{:?}", rev.note);
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert!(app.review.is_none() && !app.busy(), "esc cancels; nothing runs");
     }
 
     #[test]
@@ -670,6 +950,8 @@ mod tests {
     #[test]
     fn apply_in_demo_does_not_touch_system() {
         let mut app = App::new(true);
+        app.on_key(KeyEvent::from(KeyCode::Char('a')));
+        assert!(app.review.is_some());
         app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(app.busy());
         for _ in 0..200 {
@@ -680,5 +962,21 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         assert!(matches!(app.message, Some((Tone::Ok, _))));
+    }
+
+    #[test]
+    fn arrows_switch_panes_and_esc_returns_to_the_list() {
+        let mut app = App::new(true);
+        assert_eq!(app.pane, 0);
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        assert_eq!(app.pane, 1);
+        app.on_key(KeyEvent::from(KeyCode::Left));
+        assert_eq!(app.pane, 0);
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert_eq!(app.pane, 0, "esc steps back to the list, not out of the module");
+        assert!(!app.exit);
+        app.on_key(KeyEvent::from(KeyCode::Char('b')));
+        assert!(app.exit, "b returns to the deck");
     }
 }

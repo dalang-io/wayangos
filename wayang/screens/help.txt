@@ -1,0 +1,34 @@
+ ◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  v1.4.1                                  DEMO DATA  ▰ naga   ✔ SLOT B
+┏◢ MODULES ◣─────────────────────────────┓┏◢ SYSTEM ◣────────────────────────────────────────────────────────┓
+│  █ ▄ █ ▄▀▄ ▀▄▀ ▄▀▄ █▄ █ █▀▀   █▀█ █▀▀  ││STATUS       ✔ OK                                                 │
+│  ▀▄▀▄▀ █▀█  █  █▀█ █ ▀█ █▄█   █▄█ ▄▄█  ││VERSION     1.4.1                                                 │
+│                                        ││CHANNEL     stable                                                │
+│▶ 01 S┏◢ HELP — DECK — KEYS & CONCEPT MAP ◣──────────────────────────────────────────────────────────┓      │
+│  02 U│── GLOBAL                                        THEY KNOW                                    │      │
+│  03 N│  ↑ ↓ j k         move the selection / field                                                  │      │
+│  04 W│  ← →             previous / next tab or pane    RouterOS IP > Addresses                      │      │
+│  05 S│  tab / shift-tab next / previous tab (and field   ▸ NETWORK (addresses on the interface)     │      │
+│  06 D│while editing)                                   RouterOS IP > Routes / default               │      │
+│  07 F│  PgUp PgDn       page a long list                 ▸ ROUTES, and the uplink's default         │      │
+│  08 R│  Home End        first / last item              RouterOS IP > DHCP Server                    │      │
+│  00 E│  enter           open · edit · activate ·         ▸ DHCP (pools + leases)                    │      │
+│      │confirm                                          RouterOS Interfaces > WireGuard              │      │
+│── REC│  space           toggle (never commits)           ▸ VPN                                      │      │
+│  noth│  esc             back / close / cancel          RouterOS IP > Firewall Filter/NAT            │      │
+│      │  b               back to the command deck         ▸ FIREWALL → wayang-fw                     │      │
+│      │  1 - 8           jump to module 01 system … 08  RouterOS Queues                              │      │
+│      │router                                             ▸ QOS                                      │      │
+│      │  0               exit                           FortiGate Policy & Objects > Policy          │      │
+│      │  /               quick jump: type a module or     ▸ FIREWALL → wayang-fw POLICIES            │      │
+│      │screen                                           FortiGate Network > Interfaces               │      │
+│      │  ?               this reference                   ▸ NETWORK / ROUTER                         │      │
+│      │  q               quit / back (guarded while an  Cloudflare DNS / WAF / rules                 │      │
+│      │↑↓ scroll   p print to /data/var/wayang/keys.txt                                              │      │
+│      ┗──────────────────────────────────────────────────────────────────────────────────────────────┛      │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+│                                        ││                                                                  │
+┗────────────────────────────────────────┛┗──────────────────────────────────────────────────────────────────┛
+ Pick a module; ? shows every key.
+ [enter] refresh  [x] reset  [1-8] jump  [/] find  [?] help  [q] quit

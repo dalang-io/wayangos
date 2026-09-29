@@ -918,8 +918,8 @@ pub fn detect_cmd(json: bool) -> crate::error::Result<i32> {
         return Ok(2);
     }
     println!(
-        "{:<10} {:<4} {:<10} {:<16} {:<24} {}",
-        "IFACE", "BUS", "ID", "DRIVER", "NAME", "SUGGESTION"
+        "{:<10} {:<4} {:<10} {:<16} {:<24} SUGGESTION",
+        "IFACE", "BUS", "ID", "DRIVER", "NAME"
     );
     for d in &devs {
         let iface = if d.bound { d.iface.clone() } else { "usb".into() };

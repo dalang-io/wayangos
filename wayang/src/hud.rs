@@ -35,6 +35,8 @@ pub struct Glyphs {
     pub mark: &'static str,
     /// Not applicable / not installed.
     pub none: &'static str,
+    /// Breadcrumb separator (`MODULE ▸ TAB`).
+    pub arrow: &'static str,
     pub ellipsis: char,
 }
 
@@ -61,6 +63,7 @@ pub const FANCY: Glyphs = Glyphs {
     brand: "▰",
     mark: "◢◤",
     none: "·",
+    arrow: "▸",
     ellipsis: '…',
 };
 
@@ -76,6 +79,7 @@ pub const CONSOLE: Glyphs = Glyphs {
     brand: "■",
     mark: "■",
     none: "-",
+    arrow: ">",
     ellipsis: '~',
 };
 
@@ -243,6 +247,16 @@ impl Theme {
             out
         }
     }
+
+    /// Breadcrumb `MODULE ▸ TAB ▸ (item)`; empty parts are dropped.
+    pub fn breadcrumb(&self, parts: &[&str]) -> String {
+        parts
+            .iter()
+            .filter(|p| !p.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(&format!(" {} ", self.g.arrow))
+    }
 }
 
 /// Outcome colour of a message.
@@ -401,7 +415,48 @@ pub fn keycaps(items: &[(&str, &str)], t: &Theme) -> Line<'static> {
     Line::from(spans)
 }
 
-/// Coloured status chip, e.g. ` ✔ OK ` on green.
+/// Visible tab row: the active tab is highlighted, the rest dim; `←→` moves it.
+/// Returns the line so callers can place it (the caller owns the area).
+pub fn tab_row_line(tabs: &[&str], active: usize, t: &Theme) -> Line<'static> {
+    let mut spans = vec![Span::raw(" ")];
+    for (i, name) in tabs.iter().enumerate() {
+        if i == active {
+            match t.bar {
+                Some(_) => spans.push(Span::styled(
+                    format!(" {name} "),
+                    Style::default().bg(t.accent).fg(t.on_badge).add_modifier(Modifier::BOLD),
+                )),
+                None => spans.push(Span::styled(format!("[{name}]"), t.bold(t.accent))),
+            }
+        } else {
+            spans.push(Span::styled(format!(" {name} "), t.fg(t.dim)));
+        }
+        if i + 1 < tabs.len() {
+            spans.push(Span::styled("│", t.fg(t.border)));
+        }
+    }
+    spans.push(Span::styled(format!("  {} {}", t.g.arrow, "←→"), t.fg(t.dim)));
+    Line::from(spans)
+}
+
+/// Draw a one-row tab row in `area`.
+pub fn tab_row(f: &mut Frame, area: Rect, tabs: &[&str], active: usize, t: &Theme) {
+    f.render_widget(ratatui::widgets::Paragraph::new(tab_row_line(tabs, active, t)), area);
+}
+
+/// Left spans followed by a dim, right-aligned inline keycap hint. On narrow
+/// terminals (`left + hint` does not fit) the hint is dropped, never wrapped.
+pub fn line_with_hint(left: Vec<Span<'static>>, hint: &str, width: usize, t: &Theme) -> Line<'static> {
+    let lw: usize = left.iter().map(|s| s.width()).sum();
+    let hw = hint.chars().count();
+    if hint.is_empty() || lw + hw + 2 > width {
+        return Line::from(left);
+    }
+    let mut spans = left;
+    spans.push(Span::raw(" ".repeat(width.saturating_sub(lw + hw))));
+    spans.push(Span::styled(hint.to_string(), t.fg(t.dim)));
+    Line::from(spans)
+}
 pub fn badge(color: Color, sym: &str, label: &str, t: &Theme) -> Span<'static> {
     if t.mode == Mode::Mono {
         return Span::styled(

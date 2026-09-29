@@ -169,14 +169,34 @@ image** as of 1.0.23 (`configs/defconfig-intel`, `106bb23`);
 
 `wayang` on a terminal opens the system console, which has the same HUD as
 dcheck, wayang-fw and wayang-router. It is a command deck with **01 SYSTEM**
-(A/B slots, boot state), **02 UPDATES** (`c` check, `u` update, `g` upgrade,
-`x x` rollback, run in the background with a progress bar), **03 NETWORK**,
-**04 WIFI**, **05 SSH** (add/remove root `authorized_keys`; paste a key or
-`github:USER` / `gitlab:USER`), **06 DCHECK** (opens the bundled storage-health
-app), and **07 FIREWALL** / **08 ROUTER**, which open wayang-fw /
-wayang-router when they are installed. Number keys only jump, `?` lists every
-key and `q` goes back. `wayang --screens DIR --svg` renders every screen from
-demo data.
+(A/B slots, boot state; `x` twice resets the box's config to defaults after a
+REVIEW), **02 UPDATES** (`c` check, `u` update, `g` upgrade, `x x` rollback,
+`b b` boot the other slot, run in the background with a progress bar), **03
+NETWORK**, **04 WIFI**, **05 SSH** (add/remove root `authorized_keys`; paste a
+key or `github:USER` / `gitlab:USER`), **06 DCHECK** (opens the bundled
+storage-health app), and **07 FIREWALL** / **08 ROUTER**, which open wayang-fw /
+wayang-router when they are installed.
+
+Navigation is the same everywhere: `↑↓` moves the selection or form field,
+`←→` / `tab` switch the visible **tab row** of a multi-pane screen (NETWORK,
+WIFI, SSH) and never leave the module, `PgUp/PgDn/Home/End` page long lists,
+`enter` opens/edits, `space` toggles, `esc` steps back, `b` returns to the deck,
+`1–8` jump to a module (`0` exits), `/` quick-jumps (fuzzy), `?` opens the
+scrollable help with the GUI-migrant concept map (`p` writes it to
+`/data/var/wayang/keys.txt`), and `q` quits (guarded while an action runs). The
+header shows a `MODULE ▸ TAB ▸ (item)` breadcrumb; rows and fields carry inline
+keycap hints; the footer shows the six most relevant keys.
+
+Every action that changes the box (update, upgrade, rollback, boot-other, reset,
+network/wifi applies, adding or removing an SSH key) opens a **REVIEW** first,
+listing the exact effect — including when a network apply will promote an
+interface to the primary uplink/default route — with `enter`/`y` to confirm and
+`esc`/`n` to cancel. The CLI subcommands keep their non-interactive behaviour
+(`wayang reset --yes`, `wayang update …`), so scripts are unaffected.
+
+`wayang --screens DIR --size WxH` renders every screen from demo data (text);
+add `--svg` for the docs. The checked-in text snapshots live in
+[`wayang/screens/`](wayang/screens/) and a test keeps them in sync.
 
 ## Updates
 
