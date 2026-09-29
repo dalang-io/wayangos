@@ -8,9 +8,10 @@ building and the milestones). This file is *where things stand* across the repos
 
 | | |
 |---|---|
-| WayangOS release | **1.0.27** (tag `v1.0.27`; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.27). 1.0.23+ carries the **full router block**; 1.0.25 removed `wayang-selftest`; 1.0.26 added `wayang reset`; 1.0.27 makes all wired NICs hotplug-DHCP |
-| Test device `root@163.128.55.3` | fresh **1.0.27** (updated in place via `wayang update`), reachable over the USB LAN (`ssh root@192.168.2.2`) and the public uplink; uplink on the onboard `eth0` |
-| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+| WayangOS release | **1.0.30** (tag `v1.0.30`; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.30). 1.0.23+ carries the **full router block**; 1.0.25 removed `wayang-selftest`; 1.0.26 added `wayang reset`; 1.0.27 makes all wired NICs hotplug-DHCP; **1.0.28–1.0.30 bake `wayang-router` + `wayang-fw` into `/usr/bin`, drop the 09 EDGEROUTER TUI module (8 modules), and open public SSH by default** |
+| Test device `root@163.128.55.3` | **1.0.30** (updated in place via `wayang update`); uplink on onboard `eth0`; USB LAN `ssh root@192.168.2.2` (SR9700, duplex-flaky) |
+| Prod Edge box `163.128.55.4` | site 5 `ThinkStation-P320-Tiny`, WayangOS **1.0.30**; managed via the hub tunnel (`ssh dell-jkt` → `ssh root@10.99.130.5` / `@163.128.55.4`); public ping + SSH now work. **`163.128.54.4` is a different MikroTik RouterOS — not ours.** |
+| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27`, `v1.0.28`, `v1.0.29`, `v1.0.30` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
 
 1.0.22 = 1.0.21 + the **shipped safety net** (watchdog + lockup/panic detectors +
 `wayang.selftest=120 panic=10 …` baked into `configs/defconfig-intel`
@@ -108,11 +109,11 @@ config** (no wayangi agent on the box).
 
 | Repo | HEAD / tag | Notes |
 |---|---|---|
-| `dalang-io/wayangos` (this) | `master` @ 1.0.27, tag `v1.0.27` | block enabled; `wayang reset`; selftest removed; hotplug DHCP; CI self-hosted (~5 m, channel-publish secrets set) |
-| `dalang-io/wayang-fw` | `master` `7383298`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, monitor; **per-zone DHCP/DNS via dnsmasq** (`[[dhcp]]`/`[[dns]]`, `scripts/build-dnsmasq.sh`, `docs/DHCP-DNS.md`) |
-| `dalang-io/wayang-router` | `master` `d68e57d`, tag `v0.3.2` | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor history); **never strand the last uplink** (v0.3.1); **`wan-monitor` → `wan-failover`** (v0.3.2); **bridge port-level VLANs** (`[[interface.port]]`); `engine` hardening; `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`, QEMU labs |
+| `dalang-io/wayangos` (this) | `master` @ 1.0.30, tag `v1.0.30` | block enabled; `wayang reset`; selftest removed; hotplug DHCP; **wayang-router/wayang-fw baked into the rootfs; EDGEROUTER TUI removed; CI self-hosted (~5 m, channel-publish secrets set)** |
+| `dalang-io/wayang-fw` | `master` `7383298`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, monitor; **per-zone DHCP/DNS via dnsmasq** (`[[dhcp]]`/`[[dns]]`, `scripts/build-dnsmasq.sh`, `docs/DHCP-DNS.md`); `allow_from` accepts IPv4 + IPv6 |
+| `dalang-io/wayang-router` | `master` `d68e57d`, tag `v0.3.2` | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor history); **never strand the last uplink** (v0.3.1); **`wan-monitor` → `wan-failover`** (v0.3.2); **bridge port-level VLANs** (`[[interface.port]]`); `engine` hardening; `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`; **OPEN: program the `wan_group` table at bring-up** (a "2/2 on" group with an empty table leaks replies to the ISP — see AGENTS.md golden rule 4) |
 | `dalang-io/dcheck` | `master` `33dc1af` | health list + Prometheus + undelete/macOS |
-| `dalang-io/wayangi` (dashboard) | `main` `70b4b38` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod; **`wos-x86-1` 1-NIC WAN-only model** + no hard-coded WAN probe |
+| `dalang-io/wayangi` (dashboard) | `main` `6adc719` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod; **`wos-x86-1` 1-NIC WAN-only model**; **public-SSH `allow_from` default**; **N-hub generator in progress** (`docs/EDGE-N-HUB.md`, `docs/FUTURE-WORKS.md`) |
 
 ## Tech references written this round (read these before editing configs)
 
@@ -123,19 +124,16 @@ config** (no wayangi agent on the box).
 
 ## Not done / next steps
 
-1. **M8 EdgeRouter on real hardware** — blocked by topology: the Edge model
-   assumes a WAN **and** a public LAN, but the test box has essentially a single
-   uplink NIC. Either use a box with ≥2 network-capable NICs, or add a
-   **1-NIC WAN-only model** to wayangi (open design decision: where the public
-   `/32` lives with no LAN) + renderer support (the current renderer requires a
-   LAN port).
-2. **wayangi**: stop hard-coding `1.1.1.1` as the WAN health probe — a false
-   health-check failure on the sole uplink flapped the box (the 2026-09-29
-   hardware incident); use the gateway or a configured target. Also: an
-   `edge_wos` site kind / DB `class`+`platform`, and WOS-only deployment
-   (`EnableEdgeWOS` still hard-requires `EnableEdgeRB`).
-3. **Ventoy**: the **1.0.27 ISO is downloaded but not on the USB** (it was
-   unplugged) — copy it when re-attached.
+1. ~~**M8 EdgeRouter on real hardware**~~ — **DONE**: wayangi gained the
+   **1-NIC WAN-only model** (`wos-x86-1`; the box owns the public /32 on the
+   tunnel, no LAN/DHCP/RA) and site 5 (`163.128.55.4`) runs it. Its public
+   ping + SSH work once wayang-router programs the public group table (above).
+2. **wayangi**: ~~stop hard-coding `1.1.1.1` as the WAN health probe~~ — **DONE**
+   (gateway / configured target / hub endpoint). Still open: an `edge_wos` site
+   kind / DB `class`+`platform`, and WOS-only deployment (`EnableEdgeWOS` still
+   hard-requires `EnableEdgeRB`); **N-hub tunnels** (`docs/EDGE-N-HUB.md`).
+3. **Ventoy**: the **1.0.30 ISO is downloaded but not on the USB** — copy it when
+   re-attached.
 4. **wayang-fw**: per-zone DHCP/DNS (dnsmasq not bundled); interface config from
    the HUD; firewall enforcement is QEMU-tested only — validate on real hardware
    (`tests/lab/lab.py`).

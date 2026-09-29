@@ -86,7 +86,7 @@ bundled; UI reference for all TUIs).
 
 ## Current state
 
-**Released: 1.0.27** (tag + channel + GitHub release; channel serves 1.0.27).
+**Released: 1.0.30** (tag + channel + GitHub release; channel serves 1.0.30).
 1.0.27 = the **full router block enabled** (`configs/defconfig-intel`:
 WireGuard/VRF/veth/macvlan/tun/ipsec/dummy/bonding/gre-ipip/QoS/bridge; M7
 resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus userspace:
@@ -98,7 +98,21 @@ resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus usersp
   (`wayang.selftest=120`/`panic=10`): it reboot-looped a fresh install / any box
   that could not confirm connectivity in 120 s — a headless box was unreachable.
 
-**Golden rules (learned this round — do not regress):**
+1.0.28–1.0.30 = the **Edge product** round:
+- **`wayang-router` + `wayang-fw` are baked into the OS** (`/usr/bin`) by
+  `build-rootfs.sh`, built from the tool mirror (`scripts/build-wayang-{router,fw}.sh`).
+  (1.0.28 shipped *without* them — a CI artifact/cache path bug, fixed so the
+  tools reach the release rootfs.)
+- **09 EDGEROUTER TUI module REMOVED** — `wayang --demo` shows 8 modules
+  (01 SYSTEM … 08 ROUTER); Edge management is CLI-only (`wayang edgerouter …`).
+- **Public SSH opened by default** — the rendered `fw.toml [management]
+  allow_from` is now `["0.0.0.0/0","::/0"]` (the box is pubkey-only); the old
+  RFC1918-only default stranded a WAN-only box. Restrict with
+  `WAYANGI_EDGE_WOS_ALLOW_FROM` (wayangi).
+- New prod box **site 5** `ThinkStation-P320-Tiny` @ **`163.128.55.4`**
+  (WayangOS 1.0.30); a **`163.128.54.4` is a different MikroTik RouterOS**, not us.
+
+**Golden rules (learned — do not regress):**
 1. A *monitor* is read-only (`wayang-router monitor`); anything that changes
    routes/networking is a separate, explicitly-named daemon (`wan-failover`) and
    must **never strand the box** — keep the last/only path when a check fails
@@ -106,6 +120,13 @@ resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus usersp
 2. **Nothing self-reboots on a fresh install.** A safety mechanism that can loop
    is worse than no mechanism.
 3. Never import a bundle/config without matching the box's real topology first.
+4. **A `wan_group` that reports "on" must have its table programmed.** On the
+   1-NIC box the public-source rule (`from <public /32> lookup 401`) pointed at
+   an **empty** table while `wayang-router wan` said "2/2 on" → replies leaked
+   out the ISP, so the public /32 was unreachable from the internet (Globalping
+   0/15). Fix is in wayang-router (program the group table at bring-up + drift
+   detection), tracked in wayangi `docs/FUTURE-WORKS.md`; interim fix is a manual
+   `ip route replace table 401 default via <hub-inner> dev wg-… onlink`.
 
 Cross-repo state: [docs/HANDOVER.md](docs/HANDOVER.md); pending work:
 [docs/TODO.md](docs/TODO.md). WayangOS is a wayangi "Edge" unit type in the

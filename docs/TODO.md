@@ -3,7 +3,7 @@
 Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
-release: **1.0.27** (see `docs/HANDOVER.md`). **Product goal + roadmap:
+release: **1.0.30** (see `docs/HANDOVER.md`). **Product goal + roadmap:
 [docs/GOAL.md](GOAL.md).** **M7 (router kernel block) is resolved and released**
 — the execution plan is archived in
 [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).
@@ -14,6 +14,30 @@ must **never strand the box** — keep the last/only path when a check fails;
 **nothing self-reboots on a fresh install** (the removed `wayang-selftest` looped);
 and **never import a bundle/config without matching the box's real topology
 first**. See `AGENTS.md` §Current state.
+
+## Edge product (cross-repo — the full backlog is wayangi `docs/FUTURE-WORKS.md`)
+
+The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
+`wayang-router` (data plane), `wayangi` (generator/hub) and this repo (bake).
+
+- [~] **wayang-router: program the `wan_group` table at bring-up.** The public
+      source rule (`from <public/32> lookup 401`) pointed at an **empty** table
+      401 while `wayang-router wan` reported "2/2 on" → replies leaked out the
+      ISP; the public /32 was unreachable from the internet (Globalping 0/15).
+      Must write the weighted ECMP default whenever it is desired-but-absent and
+      make `plan`/`status` flag the drift. *(in progress in wayang-router)*
+- [ ] **Rebake `wayang-router`** into WayangOS once fixed, then re-verify
+      reachability (Globalping, world + Indonesia).
+- [ ] **N-hub tunnels, arbitrary names** (raise quality of service: 3/4/6
+      tunnels, retire `jkt`/`mlb`). Generator MVP in progress (config file +
+      per-site `hubs_json`); provisioning automation + hub lifecycle after —
+      wayangi `docs/EDGE-N-HUB.md`.
+- [x] **Public SSH by default** — `fw.toml [management] allow_from` now
+      `0.0.0.0/0` + `::/0` (pubkey-only); applied on the box 2026-09-29.
+      Harden next (rate-limit, explicit no-password) — wayangi FUTURE-WORKS.
+- [ ] **Clean up** the temporary hosted files used to get the box going:
+      `https://wayang.dalang.io/tmp/dc5de5f99f23e677.tar.gz` (a bundle) and the
+      `/tmp/*-router` / `/tmp/*-fw` binaries.
 
 ## wayangos (this repo)
 
