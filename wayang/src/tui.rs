@@ -299,6 +299,7 @@ impl App {
                 Some(Sub::Ssh(a)) => a.on_key(key),
                 None => {}
             }
+            self.absorb_sub_recent();
             if self.sub_exited() {
                 self.sub = None;
                 self.refresh();
@@ -546,6 +547,21 @@ impl App {
     fn record(&mut self, what: impl Into<String>) {
         self.recent.insert(0, what.into());
         self.recent.truncate(5);
+    }
+
+    /// Pull actions a sub-screen recorded (net apply, wifi connect, ssh
+    /// add/remove) into the deck's RECENT strip. The sub keeps them oldest
+    /// first; the deck keeps newest first.
+    fn absorb_sub_recent(&mut self) {
+        let items = match self.sub.as_mut() {
+            Some(Sub::Net(a)) => a.take_recent(),
+            Some(Sub::Wifi(a)) => a.take_recent(),
+            Some(Sub::Ssh(a)) => a.take_recent(),
+            None => Vec::new(),
+        };
+        for what in items.into_iter().rev() {
+            self.record(what);
+        }
     }
 
     /// `/` quick jump: fuzzy over the module names plus a few aliases.
@@ -1695,6 +1711,36 @@ mod tests {
         assert_eq!(app.help_scroll, 1);
         key(&mut app, KeyCode::Char('?'));
         assert!(!app.help, "? closes it");
+    }
+
+    #[test]
+    fn sub_screen_actions_echo_into_recent() {
+        // A net apply inside the NETWORK sub-screen must show in the deck strip.
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('3'));
+        key(&mut app, KeyCode::Char('a'));
+        assert!(app.recent.is_empty(), "nothing recorded before the confirm");
+        key(&mut app, KeyCode::Enter);
+        assert!(
+            app.recent.iter().any(|r| r.starts_with("Network: applied")),
+            "{:?}",
+            app.recent
+        );
+        // leave the net screen (its demo job may still be running) and open SSH
+        app.sub = None;
+        key(&mut app, KeyCode::Char('5'));
+        key(&mut app, KeyCode::Char('a'));
+        key(&mut app, KeyCode::Enter); // paste a public key
+        for c in "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICKDgLaeocpxjyYcVfzkVhNoYwyzzw0TqveMdqGKqXB6 mentee@box".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        key(&mut app, KeyCode::Enter); // -> REVIEW
+        key(&mut app, KeyCode::Enter); // confirm
+        assert!(
+            app.recent.iter().any(|r| r.starts_with("SSH: authorized")),
+            "{:?}",
+            app.recent
+        );
     }
 
     #[test]

@@ -43,6 +43,8 @@ pub struct App {
     jump: Option<Input>,
     /// Pending REVIEW before a connect runs.
     review: Option<(Pending, review::Review)>,
+    /// Actions run here since the deck last drained them (RECENT strip).
+    recent: Vec<String>,
     pub help: bool,
     pub help_scroll: usize,
     pub message: Option<(Tone, String)>,
@@ -67,6 +69,7 @@ impl App {
             picker: None,
             jump: None,
             review: None,
+            recent: Vec::new(),
             help: false,
             help_scroll: 0,
             message: None,
@@ -208,7 +211,18 @@ impl App {
         self.review = Some((Pending::Connect { iface, ssid, psk: psk.to_string() }, r));
     }
 
+    /// Record a mutating action so the deck's RECENT strip shows it.
+    fn record(&mut self, what: impl Into<String>) {
+        self.recent.push(what.into());
+    }
+
+    /// Drain the actions recorded since the last call (oldest first).
+    pub fn take_recent(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.recent)
+    }
+
     fn connect_now(&mut self, iface: &str, ssid: &str, psk: &str) {
+        self.record(format!("Wifi: connected \"{ssid}\" on {iface}"));
         let country = if self.country.is_empty() { None } else { Some(self.country.as_str()) };
         match wifi::connect(iface, ssid, psk, country, self.demo) {
             Ok(msg) => {
@@ -729,6 +743,21 @@ mod tests {
         app.on_key(KeyEvent::from(KeyCode::Enter));
         app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+    }
+
+    #[test]
+    fn connect_is_recorded_for_the_deck() {
+        let mut app = App::new(true);
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        for c in "hunter2hunter2".chars() {
+            app.on_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        app.on_key(KeyEvent::from(KeyCode::Enter)); // REVIEW
+        assert!(app.take_recent().is_empty(), "nothing recorded before the confirm");
+        app.on_key(KeyEvent::from(KeyCode::Enter)); // confirm
+        let r = app.take_recent();
+        assert_eq!(r.len(), 1, "{r:?}");
+        assert!(r[0].starts_with("Wifi: connected"), "{r:?}");
     }
 
     #[test]

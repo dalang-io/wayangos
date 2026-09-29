@@ -52,6 +52,8 @@ pub struct App {
     jump: Option<Input>,
     /// Pending REVIEW before an add/remove runs.
     review: Option<(Pending, review::Review)>,
+    /// Actions run here since the deck last drained them (RECENT strip).
+    recent: Vec<String>,
     pub help: bool,
     pub help_scroll: usize,
     pub message: Option<(Tone, String)>,
@@ -73,6 +75,7 @@ impl App {
             picker: None,
             jump: None,
             review: None,
+            recent: Vec::new(),
             help: false,
             help_scroll: 0,
             message: None,
@@ -170,7 +173,18 @@ impl App {
         self.review = Some((Pending::Add(new), r));
     }
 
+    /// Record a mutating action so the deck's RECENT strip shows it.
+    fn record(&mut self, what: impl Into<String>) {
+        self.recent.push(what.into());
+    }
+
+    /// Drain the actions recorded since the last call (oldest first).
+    pub fn take_recent(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.recent)
+    }
+
     fn do_add(&mut self, new: Vec<SshKey>) {
+        self.record(format!("SSH: authorized {} key(s)", new.len()));
         if self.demo {
             let n = sshkeys::merge(&mut self.keys, new);
             self.message = Some((Tone::Ok, format!("demo: added {n} key(s) (nothing written)")));
@@ -239,6 +253,7 @@ impl App {
     }
 
     fn do_remove(&mut self, blob: &str, desc: &str) {
+        self.record(format!("SSH: removed {desc}"));
         if self.demo {
             self.keys.retain(|k| k.blob != blob);
             self.sel = self.sel.min(self.keys.len().saturating_sub(1));
@@ -695,6 +710,18 @@ mod tests {
         assert!(app.review.is_some(), "the fetched keys wait for a REVIEW");
         key(&mut app, KeyCode::Enter);
         assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+    }
+
+    #[test]
+    fn mutations_are_recorded_for_the_deck() {
+        let mut app = App::new(true);
+        key(&mut app, KeyCode::Char('d')); // remove REVIEW
+        assert!(app.take_recent().is_empty(), "nothing recorded before the confirm");
+        key(&mut app, KeyCode::Enter);
+        let r = app.take_recent();
+        assert_eq!(r.len(), 1, "{r:?}");
+        assert!(r[0].starts_with("SSH: removed"), "{r:?}");
+        assert!(app.take_recent().is_empty(), "drained once");
     }
 
     #[test]

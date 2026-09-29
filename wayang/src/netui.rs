@@ -68,6 +68,8 @@ pub struct App {
     job: Option<Receiver<Result<String, String>>>,
     /// Pending REVIEW before a mutation runs.
     review: Option<(Pending, review::Review)>,
+    /// Actions run here since the deck last drained them (RECENT strip).
+    recent: Vec<String>,
     pub help: bool,
     pub help_scroll: usize,
     pub exit: bool,
@@ -108,10 +110,21 @@ impl App {
             message: None,
             job: None,
             review: None,
+            recent: Vec::new(),
             help: false,
             help_scroll: 0,
             exit: false,
         }
+    }
+
+    /// Record a mutating action so the deck's RECENT strip shows it.
+    fn record(&mut self, what: impl Into<String>) {
+        self.recent.push(what.into());
+    }
+
+    /// Drain the actions recorded since the last call (oldest first).
+    pub fn take_recent(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.recent)
     }
 
     fn refresh(&mut self) {
@@ -575,6 +588,7 @@ impl App {
             return;
         };
         let state = if up { "up" } else { "down" };
+        self.record(format!("Network: {name} link {state}"));
         self.start_job(&format!("{name}: link {state}"), move || net::set_link(&name, up));
     }
 
@@ -585,6 +599,7 @@ impl App {
             return;
         };
         let demo = self.demo;
+        self.record(format!("Network: {name} dhcp lease"));
         self.start_job(&format!("{name}: dhcp"), move || net::dhcp_now(&name, demo));
     }
 
@@ -595,6 +610,7 @@ impl App {
             return;
         };
         let demo = self.demo;
+        self.record(format!("Network: {name} also-lease"));
         self.start_job(&format!("{name}: also lease"), move || net::toggle_also(&name, demo));
     }
 
@@ -608,9 +624,11 @@ impl App {
             self.message = Some((Tone::Bad, e));
             return;
         }
+        let name = iface.name.clone();
         let choice = self.choice.clone();
         let demo = self.demo;
         let label = choice.summary();
+        self.record(format!("Network: applied {name} ({label})"));
         self.start_job(&label, move || choice.apply(demo));
     }
 }
@@ -972,6 +990,18 @@ mod tests {
         assert!(rev.note.as_ref().unwrap().contains("primary uplink"), "{:?}", rev.note);
         app.on_key(KeyEvent::from(KeyCode::Esc));
         assert!(app.review.is_none() && !app.busy(), "esc cancels; nothing runs");
+    }
+
+    #[test]
+    fn mutations_are_recorded_for_the_deck() {
+        let mut app = App::new(true);
+        app.on_key(KeyEvent::from(KeyCode::Char('h'))); // dhcp REVIEW
+        assert!(app.take_recent().is_empty(), "nothing recorded before the confirm");
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        let r = app.take_recent();
+        assert_eq!(r.len(), 1, "{r:?}");
+        assert!(r[0].starts_with("Network: eth0 dhcp"), "{r:?}");
+        assert!(app.take_recent().is_empty(), "drained once");
     }
 
     #[test]
