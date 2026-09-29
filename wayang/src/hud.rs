@@ -105,26 +105,9 @@ pub struct Theme {
     pub on_badge: Color,
 }
 
-/// Neon values: (console slot, RGB), slots 0-7 double as backgrounds.
-const CONSOLE_PALETTE: [(u8, (u8, u8, u8)); 16] = [
-    (0, (10, 14, 20)),
-    (1, (255, 59, 59)),
-    (2, (57, 255, 136)),
-    (3, (255, 176, 0)),
-    (4, (28, 74, 92)),
-    (5, (74, 14, 52)),
-    (6, (0, 229, 255)),
-    (7, (196, 210, 224)),
-    (8, (112, 132, 152)),
-    (9, (255, 59, 59)),
-    (10, (57, 255, 136)),
-    (11, (255, 176, 0)),
-    (12, (0, 160, 200)),
-    (13, (255, 46, 151)),
-    (14, (0, 229, 255)),
-    (15, (255, 255, 255)),
-];
-
+// The console is no longer re-programmed: on the Linux console the CLI uses the
+// same ANSI palette as wayang-fw/wayang-router, so the three HUDs look identical
+// (no blue border/bar, no OSC palette rewrite).
 impl Theme {
     pub fn detect() -> Theme {
         let env = |k: &str| std::env::var(k).ok().unwrap_or_default().to_ascii_lowercase();
@@ -163,16 +146,16 @@ impl Theme {
                 mode,
                 g,
                 accent: Color::Cyan,
-                accent2: Color::LightMagenta,
-                dim: Color::DarkGray,
-                border: Color::Blue,
+                accent2: Color::Magenta,
+                dim: Color::Gray,
+                border: Color::DarkGray,
                 ok: Color::Green,
                 warn: Color::Yellow,
                 bad: Color::Red,
                 fg: Color::Gray,
                 bg: Color::Black,
-                bar: Some(Color::Blue),
-                sel: Some((Color::Magenta, Color::White)),
+                bar: None,
+                sel: None,
                 on_badge: Color::Black,
             },
             Mode::Ansi => Theme {
@@ -180,13 +163,13 @@ impl Theme {
                 g,
                 accent: Color::Cyan,
                 accent2: Color::Magenta,
-                dim: Color::DarkGray,
+                dim: Color::Gray,
                 border: Color::DarkGray,
                 ok: Color::Green,
                 warn: Color::Yellow,
                 bad: Color::Red,
-                fg: Color::Reset,
-                bg: Color::Reset,
+                fg: Color::Gray,
+                bg: Color::Black,
                 bar: None,
                 sel: None,
                 on_badge: Color::Black,
@@ -210,14 +193,11 @@ impl Theme {
         }
     }
 
-    /// Escape sequence re-programming the console palette (Console mode only).
+    /// The console is no longer re-programmed: on the Linux console the CLI
+    /// uses the same ANSI palette as wayang-fw/wayang-router, so the three HUDs
+    /// look identical. Always `None` (kept for call-site compatibility).
     pub fn console_palette(&self) -> Option<String> {
-        (self.mode == Mode::Console).then(|| {
-            CONSOLE_PALETTE
-                .iter()
-                .map(|(i, (r, g, b))| format!("\x1b]P{i:x}{r:02x}{g:02x}{b:02x}"))
-                .collect()
-        })
+        None
     }
 
     pub fn base(&self) -> Style {
@@ -599,10 +579,33 @@ mod tests {
     }
 
     #[test]
-    fn console_palette_escapes() {
-        let p = Theme::new(Mode::Console, &CONSOLE).console_palette().unwrap();
-        assert!(p.starts_with("\x1b]P00a0e14"));
+    fn console_palette_is_not_rewritten() {
+        // The Linux console now uses the same ANSI palette as wayang-fw /
+        // wayang-router — no OSC rewrite, so the three HUDs look identical.
+        assert!(Theme::new(Mode::Console, &CONSOLE).console_palette().is_none());
         assert!(Theme::new(Mode::Neon, &FANCY).console_palette().is_none());
+        // And the console palette must not use Blue border/bar (the old bug).
+        let t = Theme::new(Mode::Console, &CONSOLE);
+        assert_ne!(t.border, Color::Blue);
+        assert!(t.bar.is_none());
+    }
+
+    #[test]
+    fn console_matches_ansi_palette() {
+        let c = Theme::new(Mode::Console, &CONSOLE);
+        let a = Theme::new(Mode::Ansi, &FANCY);
+        for (name, x, y) in [
+            ("accent", c.accent, a.accent),
+            ("accent2", c.accent2, a.accent2),
+            ("dim", c.dim, a.dim),
+            ("border", c.border, a.border),
+            ("ok", c.ok, a.ok),
+            ("warn", c.warn, a.warn),
+            ("bad", c.bad, a.bad),
+        ] {
+            assert_eq!(x, y, "console {name} must equal ansi {name}");
+        }
+        assert_eq!(c.bar, a.bar);
     }
 
     fn panel_text(t: &Theme, focused: bool) -> String {
