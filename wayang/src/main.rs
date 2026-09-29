@@ -184,7 +184,7 @@ fn main() -> ExitCode {
             Ok(0)
         }
         Command::PrintVersion => {
-            println!("wayang {} ({})", env!("CARGO_PKG_VERSION"), version::BUILD_MARKER);
+            println!("{}", version_line());
             Ok(0)
         }
         Command::Version => version::read().map(|v| {
@@ -217,6 +217,13 @@ fn main() -> ExitCode {
             ExitCode::from(e.code as u8)
         }
     }
+}
+
+/// The `wayang --version` line: the crate semver plus the CLI build marker
+/// (`ux-p1`). The crate version mirrors the OS product, so the marker is how a
+/// HUD/CLI revision is identified without touching it.
+fn version_line() -> String {
+    format!("wayang {} ({})", env!("CARGO_PKG_VERSION"), version::BUILD_MARKER)
 }
 
 /// Rust ignores `SIGPIPE`, so a write to a closed pipe makes the process abort
@@ -351,4 +358,16 @@ fn run_screen(help: &str, run: fn() -> std::io::Result<()>) -> Result<i32> {
     }
     run().map_err(|e| error::AppError::err(e.to_string()))?;
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_line_identifies_the_build() {
+        let s = version_line();
+        assert_eq!(s, format!("wayang {} (ux-p1)", env!("CARGO_PKG_VERSION")), "{s}");
+        assert!(s.starts_with("wayang 0.1.0 ("), "{s}");
+    }
 }

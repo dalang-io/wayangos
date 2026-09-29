@@ -1544,6 +1544,27 @@ mod tests {
     }
 
     #[test]
+    fn demo_header_never_shows_a_fake_version() {
+        let app = App::new(true);
+        let text = render(&app, 120, 36).unwrap();
+        let header = text.lines().next().unwrap_or("");
+        assert!(header.contains("demo"), "the demo header is labelled:\n{header}");
+        assert!(!header.contains("v1.4.1"), "no fake release in the header:\n{header}");
+        // The sample data still shows on the card, marked DEMO DATA.
+        assert!(text.contains("DEMO DATA"));
+        assert!(text.contains("1.4.1"), "the card keeps the sample version:\n{text}");
+    }
+
+    #[test]
+    fn header_shows_the_box_version_outside_demo() {
+        let mut app = App::new(false);
+        app.status.version = Some("9.9.9".into());
+        let text = render(&app, 140, 36).unwrap();
+        let header = text.lines().next().unwrap_or("");
+        assert!(header.contains("v9.9.9"), "the real header shows the box version:\n{header}");
+    }
+
+    #[test]
     fn focused_deck_pane_and_dim_card() {
         // The MODULES list owns the keyboard; the preview card is unfocused.
         let app = App::new(true);
