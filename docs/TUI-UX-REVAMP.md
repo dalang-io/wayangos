@@ -10,9 +10,15 @@ it stays the historical look-and-feel reference, and the shared-kit extraction
 | HUD | repo | P0 |
 |---|---|---|
 | `wayang` CLI | `wayangos` (`wayang/src/`) | ✅ done — `ca49082` (nav, tabs, keycaps, breadcrumb, `?`+concept map, RECENT, `/` deck jump, REVIEW for update/reset/net/wifi/ssh) |
-| `wayang-fw` | `wayang-fw` | ⏳ wave 1 |
-| `wayang-router` | `wayang-router` | ⏳ wave 1 |
+| `wayang-fw` | `wayang-fw` | ✅ done — `c9dd87f` (0.4.0: tabs, keycaps, `?`+concept map, RECENT, `/` jump, REVIEW+nft preview, policy wizard, FortiOS import review, `E` code TOML) |
+| `wayang-router` | `wayang-router` | ✅ done — `a8bc823` (0.4.0: tabs incl. new UPLINKS, REVIEW, no silent primary + `[primary]`/`p`, `?`, `/` jump, RECENT, `f` form↔code) |
 | `dcheck` | `dcheck` | ⏸ deferred (P2 shared kit) |
+
+Released: **wayang-router v0.4.0** + **wayang-fw v0.4.0** (tags + GitHub releases +
+mirror `wayang.dalang.io/edge/tools/`; OS pins bumped). The `wayang` CLI ships
+inside WayangOS (no separate tag); it is installed on the test box for manual
+testing. P1 polish (per-row keycaps, deeper `/` jump, auto-open import review,
+WAN wizard) is a follow-up wave.
 
 ## 1. Why
 
