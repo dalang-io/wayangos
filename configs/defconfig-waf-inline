@@ -1,0 +1,186 @@
+# WAYANG_BASE: defconfig-qemu
+#
+# WayangOS WAF **mode B — transparent inline (bump-in-the-wire)** kernel fragment.
+#
+# Enables L7 interception so a later `wayang-waf` phase can inspect traffic **in
+# the path** instead of only as a reverse proxy. Design: `wayang-fw/docs/WAF.md`
+# §3 (deployment modes) + §10 (P2, "Kernel fragment (TPROXY/NFQUEUE) + soak").
+#
+# ############################################################################
+# #  NOT IN ANY BUILD PIPELINE. NOTHING SHIPS THIS.                          #
+# #                                                                          #
+# #  No workflow, no script and no config index builds this file. It exists   #
+# #  as the reviewable staging list of options for the P2 WAF work, exactly   #
+# #  like `scripts/bisect-router-opts.sh` keeps option lists for the router  #
+# #  block. It must not reach an image until it has had the same treatment    #
+# #  the router block got (docs/ROUTER-KERNEL-BISECT.md): per-option bisect,  #
+# #  then a boot-count soak, then a cold-boot soak.                           #
+# #                                                                          #
+# #  This matters: 1.0.13 and 1.0.20 BOTH FROZE THE DEVICE when a large      #
+# #  kernel block went in, and the router block was only re-enabled in       #
+# #  1.0.27 after ~30 clean boots plus a cold-boot soak (AGENTS.md,          #
+# #  "Current state"; docs/INCIDENT-1.0.13.md is the owner's incident log).   #
+# #  Nine kernel symbols are not worth a bricked kiosk.                      #
+# ############################################################################
+#
+# ## How to build it (read this before running build-kernel.sh)
+#
+# The base is `defconfig-qemu`, NOT `defconfig-intel`, and that is deliberate.
+# `build-kernel.sh` copies the base file **verbatim** into `.config` and then
+# runs `make olddefconfig` — it resolves **exactly one level** of fragment
+# (AGENTS.md rule 5). `defconfig-intel` is itself a fragment, so
+# `WAYANG_BASE: defconfig-intel` would give olddefconfig only defconfig-intel's
+# ~180 lines with no `defconfig-qemu` underneath. Verified on linux-7.2.7: that
+# resolves to a **kernel with no networking at all** — `CONFIG_NET`, `CONFIG_PCI`,
+# `CONFIG_MODULES`, `CONFIG_SMP` and `CONFIG_NF_TABLES` all come out `n`. Silent,
+# and unusable.
+#
+# This fragment therefore layers on the FULL base, and its body is the
+# **device/installer option set** (what `defconfig-intel` contributes) plus the
+# WAF block below. Build it the way `bisect-router-opts.sh` does — flatten into
+# a temp fragment that keeps `defconfig-intel`'s own base line:
+#
+#     { head -n 1 configs/defconfig-intel
+#       tail -n +2 configs/defconfig-intel
+#       tail -n +2 configs/defconfig-waf-inline; } > /tmp/defconfig-waf-inline
+#     ./scripts/build-kernel.sh defconfig-waf-inline
+#
+# ...after `cp /tmp/defconfig-waf-inline configs/` (build-kernel.sh resolves
+# config names inside `configs/`, not paths).
+#
+# The eventual destination, once (and only once) it has soaked clean, is
+# `defconfig-intel` itself — the same way the router block was folded back in
+# (docs/ROUTER-KERNEL-BISECT.md, "Interpreting and folding back").
+#
+# ## What is deliberately NOT here
+#
+#   * **Mode A (reverse proxy)** needs no kernel option at all. That is the WAF
+#     P0 and the design recommends shipping it first; this fragment is only for
+#     P2 and a deployment that cannot re-architect its traffic.
+#   * **XDP / eBPF.** Nothing in P2 uses it. Note the symbols differ from what
+#     the WAF design assumed: there is **no `CONFIG_NET_XDP`** in 7.2.7 (generic
+#     XDP is unconditional, XDP support is per-driver), and `CONFIG_BPF=y` is
+#     already in the base — what is actually off is `BPF_SYSCALL` (the `bpf()`
+#     syscall, i.e. the ability to load any program) and `BPF_JIT`. Enabling
+#     those is a separate, larger decision: see the size table in
+#     configs/README.md. e1000e/igb/igc/ixgbe/i40e have XDP in 7.2.7; r8169 and
+#     the USB NICs do not, so a XDP fast path would not be uniform on this box.
+#   * **The legacy iptables backend** (`IP_NF_IPTABLES_LEGACY`, `IP_NF_MANGLE`).
+#     7.x gates `IP_NF_MANGLE` behind `IP_NF_IPTABLES_LEGACY`; `NFT_COMPAT`
+#     below is the cheap way to satisfy the xtables TPROXY target instead.
+#   * **NFLOG for the WAF's own logging** — `NETFILTER_NETLINK_LOG` is already
+#     =y in the base; the wayang-fw `NFLOG` group targets are a userspace
+#     (libnetfilter_log) question, not a kernel one.
+#
+# ## Housekeeping
+#
+# One level of fragment only (AGENTS.md rule 5): this file must not itself be
+# used as somebody else's `WAYANG_BASE`.
+#
+# Every symbol below was verified present in **linux-7.2.7** and verified to
+# survive `make olddefconfig` (see configs/README.md for the RT caveat and the
+# measured size). Options that a parent `select`s are still listed explicitly so
+# that a silent drop shows up in a plain diff of this file.
+
+# ---------------------------------------------------------------------------
+# 0. Parents — declared so the fragment resolves on its own base
+# ---------------------------------------------------------------------------
+# Not part of the WAF: these are the Kconfig parents the options below need, so
+# the fragment is self-sufficient on `# WAYANG_BASE: defconfig-qemu` instead of
+# relying on `defconfig-intel` having set them. `defconfig-intel` already sets
+# all five (=y), so on the flattened device build they change nothing.
+# Do NOT delete this block: with it removed, olddefconfig silently drops
+# NETFILTER_NETLINK_QUEUE, NFT_QUEUE and all three xtables extensions, because
+# every one of them `depends on NETFILTER_ADVANCED`.
+CONFIG_NETFILTER_ADVANCED=y
+# NFT_SOCKET and the NFT_TPROXY selects need the nf_tables families. NFT_TPROXY
+# only `select`s NF_TPROXY_IPV6 `if NF_TABLES_IPV6`, so without this an
+# IPv6-only tproxy rule would quietly lose its target.
+CONFIG_NF_TABLES=y
+CONFIG_NF_TABLES_INET=y
+CONFIG_NF_TABLES_IPV4=y
+CONFIG_NF_TABLES_IPV6=y
+# ---------------------------------------------------------------------------
+# 1. NFQUEUE — hand packets to a userspace WAF, get a verdict back
+# ---------------------------------------------------------------------------
+# NETFILTER_NETLINK_QUEUE is the nfnetlink_queue kernel object itself
+# (net/netfilter/nfnetlink_queue.c). It is what libnetfilter_queue binds to.
+# deps: NETFILTER_ADVANCED (already =y via defconfig-intel) + selects
+# NETFILTER_NETLINK. There is no plain "CONFIG_NFQUEUE" symbol in 7.2.7 — the
+# old one was folded into this (verified: no `config NFQUEUE` under net/).
+CONFIG_NETFILTER_NETLINK_QUEUE=y
+# nftables `queue` expression, so the ruleset wayang-fw renders can use
+# `queue num 0-3` instead of the iptables target. deps: NETFILTER_NETLINK_QUEUE.
+CONFIG_NFT_QUEUE=y
+# iptables `-j NFQUEUE` target, for xtables-shaped rules and third-party
+# tooling that writes iptables. deps: NETFILTER_ADVANCED only — no extra parent.
+CONFIG_NETFILTER_XT_TARGET_NFQUEUE=y
+# Userspace half (NOT a kernel option, listed so it is not forgotten):
+# libnetfilter_queue, statically linked into the wayang-waf binary. Without a
+# userspace process bound to the queue the kernel verdict is the default accept.
+
+# ---------------------------------------------------------------------------
+# 2. TPROXY — transparent socket, keeps the real client IP through to the app
+# ---------------------------------------------------------------------------
+# nftables `tproxy` expression. This is the nftables-native path and the one
+# wayang-fw actually renders.
+# selects NF_DEFRAG_IPV4, NF_DEFRAG_IPV6 (NF_TABLES_IPV6 is =y), NF_TPROXY_IPV4
+# and NF_TPROXY_IPV6 — all four parents are already =y in defconfig-intel, so
+# this resolves with no extra code beyond the tproxy expression itself.
+CONFIG_NFT_TPROXY=y
+# The per-family TPROXY targets behind it. In 7.2.7 these are named
+# NF_TPROXY_IPV4 / NF_TPROXY_IPV6 (net/ipv4|ipv6/netfilter/Kconfig). There is
+# **no `CONFIG_NF_TPROXY`** in this tree — that is the pre-4.18 name; a fragment
+# asking for it is silently dropped. Listed here for documentation value.
+CONFIG_NF_TPROXY_IPV4=y
+CONFIG_NF_TPROXY_IPV6=y
+# iptables `-j TPROXY`. NOTE its deps: NETFILTER_XTABLES + NETFILTER_ADVANCED +
+# `IP_NF_MANGLE || NFT_COMPAT`. defconfig-intel sets *neither* IP_NF_MANGLE nor
+# NFT_COMPAT, so asking for this symbol on its own is a silent drop. NFT_COMPAT
+# (below) is the cheap satisfier; the alternative, IP_NF_MANGLE, drags in the
+# deprecated IP_NF_IPTABLES_LEGACY backend.
+CONFIG_NETFILTER_XT_TARGET_TPROXY=y
+# x_tables-over-nf_tables glue, the x86 analogue of the *_ARCH / LLC / STP
+# "select by parent" cases in docs/ROUTER-KERNEL-BISECT.md. It exists in this
+# fragment solely to satisfy NETFILTER_XT_TARGET_TPROXY's IP_NF_MANGLE dep.
+# deps: NETFILTER_XTABLES (already =y). Drop this line *and* the TPROXY target
+# above together if the size budget ever gets tight — nftables TPROXY is
+# unaffected either way.
+CONFIG_NFT_COMPAT=y
+# Defragmenters the TPROXY targets select. Already =y in the base; restated so
+# the tproxy path cannot silently lose them.
+CONFIG_NF_DEFRAG_IPV4=y
+CONFIG_NF_DEFRAG_IPV6=y
+
+# ---------------------------------------------------------------------------
+# 3. Socket match — find the transparent listener before hijacking
+# ---------------------------------------------------------------------------
+# The nftables `socket` match: match packets that belong to a locally bound
+# socket, which is how an inline WAF avoids grabbing traffic it already serves.
+# Already =y in defconfig-intel (it is what selects NF_SOCKET_IPV4/IPV6); kept
+# explicit because TPROXY depends on the same socket-lookup infrastructure.
+CONFIG_NFT_SOCKET=y
+# iptables `-m socket`. deps: NETFILTER_XTABLES + NETFILTER_ADVANCED +
+# `IP6_NF_IPTABLES || !IP6_NF_IPTABLES`. IP6_NF_IPTABLES is =y in the base, so
+# this one needs no extra parent. (Contrary to the usual advice it does NOT
+# depend on CONFIG_NET_SOCKETS in 7.2.7 — NET_SOCKETS is no longer a Kconfig
+# symbol at all in this tree.) Selects the two NF_SOCKET_* below.
+CONFIG_NETFILTER_XT_MATCH_SOCKET=y
+CONFIG_NF_SOCKET_IPV4=y
+CONFIG_NF_SOCKET_IPV6=y
+
+# ---------------------------------------------------------------------------
+# 4. TPROXY reply path — fwmark policy routing
+# ---------------------------------------------------------------------------
+# A TPROXY'd flow is answered by the local socket and must go back out the
+# ingress interface, so the box needs `ip rule fwmark` + a local table. All
+# three are already =y in defconfig-intel; restated so the tproxy path is
+# self-contained. The ingress qdisc it pairs with (IFB, NET_SCH_INGRESS,
+# NET_CLS_FW/U32, NET_ACT_MIRRED) is in defconfig-intel's QoS block too.
+CONFIG_IP_ADVANCED_ROUTER=y
+CONFIG_IP_MULTIPLE_TABLES=y
+CONFIG_IPV6_MULTIPLE_TABLES=y
+# Per-flow marks survive the round trip through userspace, so the WAF can key
+# policy on the connmark it set. Already =y via defconfig-intel.
+CONFIG_NF_CONNTRACK_MARK=y
+CONFIG_NF_CONNTRACK_ZONES=y
