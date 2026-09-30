@@ -209,10 +209,9 @@ impl Status {
         if self.tunnel_up && (self.connected || self.last_handshake.is_none()) {
             return Health::TunnelUp;
         }
-        if let Some(e) = &self.error {
-            if !e.trim().is_empty() {
-                return Health::Blocked(e.clone());
-            }
+        if let Some(e) = &self.error
+            && !e.trim().is_empty() {
+            return Health::Blocked(e.clone());
         }
         if self.tunnel_up {
             Health::TunnelUp
@@ -281,10 +280,9 @@ fn status_full(base: &Path, sys: &Path, log: Option<&Path>) -> Status {
     }
     // The agent exits after a rejected bootstrap and only records the hub's
     // reason in its log, so consult the tail (newest-up finding wins).
-    if let Some(path) = log {
-        if let Some(text) = read_tail(path, LOG_TAIL_BYTES) {
-            merge_agent_text(&mut st, &text);
-        }
+    if let Some(path) = log
+        && let Some(text) = read_tail(path, LOG_TAIL_BYTES) {
+        merge_agent_text(&mut st, &text);
     }
     st
 }
@@ -296,10 +294,9 @@ pub fn tunnel_up_at(sys: &Path) -> bool {
     if !iface.exists() {
         return false;
     }
-    if let Ok(raw) = fs::read_to_string(iface.join("flags")) {
-        if let Ok(flags) = u32::from_str_radix(raw.trim().trim_start_matches("0x"), 16) {
-            return flags & 0x1 != 0;
-        }
+    if let Ok(raw) = fs::read_to_string(iface.join("flags"))
+        && let Ok(flags) = u32::from_str_radix(raw.trim().trim_start_matches("0x"), 16) {
+        return flags & 0x1 != 0;
     }
     match fs::read_to_string(iface.join("operstate")) {
         Ok(s) => s.trim() != "down",
@@ -986,14 +983,13 @@ fn bundle_wg_keys(root: &Path) -> Vec<(String, String)> {
     if let Ok(rd) = fs::read_dir(root.join("keys")) {
         for e in rd.flatten() {
             let p = e.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("key") {
-                if let (Some(name), Ok(raw)) =
+            if p.extension().and_then(|s| s.to_str()) == Some("key")
+                && let (Some(name), Ok(raw)) =
                     (p.file_name().and_then(|s| s.to_str()), fs::read_to_string(&p))
-                {
-                    let val = raw.trim();
-                    if is_wg_key(val) {
-                        out.push((name.to_string(), val.to_string()));
-                    }
+            {
+                let val = raw.trim();
+                if is_wg_key(val) {
+                    out.push((name.to_string(), val.to_string()));
                 }
             }
         }
@@ -1018,10 +1014,9 @@ fn keys_from_install(text: &str) -> Vec<(String, String)> {
         if let Some((var, val)) = l.split_once('=') {
             let var = var.trim();
             let val = val.trim().trim_matches('"').trim_matches('\'');
-            if var.ends_with("_KEY") && val.ends_with(".key") {
-                if let Some(base) = val.rsplit('/').next() {
-                    files.insert(var.to_string(), base.trim().to_string());
-                }
+            if var.ends_with("_KEY") && val.ends_with(".key")
+                && let Some(base) = val.rsplit('/').next() {
+                files.insert(var.to_string(), base.trim().to_string());
             }
         }
     }
@@ -1046,10 +1041,9 @@ fn keys_from_install(text: &str) -> Vec<(String, String)> {
             Some(v) => v,
             None => continue,
         };
-        if let Some(name) = files.get(var) {
-            if is_wg_key(val) {
-                out.push((name.clone(), val.to_string()));
-            }
+        if let Some(name) = files.get(var)
+            && is_wg_key(val) {
+            out.push((name.clone(), val.to_string()));
         }
     }
     out
@@ -1073,10 +1067,9 @@ fn is_wg_key(s: &str) -> bool {
 /// The bundle's enrolment token: a `token` file, else one parsed out of
 /// `install.sh`. Already validated; never logged.
 fn bundle_token(root: &Path) -> Option<String> {
-    if let Ok(raw) = fs::read_to_string(root.join(TOKEN_BUNDLE_FILE)) {
-        if let Ok(t) = validate_token(&raw) {
-            return Some(t);
-        }
+    if let Ok(raw) = fs::read_to_string(root.join(TOKEN_BUNDLE_FILE))
+        && let Ok(t) = validate_token(&raw) {
+        return Some(t);
     }
     let install = fs::read_to_string(root.join(INSTALL_SH)).ok()?;
     token_from_install(&install)

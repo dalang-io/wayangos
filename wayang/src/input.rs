@@ -183,7 +183,7 @@ pub fn draw(f: &mut Frame, area: Rect, t: &Theme, input: &Input, tick: usize) {
         let n = input.buf.chars().count();
         input.buf.chars().skip(n.saturating_sub(room)).collect()
     };
-    let cursor = if tick % 2 == 0 { "_" } else { " " };
+    let cursor = if tick.is_multiple_of(2) { "_" } else { " " };
     let field = Line::from(vec![
         Span::styled(format!("{} ", t.selection_mark().trim_end()), t.palette.bold(t.palette.accent2)),
         Span::styled(shown, t.palette.bold(t.palette.fg).add_modifier(Modifier::UNDERLINED)),

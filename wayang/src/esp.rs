@@ -10,10 +10,9 @@ pub const BY_LABEL: &str = "/dev/disk/by-label/WAYANGBOOT";
 /// Pure discovery given the environment value, whether the by-label symlink
 /// exists, and the captured `blkid` output.
 pub fn discover_from(env_esp: Option<String>, by_label_exists: bool, blkid: &str) -> Option<PathBuf> {
-    if let Some(e) = env_esp {
-        if !e.trim().is_empty() {
-            return Some(PathBuf::from(e));
-        }
+    if let Some(e) = env_esp
+        && !e.trim().is_empty() {
+        return Some(PathBuf::from(e));
     }
     if by_label_exists {
         return Some(PathBuf::from(BY_LABEL));

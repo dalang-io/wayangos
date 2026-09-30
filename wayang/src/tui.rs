@@ -1098,10 +1098,9 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 ]));
             }
             l.push(Line::from(""));
-            if app.job.is_none() {
-                if let Some((_, m)) = &app.message {
-                    l.push(field("LAST", m.clone(), t));
-                }
+            if app.job.is_none()
+                && let Some((_, m)) = &app.message {
+                l.push(field("LAST", m.clone(), t));
             }
             l.push(Line::from(Span::styled(
                 "Staged updates apply on the next reboot; a boot that never reaches `wayang mark-ok` falls back on its own.",
@@ -1284,10 +1283,9 @@ fn match_modules(q: &str) -> Vec<usize> {
     if q.is_empty() {
         return Vec::new();
     }
-    if let Ok(n) = q.parse::<usize>() {
-        if (1..=MODULES.len()).contains(&n) {
-            return vec![n - 1];
-        }
+    if let Ok(n) = q.parse::<usize>()
+        && (1..=MODULES.len()).contains(&n) {
+        return vec![n - 1];
     }
     MODULES
         .iter()

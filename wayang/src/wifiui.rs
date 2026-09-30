@@ -109,7 +109,7 @@ impl App {
     /// link comes up a moment after `connect` returns).
     pub fn poll_tick(&mut self) {
         self.tick = self.tick.wrapping_add(1);
-        if self.tick % 10 == 0 {
+        if self.tick.is_multiple_of(10) {
             self.refresh_links();
         }
     }
@@ -161,10 +161,9 @@ impl App {
             "Regulatory domain for the wireless radio:",
             items,
         ));
-        if let Some(i) = wifi::REGIONS.iter().position(|(c, _)| *c == self.country) {
-            if let Some(p) = self.picker.as_mut() {
-                p.sel = i + 1;
-            }
+        if let Some(i) = wifi::REGIONS.iter().position(|(c, _)| *c == self.country)
+            && let Some(p) = self.picker.as_mut() {
+            p.sel = i + 1;
         }
     }
 

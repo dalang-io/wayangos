@@ -374,15 +374,13 @@ pub fn parse_link(text: &str) -> LinkStatus {
 /// persisted SSID so a configured-but-not-yet-associated box still shows it.
 pub fn link_status(iface: &str) -> LinkStatus {
     let mut st = LinkStatus::default();
-    if sys::which("iw") {
-        if let Ok(out) = sys::run("iw", &["dev", iface, "link"]) {
-            st = parse_link(&out);
-        }
+    if sys::which("iw")
+        && let Ok(out) = sys::run("iw", &["dev", iface, "link"]) {
+        st = parse_link(&out);
     }
-    if !st.connected {
-        if let Some(s) = configured_ssid() {
-            st.ssid = s;
-        }
+    if !st.connected
+        && let Some(s) = configured_ssid() {
+        st.ssid = s;
     }
     st
 }
@@ -522,10 +520,9 @@ pub fn valid_credentials(ssid: &str, psk: &str) -> Result<(), String> {
 pub fn connect(iface: &str, ssid: &str, psk: &str, country: Option<&str>, demo: bool) -> Result<String, String> {
     valid_credentials(ssid, psk)?;
     let country = country.map(str::trim).filter(|c| !c.is_empty());
-    if let Some(cc) = country {
-        if cc.len() != 2 || !cc.chars().all(|c| c.is_ascii_alphabetic()) {
-            return Err(format!("country code '{cc}' must be two letters, e.g. GB"));
-        }
+    if let Some(cc) = country
+        && (cc.len() != 2 || !cc.chars().all(|c| c.is_ascii_alphabetic())) {
+        return Err(format!("country code '{cc}' must be two letters, e.g. GB"));
     }
     if demo {
         return Ok(format!("wifi: connected to {ssid} on {iface} (demo, not applied)"));
@@ -540,10 +537,9 @@ pub fn connect(iface: &str, ssid: &str, psk: &str, country: Option<&str>, demo: 
     }
     fs::write(&conf, wpa_conf(ssid, psk)).map_err(|e| format!("{}: {e}", conf.display()))?;
 
-    if let Some(cc) = country {
-        if sys::which("iw") {
-            sys::run("iw", &["reg", "set", cc]).map_err(|e| format!("iw reg set {cc}: {e}"))?;
-        }
+    if let Some(cc) = country
+        && sys::which("iw") {
+        sys::run("iw", &["reg", "set", cc]).map_err(|e| format!("iw reg set {cc}: {e}"))?;
     }
 
     if sys::which("rfkill") {

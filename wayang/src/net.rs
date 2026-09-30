@@ -289,10 +289,9 @@ pub fn dhcp_now(iface: &str, demo: bool) -> Result<String, String> {
     let _ = fs::create_dir_all(&run);
     let runf = run.join("wayang-primary");
     let empty = fs::read_to_string(&runf).map(|s| s.trim().is_empty()).unwrap_or(true);
-    if empty {
-        if let Some(p) = primary_iface() {
-            let _ = fs::write(&runf, format!("{p}\n"));
-        }
+    if empty
+        && let Some(p) = primary_iface() {
+        let _ = fs::write(&runf, format!("{p}\n"));
     }
     sys::run("ip", &["link", "set", iface, "up"])
         .map_err(|e| format!("cannot bring {iface} up: {e}"))?;
