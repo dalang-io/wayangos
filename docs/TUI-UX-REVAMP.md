@@ -223,6 +223,30 @@ garbage on screen and the user must exit and re-enter to get a clean UI.
 This also makes the HUD survive WayangOS's boot chatter when a console HUD is
 opened mid-boot.
 
+## 5d. Layout consistency — one tab = one full-screen view
+
+**Problem (reported).** Switching tabs is confusing because the *layout* changes
+per screen: on one page the panes are side-by-side, on another stacked, on a
+third full-screen. The user must re-learn "where the tab's content lives" on
+every page.
+
+**Decision.** Make the model uniform and predictable (the Winbox / FortiGate /
+Cloudflare model):
+
+1. **One tab = one full-screen view.** Selecting a tab gives that view the whole
+   content area. The tab row (`←→`) + breadcrumb are the only navigation chrome;
+   there are no ad-hoc side-by-side / stacked panes per page.
+2. **At most one detail treatment, identical everywhere.** Where a master–detail
+   is genuinely useful (a list + a detail/target panel), it is the **same
+   orientation on every screen** — a fixed bottom DETAIL strip (list on top) —
+   never left/right here and top/bottom there.
+3. **Focus is unambiguous**: with a full-screen tab, the focused thing is the
+   list (or the open modal); the old "which pane owns the keys" ambiguity goes
+   away.
+
+This supersedes the per-screen pane arrangements introduced across the focus
+wave; the tab rows stay, the bodies become uniform.
+
 ## 6. Forms & apply semantics (fixes issue #1)
 
 * **Stage vs commit stays**, but make it explicit and teachable:

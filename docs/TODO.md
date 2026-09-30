@@ -68,6 +68,12 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       repaint on startup/SIGWINCH/return/slow tick, and a `Ctrl-L` repaint —
       shared in `wayang-tui`.
       Design: [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md) §5c.
+- [ ] **Layout consistency: one tab = one full-screen view (all three HUDs)** —
+      remove the per-screen pane arrangements (side-by-side / stacked /
+      full-screen) that make tab switching confusing; a tab owns the whole body,
+      with a single identical DETAIL treatment where needed. Enterprise
+      requirement: predictable, learn-once navigation.
+      Design: [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md) §5d.
 - [ ] **Product API (all three tools)** — `wayang`, `wayang-fw`,
       `wayang-router` each get an **`api` subcommand** (loopback + bearer token)
       exposing status/config/plan/commit (and per-tool reads: wan/routes/wg/bgp,
