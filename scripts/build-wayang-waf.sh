@@ -25,8 +25,8 @@
 set -euo pipefail
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
 # Pinned: bump version + sha256 together (sha256 of the published binary).
-WAYANG_WAF_VERSION="${WAYANG_WAF_VERSION:-0.1.0}"
-WAYANG_WAF_SHA256="${WAYANG_WAF_SHA256:-a384270a7e7eb686bfe027bae7010662bc20fd3199fd4d8daddc1311198345ad}"
+WAYANG_WAF_VERSION="${WAYANG_WAF_VERSION:-0.1.1}"
+WAYANG_WAF_SHA256="${WAYANG_WAF_SHA256:-c5257175ea60d7b967e16cbf39cbe34949be39d4f352863c340482eb0471b168}"
 BASE_URL="${WAYANG_WAF_BASE_URL:-https://wayang.dalang.io/edge/tools}"
 ASSET="wayang-waf-v$WAYANG_WAF_VERSION-linux-amd64"
 OUTDIR="$BUILD/wayang-waf"
