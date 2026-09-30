@@ -43,6 +43,7 @@ fi
 ./scripts/build-iproute2.sh
 ./scripts/build-bird.sh
 ./scripts/build-radvd.sh || true
+./scripts/build-dnsmasq.sh || true
 ./scripts/build-wayang-router.sh
 ./scripts/build-wayang-fw.sh
 ./scripts/build-rootfs.sh

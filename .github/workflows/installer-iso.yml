@@ -215,11 +215,12 @@ jobs:
             wayangos-build/iproute2
             wayangos-build/bird
             wayangos-build/radvd
+            wayangos-build/dnsmasq
             wayangos-build/wayangi
             wayangos-build/wayang-router
             wayangos-build/wayang-fw
             wayangos-build/wifi
-          key: wos-tools-${{ hashFiles('scripts/build-nft.sh', 'scripts/build-wg.sh', 'scripts/build-iproute2.sh', 'scripts/build-bird.sh', 'scripts/build-radvd.sh', 'scripts/build-wayangi.sh', 'scripts/build-wayang-router.sh', 'scripts/build-wayang-fw.sh', 'scripts/build-wifi-tools.sh', 'scripts/stage-firmware.sh') }}
+          key: wos-tools-${{ hashFiles('scripts/build-nft.sh', 'scripts/build-wg.sh', 'scripts/build-iproute2.sh', 'scripts/build-bird.sh', 'scripts/build-radvd.sh', 'scripts/build-dnsmasq.sh', 'scripts/build-wayangi.sh', 'scripts/build-wayang-router.sh', 'scripts/build-wayang-fw.sh', 'scripts/build-wifi-tools.sh', 'scripts/stage-firmware.sh') }}
           restore-keys: wos-tools-
 
       # The scripts are idempotent (they skip finished builds), so racing them
@@ -249,6 +250,7 @@ jobs:
           job wifi-tools 0 ./scripts/build-wifi-tools.sh &
           job firmware   0 env FIRMWARE_DIR="$( [ -d /home/wosrunner/firmware-src ] && echo /home/wosrunner/firmware-src || echo /lib/firmware )" ./scripts/stage-firmware.sh &
           job radvd      0 ./scripts/build-radvd.sh    &
+          job dnsmasq    0 ./scripts/build-dnsmasq.sh  &
           job w-router   1 ./scripts/build-wayang-router.sh &
           job w-fw       1 ./scripts/build-wayang-fw.sh &
           job wayangi    0 env WAYANGI_BASE_URL="$WAYANGI_BASE_URL" ./scripts/build-wayangi.sh &
@@ -271,6 +273,7 @@ jobs:
             wayangos-build/iproute2/
             wayangos-build/bird/
             wayangos-build/radvd/
+            wayangos-build/dnsmasq/
             wayangos-build/wayangi/
             wayangos-build/wayang-router/
             wayangos-build/wayang-fw/
@@ -336,7 +339,8 @@ jobs:
       - name: Restore exec bits
         run: |
           find wayangos-build/nft wayangos-build/wg wayangos-build/iproute2 \
-               wayangos-build/bird wayangos-build/radvd wayangos-build/wayangi dist \
+               wayangos-build/bird wayangos-build/radvd wayangos-build/dnsmasq \
+               wayangos-build/wayangi dist \
                -maxdepth 3 -type f -exec chmod +x {} + 2>/dev/null || true
 
       # The trusted release keys are baked into /etc/wayang/trusted_keys by
@@ -432,7 +436,8 @@ jobs:
           [ -f wayangos-initramfs.img ] && [ ! -f wayangos-build/wayangos-initramfs.img ] \
             && mv wayangos-initramfs.img wayangos-build/ || true
           find wayangos-build/nft wayangos-build/wg wayangos-build/iproute2 \
-               wayangos-build/bird wayangos-build/radvd wayangos-build/wayangi dist \
+               wayangos-build/bird wayangos-build/radvd wayangos-build/dnsmasq \
+               wayangos-build/wayangi dist \
                -maxdepth 3 -type f -exec chmod +x {} + 2>/dev/null || true
 
       - name: Prepare signing key

@@ -407,7 +407,7 @@ find_fw() {
     return 1
 }
 
-MON_PID=/var/run/wayang-fw-monitor.pid
+MON_PID=/data/etc/fw/monitor.pid
 MON_LOG=/var/log/wayang-fw-monitor.log
 
 # `wayang-fw monitor --daemon` appends metrics to
@@ -415,24 +415,58 @@ MON_LOG=/var/log/wayang-fw-monitor.log
 # they survive updates and a reboot. Started only with the binary and a
 # confirmed config; idempotent via a pidfile and backgrounded so it can never
 # hold up boot (output to $MON_LOG, /var/log).
-monitor_running() {
+#
+# The pid comes from the file wayang-fw writes for itself, NOT from `$!`:
+# `--daemon` re-execs the collector detached (setsid) and the wrapper that we
+# background here exits at once, so `$!` names a process that is already gone.
+# That would make `status` always report "stopped" and leave `stop_monitor`
+# killing nothing. It is also the same file wayang-fw checks to refuse a second
+# collector, so the two agree.
+monitor_pid() {
     [ -s "$MON_PID" ] || return 1
-    kill -0 "$(cat "$MON_PID" 2>/dev/null)" 2>/dev/null
+    pid="$(cat "$MON_PID" 2>/dev/null)"
+    case "$pid" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || return 1
+    # A recycled pid would look alive; confirm it is still the collector.
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    grep -q wayang-fw "/proc/$pid/cmdline" 2>/dev/null || return 1
+    grep -q monitor "/proc/$pid/cmdline" 2>/dev/null || return 1
+    echo "$pid"
+}
+
+monitor_running() {
+    monitor_pid >/dev/null
 }
 
 start_monitor() {
     bin="$(find_fw)" || return 0
     [ -f /data/etc/fw/config.toml ] || return 0
     monitor_running && return 0
-    mkdir -p /data/var/wayang-fw 2>/dev/null || true
-    "$bin" monitor --daemon >>"$MON_LOG" 2>&1 &
-    echo "$!" > "$MON_PID"
-    logger -t wayang-fw "monitor started (history: /data/var/wayang-fw/history.jsonl)"
+    mkdir -p /data/var/wayang-fw /data/etc/fw 2>/dev/null || true
+    # A stale pidfile from a collector we no longer have would suppress the
+    # start below, so clear it once the process is known to be gone.
+    monitor_running || rm -f "$MON_PID"
+    "$bin" monitor --daemon >>"$MON_LOG" 2>&1
+    # The detached collector writes its pid a moment after we return; give it a
+    # bounded moment so `status` is right immediately after boot.
+    i=0
+    while [ "$i" -lt 20 ]; do
+        monitor_running && break
+        i=$((i + 1))
+        usleep 50000 2>/dev/null || sleep 1
+    done
+    if monitor_running; then
+        logger -t wayang-fw "monitor started (pid $(monitor_pid), history: /data/var/wayang-fw/history.jsonl)"
+    else
+        logger -t wayang-fw "monitor: --daemon returned but no live collector was found (see $MON_LOG)"
+    fi
 }
 
 stop_monitor() {
-    if monitor_running; then
-        kill "$(cat "$MON_PID" 2>/dev/null)" 2>/dev/null || true
+    if pid="$(monitor_pid)"; then
+        kill "$pid" 2>/dev/null || true
     fi
     rm -f "$MON_PID"
 }
@@ -459,8 +493,8 @@ case "$1" in
     status)
         fw="$(find_fw)" || { echo "wayang-fw not installed"; exit 1; }
         "$fw" status
-        if monitor_running; then
-            echo "monitor: running (pid $(cat "$MON_PID"))"
+        if pid="$(monitor_pid)"; then
+            echo "monitor: running (pid $pid)"
         else
             echo "monitor: stopped"
         fi
@@ -567,17 +601,32 @@ find_router() {
     return 1
 }
 
-MON_PID=/var/run/wayang-router-monitor.pid
 MON_LOG=/var/log/wayang-router-monitor.log
 
 # `wayang-router monitor --daemon` appends metrics to
 # /data/var/wayang-router/history.jsonl (dir created at the /data mount in
 # rcS) so they survive updates and a reboot. Started only with the binary and a
-# confirmed config; idempotent via a pidfile and backgrounded so it can never
-# hold up boot (output to $MON_LOG, /var/log).
+# confirmed config; idempotent and backgrounded so it can never hold up boot
+# (output to $MON_LOG, /var/log).
+#
+# wayang-router has no pidfile of its own, so the pid is found by matching
+# /proc. `$!` would be wrong: `--daemon` re-execs the collector detached
+# (setsid) and the wrapper backgrounded here exits immediately, leaving a dead
+# pid — `status` would always say "stopped" and `stop_monitor` would kill
+# nothing. (wayang-fw does write a pidfile; this is why the two differ.)
+monitor_pid() {
+    for d in /proc/[0-9]*; do
+        [ -r "$d/cmdline" ] || continue
+        grep -q wayang-router "$d/cmdline" 2>/dev/null || continue
+        grep -q monitor "$d/cmdline" 2>/dev/null || continue
+        echo "${d#/proc/}"
+        return 0
+    done
+    return 1
+}
+
 monitor_running() {
-    [ -s "$MON_PID" ] || return 1
-    kill -0 "$(cat "$MON_PID" 2>/dev/null)" 2>/dev/null
+    monitor_pid >/dev/null
 }
 
 start_monitor() {
@@ -585,16 +634,26 @@ start_monitor() {
     [ -f "$CONFIG" ] || return 0
     monitor_running && return 0
     mkdir -p /data/var/wayang-router 2>/dev/null || true
-    "$bin" monitor --daemon >>"$MON_LOG" 2>&1 &
-    echo "$!" > "$MON_PID"
-    logger -t wayang-router "monitor started (history: /data/var/wayang-router/history.jsonl)"
+    "$bin" monitor --daemon >>"$MON_LOG" 2>&1
+    # The detached collector takes a moment to appear in /proc; bounded wait so
+    # `status` is right immediately after boot.
+    i=0
+    while [ "$i" -lt 20 ]; do
+        monitor_running && break
+        i=$((i + 1))
+        usleep 50000 2>/dev/null || sleep 1
+    done
+    if monitor_running; then
+        logger -t wayang-router "monitor started (pid $(monitor_pid), history: /data/var/wayang-router/history.jsonl)"
+    else
+        logger -t wayang-router "monitor: --daemon returned but no live collector was found (see $MON_LOG)"
+    fi
 }
 
 stop_monitor() {
-    if monitor_running; then
-        kill "$(cat "$MON_PID" 2>/dev/null)" 2>/dev/null || true
+    if pid="$(monitor_pid)"; then
+        kill "$pid" 2>/dev/null || true
     fi
-    rm -f "$MON_PID"
 }
 
 case "$1" in
@@ -630,8 +689,8 @@ case "$1" in
         rt="$(find_router)" || { echo "wayang-router not installed"; exit 1; }
         "$rt" status
         if [ -S "$BIRD_CTL" ]; then echo "bird: running ($BIRD_CTL)"; fi
-        if monitor_running; then
-            echo "monitor: running (pid $(cat "$MON_PID"))"
+        if pid="$(monitor_pid)"; then
+            echo "monitor: running (pid $pid)"
         else
             echo "monitor: stopped"
         fi
@@ -1359,6 +1418,12 @@ install_tool iproute2/tc /usr/sbin/tc build-iproute2.sh
 install_tool bird/bird /usr/sbin/bird build-bird.sh
 [ -f "$BUILD/bird/birdc" ] && install_tool bird/birdc /usr/sbin/birdc build-bird.sh
 install_tool radvd/radvd /usr/sbin/radvd build-radvd.sh
+# dnsmasq — per-zone DHCP server + DNS forwarder for wayang-fw (static;
+# scripts/build-dnsmasq.sh). Optional: wayang-fw renders /data/etc/fw/
+# dnsmasq.conf from the [[dhcp]] / [[dns]] blocks and drives this daemon, but
+# warns and no-ops when the binary is absent, so the firewall is never
+# affected. Without it that feature stays dormant on a real device.
+install_tool dnsmasq/dnsmasq /usr/sbin/dnsmasq build-dnsmasq.sh
 # wayang-router / wayang-fw are baked into the image (docs/ROUTER-TODO.md): a
 # fresh WayangOS already has the router + firewall CLIs, so an Edge config can
 # be applied without a separate /data/bin deploy. A /data/bin copy still wins at
