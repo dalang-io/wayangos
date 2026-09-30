@@ -2,11 +2,11 @@
 //! SSID, enter the passphrase (and optional country) and Connect. Persists
 //! `/data/etc/wpa_supplicant.conf` and pins the interface as primary.
 
+use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 use crate::hud::{self, Theme};
 use crate::input::{self, Input, Outcome, Pick, Picker};
@@ -22,7 +22,11 @@ const TABS: [&str; 3] = ["ACCESS POINTS", "WIRELESS IFACE", "DETAILS"];
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Pending {
     /// Connect to `ssid` on `iface` with `psk`.
-    Connect { iface: String, ssid: String, psk: String },
+    Connect {
+        iface: String,
+        ssid: String,
+        psk: String,
+    },
 }
 
 pub struct App {
@@ -86,7 +90,10 @@ impl App {
                 "No wireless interface. See docs/NETWORK.md wifi prerequisites.".into(),
             ));
         } else if !sys::which("iw") {
-            app.message = Some((Tone::Warn, "`iw` not installed; scanning unavailable.".into()));
+            app.message = Some((
+                Tone::Warn,
+                "`iw` not installed; scanning unavailable.".into(),
+            ));
         } else {
             app.message = Some((Tone::Ok, "Press s to scan.".into()));
         }
@@ -99,10 +106,18 @@ impl App {
 
     fn refresh_links(&mut self) {
         if self.demo {
-            self.links = self.ifaces.iter().map(|_| wifi::LinkStatus::default()).collect();
+            self.links = self
+                .ifaces
+                .iter()
+                .map(|_| wifi::LinkStatus::default())
+                .collect();
             return;
         }
-        self.links = self.ifaces.iter().map(|i| wifi::link_status(&i.name)).collect();
+        self.links = self
+            .ifaces
+            .iter()
+            .map(|i| wifi::link_status(&i.name))
+            .collect();
     }
 
     /// Called once per UI tick: refresh association state periodically (the
@@ -155,14 +170,19 @@ impl App {
 
     fn open_country(&mut self) {
         let mut items = vec!["(not set)".to_string()];
-        items.extend(wifi::REGIONS.iter().map(|(code, name)| format!("{code}  {name}")));
+        items.extend(
+            wifi::REGIONS
+                .iter()
+                .map(|(code, name)| format!("{code}  {name}")),
+        );
         self.picker = Some(Picker::new(
             "COUNTRY",
             "Regulatory domain for the wireless radio:",
             items,
         ));
         if let Some(i) = wifi::REGIONS.iter().position(|(c, _)| *c == self.country)
-            && let Some(p) = self.picker.as_mut() {
+            && let Some(p) = self.picker.as_mut()
+        {
             p.sel = i + 1;
         }
     }
@@ -176,7 +196,11 @@ impl App {
             Pick::None => {}
             Pick::Cancel => self.picker = None,
             Pick::Choose(i) => {
-                self.country = if i == 0 { String::new() } else { wifi::REGIONS[i - 1].0.to_string() };
+                self.country = if i == 0 {
+                    String::new()
+                } else {
+                    wifi::REGIONS[i - 1].0.to_string()
+                };
                 self.picker = None;
                 self.message = Some((
                     Tone::Ok,
@@ -207,7 +231,14 @@ impl App {
         if !self.country.is_empty() {
             r = r.note(format!("Regulatory domain is set to {}.", self.country));
         }
-        self.review = Some((Pending::Connect { iface, ssid, psk: psk.to_string() }, r));
+        self.review = Some((
+            Pending::Connect {
+                iface,
+                ssid,
+                psk: psk.to_string(),
+            },
+            r,
+        ));
     }
 
     /// Record a mutating action so the deck's RECENT strip shows it.
@@ -222,7 +253,11 @@ impl App {
 
     fn connect_now(&mut self, iface: &str, ssid: &str, psk: &str) {
         self.record(format!("Wifi: connected \"{ssid}\" on {iface}"));
-        let country = if self.country.is_empty() { None } else { Some(self.country.as_str()) };
+        let country = if self.country.is_empty() {
+            None
+        } else {
+            Some(self.country.as_str())
+        };
         match wifi::connect(iface, ssid, psk, country, self.demo) {
             Ok(msg) => {
                 self.message = Some((Tone::Ok, msg));
@@ -239,11 +274,18 @@ impl App {
             .bss
             .iter()
             .map(|b| {
-                let sig = b.signal.map(|s| format!("{s}dBm")).unwrap_or_else(|| "--".into());
+                let sig = b
+                    .signal
+                    .map(|s| format!("{s}dBm"))
+                    .unwrap_or_else(|| "--".into());
                 format!("{} {} {}", b.ssid, b.security, sig)
             })
             .collect();
-        v.extend(self.ifaces.iter().map(|i| format!("{} {}", i.name, i.driver)));
+        v.extend(
+            self.ifaces
+                .iter()
+                .map(|i| format!("{} {}", i.name, i.driver)),
+        );
         v
     }
 
@@ -272,7 +314,10 @@ impl App {
                 self.message = Some((Tone::Ok, format!("Jumped to {name}.")));
             }
             None if !q.trim().is_empty() => {
-                self.message = Some((Tone::Warn, format!("No access point or interface matches '{q}'.")));
+                self.message = Some((
+                    Tone::Warn,
+                    format!("No access point or interface matches '{q}'."),
+                ));
             }
             None => {}
         }
@@ -317,8 +362,12 @@ impl App {
         }
         if self.help {
             match key.code {
-                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.help_scroll = self.help_scroll.saturating_sub(1)
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.help_scroll = self.help_scroll.saturating_add(1)
+                }
                 KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(5),
                 KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(5),
                 KeyCode::Home => self.help_scroll = 0,
@@ -381,13 +430,15 @@ impl App {
             0 => {
                 let n = self.bss.len();
                 if n > 0 {
-                    self.bss_sel = ((self.bss_sel as isize + delta).rem_euclid(n as isize)) as usize;
+                    self.bss_sel =
+                        ((self.bss_sel as isize + delta).rem_euclid(n as isize)) as usize;
                 }
             }
             1 => {
                 let n = self.ifaces.len();
                 if n > 0 {
-                    self.iface_sel = ((self.iface_sel as isize + delta).rem_euclid(n as isize)) as usize;
+                    self.iface_sel =
+                        ((self.iface_sel as isize + delta).rem_euclid(n as isize)) as usize;
                 }
             }
             _ => {}
@@ -401,11 +452,16 @@ impl App {
         self.iface_sel = (self.iface_sel + 1) % self.ifaces.len();
         self.bss.clear();
         self.bss_sel = 0;
-        self.message = Some((Tone::Ok, format!("Interface: {}", self.ifaces[self.iface_sel].name)));
+        self.message = Some((
+            Tone::Ok,
+            format!("Interface: {}", self.ifaces[self.iface_sel].name),
+        ));
     }
 
     fn on_input_key(&mut self, key: KeyEvent) {
-        let Some(input) = self.input.as_mut() else { return };
+        let Some(input) = self.input.as_mut() else {
+            return;
+        };
         match input.on_key(key) {
             Outcome::None => {}
             Outcome::Cancel => self.input = None,
@@ -463,7 +519,10 @@ pub fn demo_country() -> App {
 pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let t = &app.t;
     let area = f.area();
-    f.render_widget(ratatui::widgets::Block::default().style(t.palette.base()), area);
+    f.render_widget(
+        ratatui::widgets::Block::default().style(t.palette.base()),
+        area,
+    );
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -499,9 +558,30 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     draw_result(f, rows[2], app);
 
     let keys: Vec<(&str, &str)> = match app.pane {
-        0 => vec![("↑↓", "pick"), ("/", "find"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
-        1 => vec![("↑↓", "pick"), ("/", "find"), ("enter", "switch"), ("s", "scan"), ("?", "help"), ("b", "back")],
-        _ => vec![("c", "country"), ("/", "find"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
+        0 => vec![
+            ("↑↓", "pick"),
+            ("/", "find"),
+            ("enter", "connect"),
+            ("s", "scan"),
+            ("?", "help"),
+            ("b", "back"),
+        ],
+        1 => vec![
+            ("↑↓", "pick"),
+            ("/", "find"),
+            ("enter", "switch"),
+            ("s", "scan"),
+            ("?", "help"),
+            ("b", "back"),
+        ],
+        _ => vec![
+            ("c", "country"),
+            ("/", "find"),
+            ("enter", "connect"),
+            ("s", "scan"),
+            ("?", "help"),
+            ("b", "back"),
+        ],
     };
     hud::footer(f, rows[3], &keys, t);
 
@@ -531,7 +611,10 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let st = app.selected_link();
-    let name = app.selected_iface().map(|i| i.name.clone()).unwrap_or_default();
+    let name = app
+        .selected_iface()
+        .map(|i| i.name.clone())
+        .unwrap_or_default();
     let (color, text) = if st.connected {
         (t.palette.ok, st.summary())
     } else if !st.ssid.is_empty() {
@@ -570,8 +653,15 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
         )));
     }
     for (i, b) in app.bss.iter().enumerate() {
-        let sig = b.signal.map(|s| format!("{s}")).unwrap_or_else(|| "-".into());
-        let ssid = if b.ssid.is_empty() { "<hidden>" } else { b.ssid.as_str() };
+        let sig = b
+            .signal
+            .map(|s| format!("{s}"))
+            .unwrap_or_else(|| "-".into());
+        let ssid = if b.ssid.is_empty() {
+            "<hidden>"
+        } else {
+            b.ssid.as_str()
+        };
         let ssid = t.clip(ssid, 22);
         if i == app.bss_sel {
             let text = format!(
@@ -588,7 +678,11 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
                 t,
             ));
         } else {
-            let color = if b.security == "OPEN" { t.palette.warn } else { t.palette.ok };
+            let color = if b.security == "OPEN" {
+                t.palette.warn
+            } else {
+                t.palette.ok
+            };
             lines.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(format!("{ssid:<22} "), t.palette.bold(t.palette.fg)),
@@ -614,14 +708,21 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
         let sel = i == app.iface_sel;
         let st = app.links.get(i).cloned().unwrap_or_default();
         let status = if st.connected {
-            let ssid = if st.ssid.is_empty() { "<hidden>" } else { st.ssid.as_str() };
+            let ssid = if st.ssid.is_empty() {
+                "<hidden>"
+            } else {
+                st.ssid.as_str()
+            };
             format!("connected: {ssid}")
         } else if !st.ssid.is_empty() {
             format!("saved: {}", st.ssid)
         } else {
             String::new()
         };
-        let line = format!("{:<8} {:<9} {:<17} {}", iface.name, iface.driver, iface.mac, status);
+        let line = format!(
+            "{:<8} {:<9} {:<17} {}",
+            iface.name, iface.driver, iface.mac, status
+        );
         if sel {
             lines.push(hud::line_with_hint(
                 vec![
@@ -651,15 +752,44 @@ fn ap_detail_lines(app: &App, t: &Theme) -> Vec<Line<'static>> {
     let Some(b) = app.bss.get(app.bss_sel) else {
         return Vec::new();
     };
-    let ssid = if b.ssid.is_empty() { "<hidden>".to_string() } else { b.ssid.clone() };
-    let sig = b.signal.map(|s| format!("{s} dBm")).unwrap_or_else(|| "?".into());
+    let ssid = if b.ssid.is_empty() {
+        "<hidden>".to_string()
+    } else {
+        b.ssid.clone()
+    };
+    let sig = b
+        .signal
+        .map(|s| format!("{s} dBm"))
+        .unwrap_or_else(|| "?".into());
     vec![
-        hud::field("SSID", 8, vec![Span::styled(ssid, t.palette.bold(t.palette.fg))], t),
-        hud::field("BSSID", 8, vec![Span::styled(b.bssid.clone(), t.palette.fg(t.palette.dim))], t),
-        hud::field("SIGNAL", 8, vec![
-            Span::styled(format!("{sig}  "), t.palette.fg(t.palette.accent)),
-            Span::styled(b.security.clone(), t.palette.fg(if b.security == "OPEN" { t.palette.warn } else { t.palette.ok })),
-        ], t),
+        hud::field(
+            "SSID",
+            8,
+            vec![Span::styled(ssid, t.palette.bold(t.palette.fg))],
+            t,
+        ),
+        hud::field(
+            "BSSID",
+            8,
+            vec![Span::styled(b.bssid.clone(), t.palette.fg(t.palette.dim))],
+            t,
+        ),
+        hud::field(
+            "SIGNAL",
+            8,
+            vec![
+                Span::styled(format!("{sig}  "), t.palette.fg(t.palette.accent)),
+                Span::styled(
+                    b.security.clone(),
+                    t.palette.fg(if b.security == "OPEN" {
+                        t.palette.warn
+                    } else {
+                        t.palette.ok
+                    }),
+                ),
+            ],
+            t,
+        ),
     ]
 }
 
@@ -670,16 +800,41 @@ fn iface_detail_lines(app: &App, t: &Theme) -> Vec<Line<'static>> {
     };
     let st = app.links.get(app.iface_sel).cloned().unwrap_or_default();
     let state = if st.connected {
-        format!("connected: {}", if st.ssid.is_empty() { "<hidden>" } else { &st.ssid })
+        format!(
+            "connected: {}",
+            if st.ssid.is_empty() {
+                "<hidden>"
+            } else {
+                &st.ssid
+            }
+        )
     } else if !st.ssid.is_empty() {
         format!("saved: {}", st.ssid)
     } else {
         "not connected".to_string()
     };
     vec![
-        hud::field("IFACE", 8, vec![Span::styled(format!("{}  {}", i.name, i.driver), t.palette.bold(t.palette.fg))], t),
-        hud::field("MAC", 8, vec![Span::styled(i.mac.clone(), t.palette.fg(t.palette.dim))], t),
-        hud::field("STATE", 8, vec![Span::styled(state, t.palette.fg(t.palette.fg))], t),
+        hud::field(
+            "IFACE",
+            8,
+            vec![Span::styled(
+                format!("{}  {}", i.name, i.driver),
+                t.palette.bold(t.palette.fg),
+            )],
+            t,
+        ),
+        hud::field(
+            "MAC",
+            8,
+            vec![Span::styled(i.mac.clone(), t.palette.fg(t.palette.dim))],
+            t,
+        ),
+        hud::field(
+            "STATE",
+            8,
+            vec![Span::styled(state, t.palette.fg(t.palette.fg))],
+            t,
+        ),
     ]
 }
 
@@ -690,27 +845,51 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let mut lines = Vec::new();
     match app.bss.get(app.bss_sel) {
         Some(b) => {
-            lines.push(hud::field("SSID", 10, vec![Span::styled(b.ssid.clone(), t.palette.bold(t.palette.fg))], t));
-            lines.push(hud::field("BSSID", 10, vec![Span::styled(b.bssid.clone(), t.palette.fg(t.palette.dim))], t));
+            lines.push(hud::field(
+                "SSID",
+                10,
+                vec![Span::styled(b.ssid.clone(), t.palette.bold(t.palette.fg))],
+                t,
+            ));
+            lines.push(hud::field(
+                "BSSID",
+                10,
+                vec![Span::styled(b.bssid.clone(), t.palette.fg(t.palette.dim))],
+                t,
+            ));
             lines.push(hud::field(
                 "SIGNAL",
                 10,
                 vec![Span::styled(
-                    b.signal.map(|s| format!("{s} dBm")).unwrap_or_else(|| "?".into()),
+                    b.signal
+                        .map(|s| format!("{s} dBm"))
+                        .unwrap_or_else(|| "?".into()),
                     t.palette.fg(t.palette.accent),
                 )],
                 t,
             ));
-            lines.push(hud::field("SECURITY", 10, vec![Span::styled(b.security.clone(), t.palette.fg(t.palette.ok))], t));
+            lines.push(hud::field(
+                "SECURITY",
+                10,
+                vec![Span::styled(b.security.clone(), t.palette.fg(t.palette.ok))],
+                t,
+            ));
         }
-        None => lines.push(Line::from(Span::styled("no network selected", t.palette.fg(t.palette.dim)))),
+        None => lines.push(Line::from(Span::styled(
+            "no network selected",
+            t.palette.fg(t.palette.dim),
+        ))),
     }
     lines.push(Line::raw(""));
     lines.push(hud::field(
         "COUNTRY",
         10,
         vec![Span::styled(
-            if app.country.is_empty() { "-".into() } else { app.country.clone() },
+            if app.country.is_empty() {
+                "-".into()
+            } else {
+                app.country.clone()
+            },
             t.palette.fg(t.palette.fg),
         )],
         t,
@@ -787,7 +966,11 @@ mod tests {
         }
         app.on_key(KeyEvent::from(KeyCode::Enter));
         app.on_key(KeyEvent::from(KeyCode::Enter));
-        assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+        assert!(
+            matches!(app.message, Some((Tone::Ok, _))),
+            "{:?}",
+            app.message
+        );
     }
 
     #[test]
@@ -798,7 +981,10 @@ mod tests {
             app.on_key(KeyEvent::from(KeyCode::Char(c)));
         }
         app.on_key(KeyEvent::from(KeyCode::Enter)); // REVIEW
-        assert!(app.take_recent().is_empty(), "nothing recorded before the confirm");
+        assert!(
+            app.take_recent().is_empty(),
+            "nothing recorded before the confirm"
+        );
         app.on_key(KeyEvent::from(KeyCode::Enter)); // confirm
         let r = app.take_recent();
         assert_eq!(r.len(), 1, "{r:?}");
@@ -878,8 +1064,14 @@ mod tests {
             p.sel = p.items.len() - 1;
         }
         let text = crate::screen::render_text(&app, 60, 20, draw).unwrap();
-        assert!(text.contains("Zimbabwe"), "the list scrolls to the selection:\n{text}");
-        assert!(!text.contains("Andorra"), "the top has scrolled away:\n{text}");
+        assert!(
+            text.contains("Zimbabwe"),
+            "the list scrolls to the selection:\n{text}"
+        );
+        assert!(
+            !text.contains("Andorra"),
+            "the top has scrolled away:\n{text}"
+        );
     }
 
     #[test]

@@ -109,8 +109,14 @@ mod tests {
     #[test]
     fn update_noop_on_equal_or_older() {
         let installed = parse_version("1.4.1").unwrap();
-        assert_eq!(decide(false, &installed, &manifest("1.4.1", "x86_64", None)).unwrap(), Decision::NoUpdate);
-        assert_eq!(decide(false, &installed, &manifest("1.2.0", "x86_64", None)).unwrap(), Decision::NoUpdate);
+        assert_eq!(
+            decide(false, &installed, &manifest("1.4.1", "x86_64", None)).unwrap(),
+            Decision::NoUpdate
+        );
+        assert_eq!(
+            decide(false, &installed, &manifest("1.2.0", "x86_64", None)).unwrap(),
+            Decision::NoUpdate
+        );
     }
 
     #[test]
@@ -130,13 +136,28 @@ mod tests {
     #[test]
     fn compat_checks() {
         let installed = parse_version("1.0.0").unwrap();
-        assert!(check_compat(&installed, &manifest("1.4.1", "x86_64", Some("1.0.0")), "x86_64").is_ok());
+        assert!(
+            check_compat(
+                &installed,
+                &manifest("1.4.1", "x86_64", Some("1.0.0")),
+                "x86_64"
+            )
+            .is_ok()
+        );
         assert_eq!(
-            check_compat(&installed, &manifest("1.4.1", "arm64", None), "x86_64").unwrap_err().code,
+            check_compat(&installed, &manifest("1.4.1", "arm64", None), "x86_64")
+                .unwrap_err()
+                .code,
             4
         );
         assert_eq!(
-            check_compat(&installed, &manifest("1.4.1", "x86_64", Some("1.2.0")), "x86_64").unwrap_err().code,
+            check_compat(
+                &installed,
+                &manifest("1.4.1", "x86_64", Some("1.2.0")),
+                "x86_64"
+            )
+            .unwrap_err()
+            .code,
             4
         );
     }

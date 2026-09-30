@@ -9,11 +9,11 @@
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 
+use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 use crate::hud::{self, Theme};
 use crate::input::{self, Input, Outcome, Pick, Picker};
@@ -64,7 +64,11 @@ pub struct App {
 
 impl App {
     pub fn new(demo: bool) -> App {
-        let keys = if demo { sshkeys::demo() } else { sshkeys::load() };
+        let keys = if demo {
+            sshkeys::demo()
+        } else {
+            sshkeys::load()
+        };
         let mut app = App {
             t: hud::detect(),
             demo,
@@ -83,7 +87,10 @@ impl App {
             exit: false,
         };
         app.message = Some(if app.keys.is_empty() {
-            (Tone::Warn, "No authorized keys: add one, or the console is the only way in.".into())
+            (
+                Tone::Warn,
+                "No authorized keys: add one, or the console is the only way in.".into(),
+            )
         } else {
             (Tone::Ok, format!("{} authorized key(s).", app.keys.len()))
         });
@@ -92,8 +99,14 @@ impl App {
 
     fn refresh(&mut self) {
         let keep = self.keys.get(self.sel).map(|k| k.blob.clone());
-        self.keys = if self.demo { sshkeys::demo() } else { sshkeys::load() };
-        self.sel = keep.and_then(|b| self.keys.iter().position(|k| k.blob == b)).unwrap_or(0);
+        self.keys = if self.demo {
+            sshkeys::demo()
+        } else {
+            sshkeys::load()
+        };
+        self.sel = keep
+            .and_then(|b| self.keys.iter().position(|k| k.blob == b))
+            .unwrap_or(0);
     }
 
     fn open_add_menu(&mut self) {
@@ -187,7 +200,10 @@ impl App {
         self.record(format!("SSH: authorized {} key(s)", new.len()));
         if self.demo {
             let n = sshkeys::merge(&mut self.keys, new);
-            self.message = Some((Tone::Ok, format!("demo: added {n} key(s) (nothing written)")));
+            self.message = Some((
+                Tone::Ok,
+                format!("demo: added {n} key(s) (nothing written)"),
+            ));
             return;
         }
         match sshkeys::save_add(&new) {
@@ -197,7 +213,10 @@ impl App {
             }
             Ok(n) => {
                 sshkeys::merge(&mut self.keys, new);
-                self.message = Some((Tone::Ok, format!("Authorized {n} new key(s), saved in /data.")));
+                self.message = Some((
+                    Tone::Ok,
+                    format!("Authorized {n} new key(s), saved in /data."),
+                ));
             }
             Err(e) => self.message = Some((Tone::Bad, e)),
         }
@@ -266,7 +285,9 @@ impl App {
                 self.sel = self.sel.min(self.keys.len().saturating_sub(1));
                 self.message = Some((Tone::Ok, format!("Removed {desc}.")));
             }
-            Ok(false) => self.message = Some((Tone::Warn, "Key not found in authorized_keys.".into())),
+            Ok(false) => {
+                self.message = Some((Tone::Warn, "Key not found in authorized_keys.".into()))
+            }
             Err(e) => self.message = Some((Tone::Bad, e)),
         }
     }
@@ -346,8 +367,12 @@ impl App {
         }
         if self.help {
             match key.code {
-                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.help_scroll = self.help_scroll.saturating_sub(1)
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.help_scroll = self.help_scroll.saturating_add(1)
+                }
                 KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(5),
                 KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(5),
                 KeyCode::Home => self.help_scroll = 0,
@@ -368,7 +393,10 @@ impl App {
         // While a fetch runs, don't let a stray key queue another operation or
         // drop the pending result.
         if self.job.is_some() {
-            self.message = Some((Tone::Warn, "An action is running; wait for it to finish.".into()));
+            self.message = Some((
+                Tone::Warn,
+                "An action is running; wait for it to finish.".into(),
+            ));
             return;
         }
         match key.code {
@@ -410,7 +438,9 @@ impl App {
     }
 
     fn on_input_key(&mut self, key: KeyEvent) {
-        let Some((mode, input)) = self.input.as_mut() else { return };
+        let Some((mode, input)) = self.input.as_mut() else {
+            return;
+        };
         let mode = *mode;
         match input.on_key(key) {
             Outcome::None => {}
@@ -439,7 +469,8 @@ impl App {
                         self.input = None;
                         self.start_fetch(value);
                     } else if let Some((_, i)) = self.input.as_mut() {
-                        i.error = Some("not an SSH public key (ssh-ed25519 AAAA... comment)".into());
+                        i.error =
+                            Some("not an SSH public key (ssh-ed25519 AAAA... comment)".into());
                     }
                 }
             },
@@ -459,7 +490,10 @@ pub fn demo_add() -> App {
 pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let t = &app.t;
     let area = f.area();
-    f.render_widget(ratatui::widgets::Block::default().style(t.palette.base()), area);
+    f.render_widget(
+        ratatui::widgets::Block::default().style(t.palette.base()),
+        area,
+    );
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -531,7 +565,11 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
         format!("{} key(s)  persists /data/etc/ssh  ", app.keys.len()),
         t.palette.fg(t.palette.dim),
     )];
-    let crumb = t.breadcrumb(&["SSH", TABS[app.pane.min(1)], &format!("{} key(s)", app.keys.len())]);
+    let crumb = t.breadcrumb(&[
+        "SSH",
+        TABS[app.pane.min(1)],
+        &format!("{} key(s)", app.keys.len()),
+    ]);
     hud::header_bar(f, area, &crumb, "", right, t);
 }
 
@@ -545,22 +583,38 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
     ))];
     if app.keys.is_empty() {
         lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled(format!("{} no authorized keys", t.ui.sym(2)), t.palette.fg(t.palette.warn))));
-        lines.push(Line::from(Span::styled("press a to add one (paste, GitHub or GitLab)", t.palette.fg(t.palette.dim))));
+        lines.push(Line::from(Span::styled(
+            format!("{} no authorized keys", t.ui.sym(2)),
+            t.palette.fg(t.palette.warn),
+        )));
+        lines.push(Line::from(Span::styled(
+            "press a to add one (paste, GitHub or GitLab)",
+            t.palette.fg(t.palette.dim),
+        )));
     }
     for (i, k) in app.keys.iter().enumerate() {
         let fp = t.clip(&k.fingerprint(), 44);
-        let comment = if k.comment.is_empty() { k.source.clone() } else { k.comment.clone() };
+        let comment = if k.comment.is_empty() {
+            k.source.clone()
+        } else {
+            k.comment.clone()
+        };
         let line = format!("{:<9} {:<44} {}", k.kind(), fp, comment);
         if i == app.sel {
             lines.push(hud::line_with_hint(
-                vec![Span::styled(format!("{} {}", t.selection_mark().trim_end(), line), t.palette.highlight())],
+                vec![Span::styled(
+                    format!("{} {}", t.selection_mark().trim_end(), line),
+                    t.palette.highlight(),
+                )],
                 "d remove",
                 row_w,
                 t,
             ));
         } else {
-            lines.push(Line::from(vec![Span::raw("  "), Span::styled(line, t.palette.fg(t.palette.fg))]));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(line, t.palette.fg(t.palette.fg)),
+            ]));
         }
     }
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
@@ -571,11 +625,36 @@ fn key_detail_lines(app: &App, t: &Theme) -> Vec<Line<'static>> {
     let Some(k) = app.keys.get(app.sel) else {
         return Vec::new();
     };
-    let comment = if k.comment.is_empty() { "-".to_string() } else { k.comment.clone() };
+    let comment = if k.comment.is_empty() {
+        "-".to_string()
+    } else {
+        k.comment.clone()
+    };
     vec![
-        hud::field("TYPE", 8, vec![Span::styled(k.kind().to_string(), t.palette.bold(t.palette.fg))], t),
-        hud::field("SHA256", 8, vec![Span::styled(t.clip(&k.fingerprint(), 60), t.palette.fg(t.palette.accent))], t),
-        hud::field("COMMENT", 8, vec![Span::styled(comment, t.palette.fg(t.palette.fg))], t),
+        hud::field(
+            "TYPE",
+            8,
+            vec![Span::styled(
+                k.kind().to_string(),
+                t.palette.bold(t.palette.fg),
+            )],
+            t,
+        ),
+        hud::field(
+            "SHA256",
+            8,
+            vec![Span::styled(
+                t.clip(&k.fingerprint(), 60),
+                t.palette.fg(t.palette.accent),
+            )],
+            t,
+        ),
+        hud::field(
+            "COMMENT",
+            8,
+            vec![Span::styled(comment, t.palette.fg(t.palette.fg))],
+            t,
+        ),
     ]
 }
 
@@ -586,27 +665,62 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let mut lines = Vec::new();
     match app.keys.get(app.sel) {
         Some(k) => {
-            lines.push(hud::field("TYPE", 8, vec![Span::styled(k.kind().to_string(), t.palette.bold(t.palette.fg))], t));
-            lines.push(Line::from(Span::styled(k.fingerprint(), t.palette.fg(t.palette.accent))));
+            lines.push(hud::field(
+                "TYPE",
+                8,
+                vec![Span::styled(
+                    k.kind().to_string(),
+                    t.palette.bold(t.palette.fg),
+                )],
+                t,
+            ));
+            lines.push(Line::from(Span::styled(
+                k.fingerprint(),
+                t.palette.fg(t.palette.accent),
+            )));
             lines.push(hud::field(
                 "COMMENT",
                 8,
                 vec![Span::styled(
-                    if k.comment.is_empty() { "-".into() } else { k.comment.clone() },
+                    if k.comment.is_empty() {
+                        "-".into()
+                    } else {
+                        k.comment.clone()
+                    },
                     t.palette.fg(t.palette.fg),
                 )],
                 t,
             ));
-            lines.push(hud::field("SOURCE", 8, vec![Span::styled(k.source.clone(), t.palette.fg(t.palette.dim))], t));
+            lines.push(hud::field(
+                "SOURCE",
+                8,
+                vec![Span::styled(k.source.clone(), t.palette.fg(t.palette.dim))],
+                t,
+            ));
         }
-        None => lines.push(Line::from(Span::styled("no key selected", t.palette.fg(t.palette.dim)))),
+        None => lines.push(Line::from(Span::styled(
+            "no key selected",
+            t.palette.fg(t.palette.dim),
+        ))),
     }
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("New keys are written to", t.palette.fg(t.palette.dim))));
-    lines.push(Line::from(Span::styled("/data/etc/ssh/authorized_keys", t.palette.fg(t.palette.accent))));
-    lines.push(Line::from(Span::styled("and appended to /root/.ssh/authorized_keys.", t.palette.fg(t.palette.dim))));
+    lines.push(Line::from(Span::styled(
+        "New keys are written to",
+        t.palette.fg(t.palette.dim),
+    )));
+    lines.push(Line::from(Span::styled(
+        "/data/etc/ssh/authorized_keys",
+        t.palette.fg(t.palette.accent),
+    )));
+    lines.push(Line::from(Span::styled(
+        "and appended to /root/.ssh/authorized_keys.",
+        t.palette.fg(t.palette.dim),
+    )));
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("a adds a key (paste, GitHub or GitLab)", t.palette.fg(t.palette.dim))));
+    lines.push(Line::from(Span::styled(
+        "a adds a key (paste, GitHub or GitLab)",
+        t.palette.fg(t.palette.dim),
+    )));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
@@ -624,7 +738,8 @@ mod tests {
         }
     }
 
-    const ED: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPX2zdvjV01sS6kSNEuFCraBHx+RtIL5q/nnODxc+Dys test@box";
+    const ED: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPX2zdvjV01sS6kSNEuFCraBHx+RtIL5q/nnODxc+Dys test@box";
 
     #[test]
     fn demo_renders_keys() {
@@ -648,10 +763,18 @@ mod tests {
         key(&mut app, KeyCode::Enter);
         assert!(app.input.is_none());
         assert!(app.review.is_some(), "adding opens REVIEW");
-        assert_eq!(app.keys.len(), before, "nothing is written before the confirm");
+        assert_eq!(
+            app.keys.len(),
+            before,
+            "nothing is written before the confirm"
+        );
         key(&mut app, KeyCode::Enter); // confirm
         assert_eq!(app.keys.len(), before + 1);
-        assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+        assert!(
+            matches!(app.message, Some((Tone::Ok, _))),
+            "{:?}",
+            app.message
+        );
         // the new key is appended, so select it and delete (with a REVIEW)
         app.sel = before;
         key(&mut app, KeyCode::Char('d'));
@@ -727,14 +850,21 @@ mod tests {
         assert!(app.job.is_none());
         assert!(app.review.is_some(), "the fetched keys wait for a REVIEW");
         key(&mut app, KeyCode::Enter);
-        assert!(matches!(app.message, Some((Tone::Ok, _))), "{:?}", app.message);
+        assert!(
+            matches!(app.message, Some((Tone::Ok, _))),
+            "{:?}",
+            app.message
+        );
     }
 
     #[test]
     fn mutations_are_recorded_for_the_deck() {
         let mut app = App::new(true);
         key(&mut app, KeyCode::Char('d')); // remove REVIEW
-        assert!(app.take_recent().is_empty(), "nothing recorded before the confirm");
+        assert!(
+            app.take_recent().is_empty(),
+            "nothing recorded before the confirm"
+        );
         key(&mut app, KeyCode::Enter);
         let r = app.take_recent();
         assert_eq!(r.len(), 1, "{r:?}");

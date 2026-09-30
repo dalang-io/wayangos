@@ -40,9 +40,14 @@ impl Slot {
 /// Slot GRUB will boot next, honouring the attempt budget.
 pub fn boot_slot(env: &impl EnvView) -> Slot {
     let attempts = attempts(env);
-    let wanted = env.get("wayang_slot").and_then(Slot::parse).unwrap_or(Slot::A);
+    let wanted = env
+        .get("wayang_slot")
+        .and_then(Slot::parse)
+        .unwrap_or(Slot::A);
     if attempts >= ATTEMPT_LIMIT {
-        env.get("wayang_good").and_then(Slot::parse).unwrap_or(wanted)
+        env.get("wayang_good")
+            .and_then(Slot::parse)
+            .unwrap_or(wanted)
     } else {
         wanted
     }
@@ -56,12 +61,17 @@ pub fn running_slot() -> Option<Slot> {
 }
 
 pub fn parse_cmdline(cmdline: &str) -> Option<Slot> {
-    cmdline.split_whitespace().find_map(|a| a.strip_prefix("wayang.slot=")).and_then(Slot::parse)
+    cmdline
+        .split_whitespace()
+        .find_map(|a| a.strip_prefix("wayang.slot="))
+        .and_then(Slot::parse)
 }
 
 /// The slot currently staged to boot (`wayang_slot`), without the fallback.
 pub fn staged_slot(env: &impl EnvView) -> Slot {
-    env.get("wayang_slot").and_then(Slot::parse).unwrap_or(Slot::A)
+    env.get("wayang_slot")
+        .and_then(Slot::parse)
+        .unwrap_or(Slot::A)
 }
 
 pub fn attempts(env: &impl EnvView) -> u32 {
@@ -91,15 +101,27 @@ mod tests {
 
     #[test]
     fn uses_staged_slot_below_limit() {
-        let e = env(&[("wayang_slot", "B"), ("wayang_good", "A"), ("wayang_attempts", "2")]);
+        let e = env(&[
+            ("wayang_slot", "B"),
+            ("wayang_good", "A"),
+            ("wayang_attempts", "2"),
+        ]);
         assert_eq!(boot_slot(&e), Slot::B);
     }
 
     #[test]
     fn uses_good_at_limit() {
-        let e = env(&[("wayang_slot", "B"), ("wayang_good", "A"), ("wayang_attempts", "3")]);
+        let e = env(&[
+            ("wayang_slot", "B"),
+            ("wayang_good", "A"),
+            ("wayang_attempts", "3"),
+        ]);
         assert_eq!(boot_slot(&e), Slot::A);
-        let e = env(&[("wayang_slot", "B"), ("wayang_good", "A"), ("wayang_attempts", "9")]);
+        let e = env(&[
+            ("wayang_slot", "B"),
+            ("wayang_good", "A"),
+            ("wayang_attempts", "9"),
+        ]);
         assert_eq!(boot_slot(&e), Slot::A);
     }
 

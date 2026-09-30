@@ -27,7 +27,10 @@ impl Bundle {
     /// manifest's `keyid`.
     pub fn verify_signature(&self, keys: &TrustedKeys) -> Result<()> {
         let key = keys.get(&self.manifest.keyid).ok_or_else(|| {
-            AppError::verify(format!("no trusted key for keyid '{}'", self.manifest.keyid))
+            AppError::verify(format!(
+                "no trusted key for keyid '{}'",
+                self.manifest.keyid
+            ))
         })?;
         sign::verify_pub(key, &self.manifest_bytes, &self.signature)
             .map_err(|e| AppError::verify(format!("manifest signature: {e}")))
@@ -49,7 +52,8 @@ fn take_member<R: std::io::Read>(
 /// Read and integrity-check a bundle (sha256 of kernel/initramfs). Signature
 /// verification is separate so callers can report the exact failure.
 pub fn read(path: &Path) -> Result<Bundle> {
-    let file = std::fs::File::open(path).map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
+    let file =
+        std::fs::File::open(path).map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
     let mut archive = Archive::new(GzDecoder::new(file));
 
     let mut manifest_bytes = None;
@@ -77,11 +81,13 @@ pub fn read(path: &Path) -> Result<Bundle> {
         }
     }
 
-    let manifest_bytes = manifest_bytes.ok_or_else(|| AppError::err("bundle is missing manifest.json"))?;
+    let manifest_bytes =
+        manifest_bytes.ok_or_else(|| AppError::err("bundle is missing manifest.json"))?;
     let manifest = Manifest::from_slice(&manifest_bytes)?;
     let kernel = kernel.ok_or_else(|| AppError::err("bundle is missing vmlinuz"))?;
     let initramfs = initramfs.ok_or_else(|| AppError::err("bundle is missing initramfs.img"))?;
-    let signature = signature.ok_or_else(|| AppError::verify("bundle is missing manifest.json.sig"))?;
+    let signature =
+        signature.ok_or_else(|| AppError::verify("bundle is missing manifest.json.sig"))?;
 
     let kh = hash::hex32(&hash::sha256_bytes(&kernel));
     if !kh.eq_ignore_ascii_case(&manifest.kernel_sha256) {
@@ -98,7 +104,13 @@ pub fn read(path: &Path) -> Result<Bundle> {
         )));
     }
 
-    Ok(Bundle { manifest, manifest_bytes, kernel, initramfs, signature })
+    Ok(Bundle {
+        manifest,
+        manifest_bytes,
+        kernel,
+        initramfs,
+        signature,
+    })
 }
 
 #[cfg(test)]
@@ -106,8 +118,8 @@ mod tests {
     use super::*;
 
     fn write_bundle(dir: &Path, keyid: &str) -> (std::path::PathBuf, [u8; 32], Vec<u8>) {
-        use flate2::write::GzEncoder;
         use flate2::Compression;
+        use flate2::write::GzEncoder;
 
         let sk = sign::generate();
         let vk = sk.verifying_key().to_bytes();
@@ -162,7 +174,10 @@ mod tests {
         let (path, _vk, _) = write_bundle(&dir, "release");
         let b = read(&path).unwrap();
         let mut keys = TrustedKeys::new();
-        keys.insert("release".into(), sign::generate().verifying_key().to_bytes());
+        keys.insert(
+            "release".into(),
+            sign::generate().verifying_key().to_bytes(),
+        );
         assert_eq!(b.verify_signature(&keys).unwrap_err().code, 3);
         let _ = std::fs::remove_dir_all(&dir);
     }

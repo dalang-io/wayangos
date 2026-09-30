@@ -187,7 +187,8 @@ impl NetChoice {
         let dir = paths::data_network_dir();
         fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let primary = paths::primary_file();
-        fs::write(&primary, self.primary_text()).map_err(|e| format!("{}: {e}", primary.display()))?;
+        fs::write(&primary, self.primary_text())
+            .map_err(|e| format!("{}: {e}", primary.display()))?;
         let config = paths::network_config_file();
         fs::write(&config, self.config_text()).map_err(|e| format!("{}: {e}", config.display()))
     }
@@ -220,7 +221,18 @@ impl NetChoice {
             Mode::Dhcp => {
                 sys::run(
                     "udhcpc",
-                    &["-n", "-q", "-t", "5", "-T", "3", "-i", iface, "-s", "/etc/udhcpc.script"],
+                    &[
+                        "-n",
+                        "-q",
+                        "-t",
+                        "5",
+                        "-T",
+                        "3",
+                        "-i",
+                        iface,
+                        "-s",
+                        "/etc/udhcpc.script",
+                    ],
                 )
                 .map_err(|e| format!("no DHCP lease on {iface}: {e}"))?;
                 // keep renewing while the box runs
@@ -234,25 +246,53 @@ impl NetChoice {
                     if !self.ipv4_gateway.is_empty() {
                         sys::run(
                             "ip",
-                            &["route", "add", "default", "via", &self.ipv4_gateway, "dev", iface],
+                            &[
+                                "route",
+                                "add",
+                                "default",
+                                "via",
+                                &self.ipv4_gateway,
+                                "dev",
+                                iface,
+                            ],
                         )
                         .map_err(|e| format!("{iface}: {e}"))?;
                     }
                 }
                 if self.family.has_v6() {
-                    sys::run("ip", &["-6", "addr", "add", &self.ipv6_address, "dev", iface])
-                        .map_err(|e| format!("{iface}: {e}"))?;
+                    sys::run(
+                        "ip",
+                        &["-6", "addr", "add", &self.ipv6_address, "dev", iface],
+                    )
+                    .map_err(|e| format!("{iface}: {e}"))?;
                     if !self.ipv6_gateway.is_empty() {
                         sys::run(
                             "ip",
-                            &["-6", "route", "add", "default", "via", &self.ipv6_gateway, "dev", iface],
+                            &[
+                                "-6",
+                                "route",
+                                "add",
+                                "default",
+                                "via",
+                                &self.ipv6_gateway,
+                                "dev",
+                                iface,
+                            ],
                         )
                         .map_err(|e| format!("{iface}: {e}"))?;
                     }
                 }
                 write_resolv_conf(
-                    if self.family.has_v4() { &self.ipv4_dns } else { "" },
-                    if self.family.has_v6() { &self.ipv6_dns } else { "" },
+                    if self.family.has_v4() {
+                        &self.ipv4_dns
+                    } else {
+                        ""
+                    },
+                    if self.family.has_v6() {
+                        &self.ipv6_dns
+                    } else {
+                        ""
+                    },
                 )?;
                 Ok(format!("network: {iface} static {}", self.family.config()))
             }
@@ -288,17 +328,34 @@ pub fn dhcp_now(iface: &str, demo: bool) -> Result<String, String> {
     let run = paths::run_dir();
     let _ = fs::create_dir_all(&run);
     let runf = run.join("wayang-primary");
-    let empty = fs::read_to_string(&runf).map(|s| s.trim().is_empty()).unwrap_or(true);
-    if empty
-        && let Some(p) = primary_iface() {
+    let empty = fs::read_to_string(&runf)
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    if empty && let Some(p) = primary_iface() {
         let _ = fs::write(&runf, format!("{p}\n"));
     }
     sys::run("ip", &["link", "set", iface, "up"])
         .map_err(|e| format!("cannot bring {iface} up: {e}"))?;
-    sys::run("udhcpc", &["-n", "-q", "-t", "5", "-T", "3", "-i", iface, "-s", "/etc/udhcpc.script"])
-        .map_err(|e| format!("no DHCP lease on {iface}: {e}"))?;
+    sys::run(
+        "udhcpc",
+        &[
+            "-n",
+            "-q",
+            "-t",
+            "5",
+            "-T",
+            "3",
+            "-i",
+            iface,
+            "-s",
+            "/etc/udhcpc.script",
+        ],
+    )
+    .map_err(|e| format!("no DHCP lease on {iface}: {e}"))?;
     let _ = sys::spawn("udhcpc", &["-b", "-i", iface, "-s", "/etc/udhcpc.script"]);
-    Ok(format!("{iface}: DHCP lease (address only; primary unchanged)"))
+    Ok(format!(
+        "{iface}: DHCP lease (address only; primary unchanged)"
+    ))
 }
 
 // ---- "also lease at boot" list ----------------------------------------
@@ -346,7 +403,10 @@ pub fn add_also(list: &[String], iface: &str) -> Vec<String> {
 /// Remove `iface` from `list` (no-op when absent).
 pub fn remove_also(list: &[String], iface: &str) -> Vec<String> {
     let iface = iface.trim();
-    list.iter().filter(|n| n.as_str() != iface).cloned().collect()
+    list.iter()
+        .filter(|n| n.as_str() != iface)
+        .cloned()
+        .collect()
 }
 
 /// Whether `iface` is in the also-list.
@@ -425,7 +485,9 @@ pub fn valid_cidr(s: &str, v6: bool) -> Result<(), String> {
     let (addr, prefix) = s
         .split_once('/')
         .ok_or_else(|| "add a prefix, e.g. 192.168.1.50/24".to_string())?;
-    let p: u32 = prefix.parse().map_err(|_| format!("prefix '{prefix}' is not a number"))?;
+    let p: u32 = prefix
+        .parse()
+        .map_err(|_| format!("prefix '{prefix}' is not a number"))?;
     if v6 {
         addr.parse::<Ipv6Addr>()
             .map_err(|_| format!("'{addr}' is not an IPv6 address"))?;
@@ -446,9 +508,13 @@ pub fn valid_cidr(s: &str, v6: bool) -> Result<(), String> {
 pub fn valid_ip(s: &str, v6: bool) -> Result<(), String> {
     let s = s.trim();
     if v6 {
-        s.parse::<Ipv6Addr>().map(|_| ()).map_err(|_| format!("'{s}' is not an IPv6 address"))
+        s.parse::<Ipv6Addr>()
+            .map(|_| ())
+            .map_err(|_| format!("'{s}' is not an IPv6 address"))
     } else {
-        s.parse::<Ipv4Addr>().map(|_| ()).map_err(|_| format!("'{s}' is not an IPv4 address"))
+        s.parse::<Ipv4Addr>()
+            .map(|_| ())
+            .map_err(|_| format!("'{s}' is not an IPv4 address"))
     }
 }
 
@@ -494,7 +560,11 @@ pub fn scan_at(
     out
 }
 
-fn read_iface(path: &Path, primary: Option<&str>, addrs: &[(String, Vec<String>)]) -> Option<Iface> {
+fn read_iface(
+    path: &Path,
+    primary: Option<&str>,
+    addrs: &[(String, Vec<String>)],
+) -> Option<Iface> {
     let name = path.file_name()?.to_string_lossy().into_owned();
     if name == "lo" {
         return None;
@@ -567,8 +637,12 @@ pub fn parse_ipv4_addrs(output: &str) -> Vec<(String, Vec<String>)> {
             continue;
         }
         let rest: Vec<&str> = words.collect();
-        let Some(i) = rest.iter().position(|w| *w == "inet") else { continue };
-        let Some(addr) = rest.get(i + 1) else { continue };
+        let Some(i) = rest.iter().position(|w| *w == "inet") else {
+            continue;
+        };
+        let Some(addr) = rest.get(i + 1) else {
+            continue;
+        };
         match groups.iter_mut().find(|(n, _)| n == name) {
             Some((_, list)) => list.push(addr.to_string()),
             None => groups.push((name.to_string(), vec![addr.to_string()])),
@@ -617,7 +691,10 @@ mod tests {
 
     #[test]
     fn dhcp_config_has_mode_only() {
-        let n = NetChoice { iface: Some("eth0".into()), ..Default::default() };
+        let n = NetChoice {
+            iface: Some("eth0".into()),
+            ..Default::default()
+        };
         assert_eq!(n.primary_text(), "eth0\n");
         assert_eq!(n.config_text(), "MODE=dhcp\n");
     }
@@ -707,7 +784,11 @@ mod tests {
             fs::write(d.join("carrier"), if carrier { "1\n" } else { "0\n" }).unwrap();
             // IFF_UP set (0x1) so wireless reports up regardless of carrier
             fs::write(d.join("flags"), "0x1003\n").unwrap();
-            fs::write(d.join("address"), format!("52:54:00:00:00:{:02x}\n", name.len())).unwrap();
+            fs::write(
+                d.join("address"),
+                format!("52:54:00:00:00:{:02x}\n", name.len()),
+            )
+            .unwrap();
             if wireless {
                 fs::create_dir_all(d.join("wireless")).unwrap();
             }
@@ -715,7 +796,8 @@ mod tests {
                 fs::create_dir_all(d.join("device")).unwrap();
                 let link = d.join("device/driver");
                 #[cfg(unix)]
-                std::os::unix::fs::symlink(format!("/sys/bus/pci/drivers/{driver}"), &link).unwrap();
+                std::os::unix::fs::symlink(format!("/sys/bus/pci/drivers/{driver}"), &link)
+                    .unwrap();
             }
         }
         root
@@ -733,7 +815,10 @@ mod tests {
         let wlan = &ifaces[0];
         assert!(wlan.wireless);
         assert!(wlan.primary);
-        assert!(wlan.link, "enabled wireless reports up even without carrier");
+        assert!(
+            wlan.link,
+            "enabled wireless reports up even without carrier"
+        );
         assert_eq!(wlan.driver, "rtl8xxxu");
         let eth = &ifaces[1];
         assert!(!eth.wireless);
@@ -775,7 +860,10 @@ mod tests {
             parse_ipv4_addrs(out),
             vec![
                 ("lo".to_string(), vec!["127.0.0.1/8".to_string()]),
-                ("eth0".to_string(), vec!["192.168.1.50/24".to_string(), "10.0.0.5/24".to_string()]),
+                (
+                    "eth0".to_string(),
+                    vec!["192.168.1.50/24".to_string(), "10.0.0.5/24".to_string()]
+                ),
                 ("wlan0".to_string(), vec!["192.168.0.7/24".to_string()]),
                 ("eth0.10".to_string(), vec!["172.16.0.1/24".to_string()]),
             ]
@@ -798,7 +886,10 @@ eth1
 eth1
 #eth3
 ";
-        assert_eq!(parse_also(text), vec!["eth1".to_string(), "eth2".to_string()]);
+        assert_eq!(
+            parse_also(text),
+            vec!["eth1".to_string(), "eth2".to_string()]
+        );
         assert!(parse_also("").is_empty());
         assert!(parse_also("  \n# only a comment\n").is_empty());
     }
@@ -806,7 +897,10 @@ eth1
     #[test]
     fn add_also_dedupes_and_ignores_blank() {
         let list = vec!["eth1".to_string()];
-        assert_eq!(add_also(&list, "eth2"), vec!["eth1".to_string(), "eth2".to_string()]);
+        assert_eq!(
+            add_also(&list, "eth2"),
+            vec!["eth1".to_string(), "eth2".to_string()]
+        );
         assert_eq!(add_also(&list, "eth1"), list);
         assert_eq!(add_also(&list, "  "), list);
     }

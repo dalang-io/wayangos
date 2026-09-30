@@ -24,9 +24,9 @@ mod review;
 mod screen;
 mod sema;
 mod sign;
+mod slot;
 mod sshkeys;
 mod sshkeysui;
-mod slot;
 mod staging;
 mod state;
 mod status;
@@ -203,7 +203,11 @@ fn main() -> ExitCode {
         }
         Command::EdgeRouter(action) => edgerouter::run(action),
         Command::Keygen { out, keyid } => keys::keygen(&out, &keyid),
-        Command::Sign { key, keyid, manifest } => keys::sign_file(&key, keyid.as_deref(), &manifest),
+        Command::Sign {
+            key,
+            keyid,
+            manifest,
+        } => keys::sign_file(&key, keyid.as_deref(), &manifest),
         Command::Verify { bundle, esp } => verify::run(&bundle, esp.as_deref()),
         Command::MarkOk { esp } => run_mark_ok(esp.as_deref()),
         Command::Reset { yes } => run_reset(yes),
@@ -223,7 +227,11 @@ fn main() -> ExitCode {
 /// (`ux-p1`). The crate version mirrors the OS product, so the marker is how a
 /// HUD/CLI revision is identified without touching it.
 fn version_line() -> String {
-    format!("wayang {} ({})", env!("CARGO_PKG_VERSION"), version::BUILD_MARKER)
+    format!(
+        "wayang {} ({})",
+        env!("CARGO_PKG_VERSION"),
+        version::BUILD_MARKER
+    )
 }
 
 /// Rust ignores `SIGPIPE`, so a write to a closed pipe makes the process abort
@@ -367,7 +375,11 @@ mod tests {
     #[test]
     fn version_line_identifies_the_build() {
         let s = version_line();
-        assert_eq!(s, format!("wayang {} (ux-p1)", env!("CARGO_PKG_VERSION")), "{s}");
+        assert_eq!(
+            s,
+            format!("wayang {} (ux-p1)", env!("CARGO_PKG_VERSION")),
+            "{s}"
+        );
         assert!(s.starts_with("wayang 0.1.0 ("), "{s}");
     }
 }

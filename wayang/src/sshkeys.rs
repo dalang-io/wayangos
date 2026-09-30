@@ -92,7 +92,9 @@ impl SshKey {
 }
 
 pub fn parse_all(text: &str, source: &str) -> Vec<SshKey> {
-    text.lines().filter_map(|l| SshKey::parse(l, source)).collect()
+    text.lines()
+        .filter_map(|l| SshKey::parse(l, source))
+        .collect()
 }
 
 /// Add keys not already present (same blob). Returns how many were new.
@@ -113,7 +115,11 @@ pub fn remote_spec(spec: &str) -> Result<(&'static str, String), String> {
     let (host, user) = match spec.split_once(':') {
         Some(("github", u)) => ("github.com", u),
         Some(("gitlab", u)) => ("gitlab.com", u),
-        Some((h, _)) => return Err(format!("unknown site '{h}' - use github:USER or gitlab:USER")),
+        Some((h, _)) => {
+            return Err(format!(
+                "unknown site '{h}' - use github:USER or gitlab:USER"
+            ));
+        }
         None => ("github.com", spec),
     };
     let ok = !user.is_empty()
@@ -233,7 +239,10 @@ fn data_persistent() -> bool {
         return true;
     }
     fs::read_to_string("/proc/mounts")
-        .map(|m| m.lines().any(|l| l.split_whitespace().nth(1) == Some("/data")))
+        .map(|m| {
+            m.lines()
+                .any(|l| l.split_whitespace().nth(1) == Some("/data"))
+        })
         .unwrap_or(false)
 }
 
@@ -246,7 +255,10 @@ pub fn remove(blob: &str) -> Result<bool, String> {
 
 fn append_file(path: &Path, keys: &[SshKey]) -> Result<usize, String> {
     let existing = fs::read_to_string(path).unwrap_or_default();
-    let present: Vec<String> = parse_all(&existing, "x").into_iter().map(|k| k.blob).collect();
+    let present: Vec<String> = parse_all(&existing, "x")
+        .into_iter()
+        .map(|k| k.blob)
+        .collect();
     let mut text = existing.clone();
     let mut added = 0;
     for k in keys {
@@ -277,7 +289,11 @@ fn remove_file(path: &Path, blob: &str) -> Result<bool, String> {
     };
     let kept: Vec<&str> = text
         .lines()
-        .filter(|line| SshKey::parse(line, "x").map(|k| k.blob != blob).unwrap_or(true))
+        .filter(|line| {
+            SshKey::parse(line, "x")
+                .map(|k| k.blob != blob)
+                .unwrap_or(true)
+        })
         .collect();
     let mut new = kept.join("\n");
     if !new.is_empty() {
@@ -362,7 +378,10 @@ mod tests {
         let k = SshKey::parse(ED, "t").unwrap();
         assert_eq!(k.kind(), "ED25519");
         assert_eq!(k.comment, "alice@box");
-        assert_eq!(k.fingerprint(), "SHA256:J7zZ3uqDctuY6b2lgeWAVv9TlUivub7Ri/4LLDr3TJo");
+        assert_eq!(
+            k.fingerprint(),
+            "SHA256:J7zZ3uqDctuY6b2lgeWAVv9TlUivub7Ri/4LLDr3TJo"
+        );
         assert_eq!(k.line(), ED);
     }
 
@@ -378,8 +397,14 @@ mod tests {
 
     #[test]
     fn remote_specs() {
-        assert_eq!(remote_spec("alice").unwrap(), ("github.com", "alice".into()));
-        assert_eq!(remote_spec("gitlab:bob").unwrap(), ("gitlab.com", "bob".into()));
+        assert_eq!(
+            remote_spec("alice").unwrap(),
+            ("github.com", "alice".into())
+        );
+        assert_eq!(
+            remote_spec("gitlab:bob").unwrap(),
+            ("gitlab.com", "bob".into())
+        );
         assert!(remote_spec("github:a b").is_err());
         assert!(remote_spec("bitbucket:x").is_err());
     }
@@ -397,7 +422,11 @@ mod tests {
         let file = dir.join("authorized_keys");
         let k = SshKey::parse(ED, "typed").unwrap();
         assert_eq!(append_file(&file, std::slice::from_ref(&k)).unwrap(), 1);
-        assert_eq!(append_file(&file, std::slice::from_ref(&k)).unwrap(), 0, "already present");
+        assert_eq!(
+            append_file(&file, std::slice::from_ref(&k)).unwrap(),
+            0,
+            "already present"
+        );
         let text = fs::read_to_string(&file).unwrap();
         assert!(text.contains(&k.blob));
         assert!(remove_file(&file, &k.blob).unwrap());

@@ -25,10 +25,10 @@
 //!
 //! Everything else is re-exported so call sites keep reading `hud::…`.
 
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 // Product identity, palette, glyphs and the resolved theme come from the shared
 // crate; re-exported so the CLI's call sites keep reading `hud::…`.
@@ -39,8 +39,8 @@ pub use wayang_tui::theme::{App, ColorMode, Flags, Palette, Theme, Ui, WAYANG_OS
 // re-exported for parity with the shared module map.
 #[allow(unused_imports)]
 pub use wayang_tui::widgets::{
-    badge, caption, centered, field, gauge, gauge_cells_for, header, keycaps, logo, logo_lines,
-    panel, panel_focused, selection_row, status, Header,
+    Header, badge, caption, centered, field, gauge, gauge_cells_for, header, keycaps, logo,
+    logo_lines, panel, panel_focused, selection_row, status,
 };
 
 // Focus rings (`wayang_tui::focus`) and the modal frame (`wayang_tui::overlay`)
@@ -89,11 +89,7 @@ pub fn sev(t: &Theme, tone: Option<Tone>) -> Span<'static> {
 
 /// The A/B slot / installed marker (`▰`; `#` with `--plain`).
 pub fn brand(t: &Theme) -> &'static str {
-    if t.is_plain() {
-        "#"
-    } else {
-        "▰"
-    }
+    if t.is_plain() { "#" } else { "▰" }
 }
 
 /// The one-row header bar. The shared [`header`] renderer draws it, but the CLI
@@ -176,15 +172,9 @@ pub fn status_row(
                 Tone::Bad => "ERROR",
             };
             spans.push(badge(tone.sev(), label, t));
-            spans.push(Span::styled(
-                format!(" {text}"),
-                t.palette.fg(t.palette.fg),
-            ));
+            spans.push(Span::styled(format!(" {text}"), t.palette.fg(t.palette.fg)));
         }
-        None => spans.push(Span::styled(
-            idle.to_string(),
-            t.palette.fg(t.palette.dim),
-        )),
+        None => spans.push(Span::styled(idle.to_string(), t.palette.fg(t.palette.dim))),
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
@@ -205,9 +195,19 @@ pub fn progress_bar(tick: usize, width: usize) -> String {
     let span = width - seg;
     let period = if span == 0 { 1 } else { span * 2 };
     let p = tick % period;
-    let start = if span == 0 || p <= span { p.min(span) } else { period - p };
+    let start = if span == 0 || p <= span {
+        p.min(span)
+    } else {
+        period - p
+    };
     (0..width)
-        .map(|i| if i >= start && i < start + seg { '█' } else { '░' })
+        .map(|i| {
+            if i >= start && i < start + seg {
+                '█'
+            } else {
+                '░'
+            }
+        })
         .collect()
 }
 
@@ -219,9 +219,15 @@ pub fn tab_row_line(tabs: &[&str], active: usize, t: &Theme) -> Line<'static> {
     for (i, name) in tabs.iter().enumerate() {
         if i == active {
             // Glyph + reverse/selection, never colour alone (`NO_COLOR` keeps `>`).
-            spans.push(Span::styled(format!(" {mark} {name} "), t.palette.highlight()));
+            spans.push(Span::styled(
+                format!(" {mark} {name} "),
+                t.palette.highlight(),
+            ));
         } else {
-            spans.push(Span::styled(format!("  {name}  "), t.palette.fg(t.palette.dim)));
+            spans.push(Span::styled(
+                format!("  {name}  "),
+                t.palette.fg(t.palette.dim),
+            ));
         }
         if i + 1 < tabs.len() {
             spans.push(Span::styled("│", t.palette.fg(t.palette.border)));
@@ -323,12 +329,22 @@ mod tests {
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 1)).unwrap();
         term.draw(|f| {
             let area = f.area();
-            header_bar(f, area, "COMMAND DECK ▸ SYSTEM", "1.4.1", vec![Span::raw("right")], &t);
+            header_bar(
+                f,
+                area,
+                "COMMAND DECK ▸ SYSTEM",
+                "1.4.1",
+                vec![Span::raw("right")],
+                &t,
+            );
         })
         .unwrap();
         let buf = term.backend().buffer();
         let text: String = (0..100).map(|x| buf[(x, 0)].symbol().to_string()).collect();
-        assert!(text.contains("◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  v1.4.1"), "{text:?}");
+        assert!(
+            text.contains("◢◤ WAYANG OS // COMMAND DECK ▸ SYSTEM  v1.4.1"),
+            "{text:?}"
+        );
         assert!(text.trim_end().ends_with("right"), "{text:?}");
         // `demo` is a label, never a fake `vdemo`.
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 1)).unwrap();
@@ -400,7 +416,10 @@ mod tests {
             .flat_map(|y| (0..30).map(move |x| buf[(x, y)].symbol().to_string()))
             .collect();
         assert!(text.contains("◢ DETAIL ◣"), "{text}");
-        assert!(!text.contains("◢ ▸ DETAIL ◣"), "the strip never owns focus: {text}");
+        assert!(
+            !text.contains("◢ ▸ DETAIL ◣"),
+            "the strip never owns focus: {text}"
+        );
         assert!(text.contains("FIELD value"), "{text}");
         // Empty: the hint replaces the fields.
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 6)).unwrap();

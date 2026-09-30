@@ -12,8 +12,12 @@ pub fn parse(text: &str) -> Result<TrustedKeys, String> {
             continue;
         }
         let mut it = line.split_whitespace();
-        let keyid = it.next().ok_or_else(|| format!("line {}: missing keyid", n + 1))?;
-        let hexs = it.next().ok_or_else(|| format!("line {}: missing key", n + 1))?;
+        let keyid = it
+            .next()
+            .ok_or_else(|| format!("line {}: missing keyid", n + 1))?;
+        let hexs = it
+            .next()
+            .ok_or_else(|| format!("line {}: missing key", n + 1))?;
         let bytes = hex::decode(hexs).map_err(|e| format!("line {}: bad hex: {e}", n + 1))?;
         let arr: [u8; 32] = bytes
             .try_into()

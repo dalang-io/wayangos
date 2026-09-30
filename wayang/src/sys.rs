@@ -19,13 +19,19 @@ pub fn run(prog: &str, args: &[&str]) -> Result<String, String> {
 pub fn run_input(prog: &str, args: &[&str], input: Option<&str>) -> Result<String, String> {
     let mut child = term::command_capture(prog)
         .args(args)
-        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .spawn()
         .map_err(|e| format!("{prog}: {e}"))?;
     if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
         let _ = stdin.write_all(text.as_bytes());
     }
-    let out = child.wait_with_output().map_err(|e| format!("{prog}: {e}"))?;
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("{prog}: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
@@ -34,7 +40,11 @@ pub fn run_input(prog: &str, args: &[&str], input: Option<&str>) -> Result<Strin
         Err(format!(
             "{prog} {} failed{}",
             args.join(" "),
-            if err.is_empty() { String::new() } else { format!(": {err}") }
+            if err.is_empty() {
+                String::new()
+            } else {
+                format!(": {err}")
+            }
         ))
     }
 }
@@ -70,13 +80,17 @@ pub fn which_in(prog: &str, path: &str) -> bool {
     if prog.contains('/') {
         return is_executable(PathBuf::from(prog));
     }
-    path.split(':').filter(|p| !p.is_empty()).any(|dir| is_executable(PathBuf::from(dir).join(prog)))
+    path.split(':')
+        .filter(|p| !p.is_empty())
+        .any(|dir| is_executable(PathBuf::from(dir).join(prog)))
 }
 
 #[cfg(unix)]
 fn is_executable(p: PathBuf) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    fs::metadata(&p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+    fs::metadata(&p)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
 }
 
 #[cfg(not(unix))]

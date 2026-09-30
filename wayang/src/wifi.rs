@@ -340,7 +340,11 @@ impl LinkStatus {
     /// Short human summary: the SSID (with signal) or "not connected".
     pub fn summary(&self) -> String {
         if self.connected {
-            let ssid = if self.ssid.is_empty() { "<hidden>" } else { &self.ssid };
+            let ssid = if self.ssid.is_empty() {
+                "<hidden>"
+            } else {
+                &self.ssid
+            };
             match self.signal {
                 Some(s) => format!("connected: {ssid} ({s} dBm)"),
                 None => format!("connected: {ssid}"),
@@ -375,11 +379,13 @@ pub fn parse_link(text: &str) -> LinkStatus {
 pub fn link_status(iface: &str) -> LinkStatus {
     let mut st = LinkStatus::default();
     if sys::which("iw")
-        && let Ok(out) = sys::run("iw", &["dev", iface, "link"]) {
+        && let Ok(out) = sys::run("iw", &["dev", iface, "link"])
+    {
         st = parse_link(&out);
     }
     if !st.connected
-        && let Some(s) = configured_ssid() {
+        && let Some(s) = configured_ssid()
+    {
         st.ssid = s;
     }
     st
@@ -450,7 +456,12 @@ pub fn parse_scan(text: &str) -> Vec<Bss> {
             } else {
                 "OPEN".to_string()
             };
-            out.push(Bss { bssid: p.bssid, ssid: p.ssid, signal: p.signal, security });
+            out.push(Bss {
+                bssid: p.bssid,
+                ssid: p.ssid,
+                signal: p.signal,
+                security,
+            });
         }
     }
 
@@ -459,7 +470,14 @@ pub fn parse_scan(text: &str) -> Vec<Bss> {
         if let Some(rest) = t.strip_prefix("BSS ") {
             flush(&mut cur, &mut out);
             let bssid = rest.split(['(', ' ']).next().unwrap_or("").to_string();
-            cur = Some(Partial { bssid, ssid: String::new(), signal: None, rsn: false, wpa: false, privacy: false });
+            cur = Some(Partial {
+                bssid,
+                ssid: String::new(),
+                signal: None,
+                rsn: false,
+                wpa: false,
+                privacy: false,
+            });
             continue;
         }
         let Some(c) = cur.as_mut() else { continue };
@@ -481,7 +499,11 @@ pub fn parse_scan(text: &str) -> Vec<Bss> {
     }
     flush(&mut cur, &mut out);
 
-    out.sort_by(|a, b| b.signal_or_default().cmp(&a.signal_or_default()).then_with(|| a.ssid.cmp(&b.ssid)));
+    out.sort_by(|a, b| {
+        b.signal_or_default()
+            .cmp(&a.signal_or_default())
+            .then_with(|| a.ssid.cmp(&b.ssid))
+    });
     out
 }
 
@@ -517,18 +539,29 @@ pub fn valid_credentials(ssid: &str, psk: &str) -> Result<(), String> {
 
 /// Persist the wpa_supplicant config and connect: regdomain, wpa_supplicant,
 /// DHCP, primary.
-pub fn connect(iface: &str, ssid: &str, psk: &str, country: Option<&str>, demo: bool) -> Result<String, String> {
+pub fn connect(
+    iface: &str,
+    ssid: &str,
+    psk: &str,
+    country: Option<&str>,
+    demo: bool,
+) -> Result<String, String> {
     valid_credentials(ssid, psk)?;
     let country = country.map(str::trim).filter(|c| !c.is_empty());
     if let Some(cc) = country
-        && (cc.len() != 2 || !cc.chars().all(|c| c.is_ascii_alphabetic())) {
+        && (cc.len() != 2 || !cc.chars().all(|c| c.is_ascii_alphabetic()))
+    {
         return Err(format!("country code '{cc}' must be two letters, e.g. GB"));
     }
     if demo {
-        return Ok(format!("wifi: connected to {ssid} on {iface} (demo, not applied)"));
+        return Ok(format!(
+            "wifi: connected to {ssid} on {iface} (demo, not applied)"
+        ));
     }
     if !sys::which("wpa_supplicant") {
-        return Err("`wpa_supplicant` is not installed (see docs/NETWORK.md wifi prerequisites)".into());
+        return Err(
+            "`wpa_supplicant` is not installed (see docs/NETWORK.md wifi prerequisites)".into(),
+        );
     }
 
     let conf = paths::wpa_conf_file();
@@ -538,7 +571,8 @@ pub fn connect(iface: &str, ssid: &str, psk: &str, country: Option<&str>, demo: 
     fs::write(&conf, wpa_conf(ssid, psk)).map_err(|e| format!("{}: {e}", conf.display()))?;
 
     if let Some(cc) = country
-        && sys::which("iw") {
+        && sys::which("iw")
+    {
         sys::run("iw", &["reg", "set", cc]).map_err(|e| format!("iw reg set {cc}: {e}"))?;
     }
 
@@ -547,14 +581,28 @@ pub fn connect(iface: &str, ssid: &str, psk: &str, country: Option<&str>, demo: 
     }
     sys::run("ip", &["link", "set", iface, "up"])
         .map_err(|e| format!("cannot bring {iface} up: {e}"))?;
-    sys::run("wpa_supplicant", &["-B", "-i", iface, "-c", &conf.to_string_lossy()])
-        .map_err(|e| format!("wpa_supplicant failed on {iface}: {e}"))?;
+    sys::run(
+        "wpa_supplicant",
+        &["-B", "-i", iface, "-c", &conf.to_string_lossy()],
+    )
+    .map_err(|e| format!("wpa_supplicant failed on {iface}: {e}"))?;
 
     // DHCP cannot run until the link has associated (carrier up); wait for it.
     let assoc = wait_assoc(iface, 20);
     sys::run(
         "udhcpc",
-        &["-n", "-q", "-t", "5", "-T", "3", "-i", iface, "-s", "/etc/udhcpc.script"],
+        &[
+            "-n",
+            "-q",
+            "-t",
+            "5",
+            "-T",
+            "3",
+            "-i",
+            iface,
+            "-s",
+            "/etc/udhcpc.script",
+        ],
     )
     .map_err(|e| {
         if assoc {
@@ -567,8 +615,12 @@ pub fn connect(iface: &str, ssid: &str, psk: &str, country: Option<&str>, demo: 
     let _ = sys::spawn("udhcpc", &["-b", "-i", iface, "-s", "/etc/udhcpc.script"]);
 
     // pin the wifi interface; boot uses MODE=dhcp on it
-    NetChoice { iface: Some(iface.to_string()), mode: net::Mode::Dhcp, ..Default::default() }
-        .write_persisted()?;
+    NetChoice {
+        iface: Some(iface.to_string()),
+        mode: net::Mode::Dhcp,
+        ..Default::default()
+    }
+    .write_persisted()?;
     Ok(format!("wifi: {ssid} on {iface} (dhcp)"))
 }
 
@@ -691,7 +743,11 @@ BSS aa:bb:cc:dd:ee:ff(on wlan0)
                 fs::create_dir_all(d.join("wireless")).unwrap();
                 fs::create_dir_all(d.join("device")).unwrap();
                 #[cfg(unix)]
-                std::os::unix::fs::symlink(format!("/sys/bus/usb/drivers/{driver}"), d.join("device/driver")).unwrap();
+                std::os::unix::fs::symlink(
+                    format!("/sys/bus/usb/drivers/{driver}"),
+                    d.join("device/driver"),
+                )
+                .unwrap();
             }
         }
         let w = ifaces_at(&root);
@@ -817,7 +873,10 @@ pub fn detect_at(sys: &Path) -> Vec<HwDevice> {
     if let Ok(entries) = fs::read_dir(sys.join("bus/usb/devices")) {
         for e in entries.flatten() {
             let d = e.path();
-            let (Some(vid), Some(pid)) = (read_trim(&d.join("idVendor")), read_trim(&d.join("idProduct"))) else {
+            let (Some(vid), Some(pid)) = (
+                read_trim(&d.join("idVendor")),
+                read_trim(&d.join("idProduct")),
+            ) else {
                 continue;
             };
             let id = format!("{}:{}", vid.to_lowercase(), pid.to_lowercase());
@@ -855,7 +914,10 @@ pub fn detect_at(sys: &Path) -> Vec<HwDevice> {
 /// Walk up from a device path to the USB device that has idVendor/idProduct.
 fn usb_id(start: &Path) -> Option<String> {
     for anc in start.ancestors() {
-        if let (Some(v), Some(p)) = (read_trim(&anc.join("idVendor")), read_trim(&anc.join("idProduct"))) {
+        if let (Some(v), Some(p)) = (
+            read_trim(&anc.join("idVendor")),
+            read_trim(&anc.join("idProduct")),
+        ) {
             return Some(format!("{}:{}", v.to_lowercase(), p.to_lowercase()));
         }
     }
@@ -887,9 +949,11 @@ fn usb_driver(usb_dev: &Path) -> Option<String> {
 
 fn is_wifi_name(name: &str) -> bool {
     let n = name.to_lowercase();
-    ["wifi", "wlan", "wireless", "802.11", "802.11n", "ac600", "ac1200"]
-        .iter()
-        .any(|k| n.contains(k))
+    [
+        "wifi", "wlan", "wireless", "802.11", "802.11n", "ac600", "ac1200",
+    ]
+    .iter()
+    .any(|k| n.contains(k))
 }
 
 /// Print the detection table (or JSON). Part of `wayang wifi detect`.
@@ -910,7 +974,9 @@ pub fn detect_cmd(json: bool) -> crate::error::Result<i32> {
     }
     if devs.is_empty() {
         println!("no WiFi hardware detected (no wireless interface and no matching USB device)");
-        println!("if it is a USB adapter, make sure it is plugged in; then re-run `wayang wifi detect`");
+        println!(
+            "if it is a USB adapter, make sure it is plugged in; then re-run `wayang wifi detect`"
+        );
         return Ok(2);
     }
     println!(
@@ -918,16 +984,31 @@ pub fn detect_cmd(json: bool) -> crate::error::Result<i32> {
         "IFACE", "BUS", "ID", "DRIVER", "NAME"
     );
     for d in &devs {
-        let iface = if d.bound { d.iface.clone() } else { "usb".into() };
-        let drv = if d.driver == "-" { "(none)".to_string() } else { d.driver.clone() };
+        let iface = if d.bound {
+            d.iface.clone()
+        } else {
+            "usb".into()
+        };
+        let drv = if d.driver == "-" {
+            "(none)".to_string()
+        } else {
+            d.driver.clone()
+        };
         println!(
             "{:<10} {:<4} {:<10} {:<16} {:<24} {}",
-            iface, d.bus, d.id, drv, trunc(&d.name, 24), d.hint
+            iface,
+            d.bus,
+            d.id,
+            drv,
+            trunc(&d.name, 24),
+            d.hint
         );
     }
     if devs.iter().any(|d| !d.bound) {
         println!();
-        println!("devices marked `usb` have no driver bound: use configs/defconfig-wifi + firmware");
+        println!(
+            "devices marked `usb` have no driver bound: use configs/defconfig-wifi + firmware"
+        );
     }
     Ok(0)
 }
@@ -985,7 +1066,10 @@ mod detect_tests {
         symlink(&btdrv, bt.join("2-1:1.0/driver")).unwrap();
 
         let devs = detect_at(&root);
-        let bound = devs.iter().find(|d| d.iface == "wlan0").expect("bound wlan0");
+        let bound = devs
+            .iter()
+            .find(|d| d.iface == "wlan0")
+            .expect("bound wlan0");
         assert_eq!(bound.bus, "usb");
         assert_eq!(bound.id, "0bda:c811");
         assert_eq!(bound.driver, "rtw88_8821cu");
@@ -997,7 +1081,10 @@ mod detect_tests {
         assert!(free.hint.contains("mt7601u"));
         assert!(!free.bound);
 
-        assert!(devs.iter().all(|d| d.id != "8087:0aa7"), "btusb must not be a WiFi candidate");
+        assert!(
+            devs.iter().all(|d| d.id != "8087:0aa7"),
+            "btusb must not be a WiFi candidate"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

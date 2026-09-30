@@ -30,31 +30,54 @@ pub enum EdgeRouterAction {
     /// Stop then start the wayangi agent.
     Restart,
     /// Install a wayangi Edge bundle (dir or `.tar.gz`) onto this box.
-    Apply { path: PathBuf, force: bool },
+    Apply {
+        path: PathBuf,
+        force: bool,
+    },
     Help,
 }
 
 #[derive(Debug)]
 pub enum Command {
     Version,
-    Status { json: bool },
+    Status {
+        json: bool,
+    },
     Update(UpdateArgs),
     Upgrade(UpdateArgs),
     Net,
     Wifi,
-    WifiDetect { json: bool },
+    WifiDetect {
+        json: bool,
+    },
     EdgeRouter(EdgeRouterAction),
-    Keygen { out: PathBuf, keyid: String },
-    Sign { key: PathBuf, keyid: Option<String>, manifest: PathBuf },
-    Verify { bundle: PathBuf, esp: Option<String> },
-    MarkOk { esp: Option<String> },
+    Keygen {
+        out: PathBuf,
+        keyid: String,
+    },
+    Sign {
+        key: PathBuf,
+        keyid: Option<String>,
+        manifest: PathBuf,
+    },
+    Verify {
+        bundle: PathBuf,
+        esp: Option<String>,
+    },
+    MarkOk {
+        esp: Option<String>,
+    },
     /// `wayang reset`: return this box's configuration to defaults (remove the
     /// router/firewall/wayangi/network config and clear a pending OS update).
     /// Requires the literal `yes` (or `--yes`/`-y`) to proceed.
-    Reset { yes: bool },
+    Reset {
+        yes: bool,
+    },
     /// `wayang addkey`: the single SSH-key implementation behind
     /// `wayang-addkey` and the SSH screen.
-    AddKey { spec: String },
+    AddKey {
+        spec: String,
+    },
     PrintVersion,
     Help,
 }
@@ -181,14 +204,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                         match rest[i].as_str() {
                             "--force" => force = true,
                             other if other.starts_with("--") => {
-                                return Err(format!("unknown option for `edgerouter apply`: {other}"))
+                                return Err(format!(
+                                    "unknown option for `edgerouter apply`: {other}"
+                                ));
                             }
                             other => path = Some(PathBuf::from(other)),
                         }
                         i += 1;
                     }
-                    let path = path
-                        .ok_or_else(|| "edgerouter apply needs a bundle (a directory or FILE.tar.gz)".to_string())?;
+                    let path = path.ok_or_else(|| {
+                        "edgerouter apply needs a bundle (a directory or FILE.tar.gz)".to_string()
+                    })?;
                     Ok(Command::EdgeRouter(EdgeRouterAction::Apply { path, force }))
                 }
                 Some(other) => Err(format!(
@@ -201,7 +227,11 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let mut keyid = "release".to_string();
             let mut i = 0;
             while i < rest.len() {
-                match rest[i].split_once('=').map(|(k, _)| k).unwrap_or(rest[i].as_str()) {
+                match rest[i]
+                    .split_once('=')
+                    .map(|(k, _)| k)
+                    .unwrap_or(rest[i].as_str())
+                {
                     "--out" => out = Some(PathBuf::from(value_after(rest, &mut i, "--out")?)),
                     "--keyid" => keyid = value_after(rest, &mut i, "--keyid")?,
                     other => return Err(format!("unknown option for `keygen`: {other}")),
@@ -217,11 +247,15 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let mut manifest: Option<PathBuf> = None;
             let mut i = 0;
             while i < rest.len() {
-                match rest[i].split_once('=').map(|(k, _)| k).unwrap_or(rest[i].as_str()) {
+                match rest[i]
+                    .split_once('=')
+                    .map(|(k, _)| k)
+                    .unwrap_or(rest[i].as_str())
+                {
                     "--key" => key = Some(PathBuf::from(value_after(rest, &mut i, "--key")?)),
                     "--keyid" => keyid = Some(value_after(rest, &mut i, "--keyid")?),
                     other if other.starts_with("--") => {
-                        return Err(format!("unknown option for `sign`: {other}"))
+                        return Err(format!("unknown option for `sign`: {other}"));
                     }
                     other => manifest = Some(PathBuf::from(other)),
                 }
@@ -238,10 +272,14 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let mut esp: Option<String> = None;
             let mut i = 0;
             while i < rest.len() {
-                match rest[i].split_once('=').map(|(k, _)| k).unwrap_or(rest[i].as_str()) {
+                match rest[i]
+                    .split_once('=')
+                    .map(|(k, _)| k)
+                    .unwrap_or(rest[i].as_str())
+                {
                     "--esp" => esp = Some(value_after(rest, &mut i, "--esp")?),
                     other if other.starts_with("--") => {
-                        return Err(format!("unknown option for `verify`: {other}"))
+                        return Err(format!("unknown option for `verify`: {other}"));
                     }
                     other => bundle = Some(PathBuf::from(other)),
                 }
@@ -264,7 +302,9 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             }
             Ok(Command::MarkOk { esp })
         }
-        "addkey" => Ok(Command::AddKey { spec: rest.join(" ") }),
+        "addkey" => Ok(Command::AddKey {
+            spec: rest.join(" "),
+        }),
         "reset" => {
             let mut yes = false;
             for a in rest {
@@ -291,7 +331,15 @@ mod tests {
 
     #[test]
     fn parses_update_flags() {
-        let c = parse(&v(&["update", "--check", "--channel", "edge", "--esp=/dev/sda2", "--reboot"])).unwrap();
+        let c = parse(&v(&[
+            "update",
+            "--check",
+            "--channel",
+            "edge",
+            "--esp=/dev/sda2",
+            "--reboot",
+        ]))
+        .unwrap();
         match c {
             Command::Update(a) => {
                 assert!(a.check);
@@ -344,7 +392,10 @@ mod tests {
 
     #[test]
     fn parses_keygen_sign_verify() {
-        assert!(matches!(parse(&v(&["keygen", "--out", "/k"])).unwrap(), Command::Keygen { .. }));
+        assert!(matches!(
+            parse(&v(&["keygen", "--out", "/k"])).unwrap(),
+            Command::Keygen { .. }
+        ));
         match parse(&v(&["sign", "--key", "/k/release.key", "/m/manifest.json"])).unwrap() {
             Command::Sign { key, manifest, .. } => {
                 assert_eq!(key, PathBuf::from("/k/release.key"));
@@ -352,7 +403,10 @@ mod tests {
             }
             _ => panic!("wrong command"),
         }
-        assert!(matches!(parse(&v(&["verify", "/b.wup"])).unwrap(), Command::Verify { .. }));
+        assert!(matches!(
+            parse(&v(&["verify", "/b.wup"])).unwrap(),
+            Command::Verify { .. }
+        ));
     }
 
     #[test]
@@ -375,7 +429,10 @@ mod tests {
     fn parses_net_and_wifi() {
         assert!(matches!(parse(&v(&["net"])).unwrap(), Command::Net));
         assert!(matches!(parse(&v(&["wifi"])).unwrap(), Command::Wifi));
-        assert!(matches!(parse(&v(&["net", "--help"])).unwrap(), Command::Net));
+        assert!(matches!(
+            parse(&v(&["net", "--help"])).unwrap(),
+            Command::Net
+        ));
         assert!(parse(&v(&["net", "--bogus"])).is_err());
         assert!(matches!(
             parse(&v(&["wifi", "detect"])).unwrap(),
@@ -436,11 +493,17 @@ mod tests {
             parse(&v(&["edgerouter", "--help"])).unwrap(),
             Command::EdgeRouter(EdgeRouterAction::Help)
         ));
-        assert!(parse(&v(&["edgerouter", "enroll"])).is_err(), "token required");
+        assert!(
+            parse(&v(&["edgerouter", "enroll"])).is_err(),
+            "token required"
+        );
         assert!(parse(&v(&["edgerouter", "bogus"])).is_err());
         assert!(parse(&v(&["edgerouter", "start", "now"])).is_err());
         assert!(parse(&v(&["edgerouter", "status", "extra"])).is_err());
-        assert!(parse(&v(&["edgerouter", "apply"])).is_err(), "bundle required");
+        assert!(
+            parse(&v(&["edgerouter", "apply"])).is_err(),
+            "bundle required"
+        );
         assert!(parse(&v(&["edgerouter", "apply", "/x", "--wat"])).is_err());
     }
 }

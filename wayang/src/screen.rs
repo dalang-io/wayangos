@@ -113,7 +113,13 @@ pub fn run_with_launch<A>(
                         if let Some(mut cmd) = take_launch(&mut app) {
                             let target = cmd.get_program().to_string_lossy().into_owned();
                             let _ = terminal.draw(|f| {
-                                wayang_tui::transition::render(f, f.area(), "launching", &target, theme)
+                                wayang_tui::transition::render(
+                                    f,
+                                    f.area(),
+                                    "launching",
+                                    &target,
+                                    theme,
+                                )
                             });
                             // Keep the alternate screen while the child runs so
                             // there is no flashblank between the two HUDs.
@@ -123,7 +129,13 @@ pub fn run_with_launch<A>(
                             enable_raw_mode()?;
                             let _ = term::enter(&mut io::stdout(), &palette);
                             let _ = terminal.draw(|f| {
-                                wayang_tui::transition::render(f, f.area(), "loading", &target, theme)
+                                wayang_tui::transition::render(
+                                    f,
+                                    f.area(),
+                                    "loading",
+                                    &target,
+                                    theme,
+                                )
                             });
                             launched(&mut app, res);
                             // Return frame is a fresh first frame (§5b).
@@ -148,9 +160,17 @@ pub fn run_with_launch<A>(
 }
 
 /// Render an app to text with a `TestBackend` (snapshot/demo mode).
-pub fn render_text<A>(app: &A, w: u16, h: u16, draw: impl Fn(&mut Frame, &A, usize)) -> Result<String, String> {
-    let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(w, h)).map_err(|e| e.to_string())?;
-    terminal.draw(|f| draw(f, app, 0)).map_err(|e| e.to_string())?;
+pub fn render_text<A>(
+    app: &A,
+    w: u16,
+    h: u16,
+    draw: impl Fn(&mut Frame, &A, usize),
+) -> Result<String, String> {
+    let mut terminal =
+        Terminal::new(ratatui::backend::TestBackend::new(w, h)).map_err(|e| e.to_string())?;
+    terminal
+        .draw(|f| draw(f, app, 0))
+        .map_err(|e| e.to_string())?;
     let buf = terminal.backend().buffer();
     let mut text = String::new();
     for y in 0..h {
@@ -164,9 +184,18 @@ pub fn render_text<A>(app: &A, w: u16, h: u16, draw: impl Fn(&mut Frame, &A, usi
 // ---- SVG snapshots (docs) ------------------------------------------------
 
 /// Render an app to a standalone SVG (`wayang --screens DIR --svg`).
-pub fn render_svg<A>(app: &A, w: u16, h: u16, draw: impl Fn(&mut Frame, &A, usize), t: &Theme) -> Result<String, String> {
-    let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(w, h)).map_err(|e| e.to_string())?;
-    terminal.draw(|f| draw(f, app, 0)).map_err(|e| e.to_string())?;
+pub fn render_svg<A>(
+    app: &A,
+    w: u16,
+    h: u16,
+    draw: impl Fn(&mut Frame, &A, usize),
+    t: &Theme,
+) -> Result<String, String> {
+    let mut terminal =
+        Terminal::new(ratatui::backend::TestBackend::new(w, h)).map_err(|e| e.to_string())?;
+    terminal
+        .draw(|f| draw(f, app, 0))
+        .map_err(|e| e.to_string())?;
     Ok(to_svg(terminal.backend().buffer(), t))
 }
 

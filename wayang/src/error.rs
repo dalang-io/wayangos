@@ -11,13 +11,22 @@ pub struct AppError {
 
 impl AppError {
     pub fn err(msg: impl Into<String>) -> Self {
-        AppError { code: 1, msg: msg.into() }
+        AppError {
+            code: 1,
+            msg: msg.into(),
+        }
     }
     pub fn verify(msg: impl Into<String>) -> Self {
-        AppError { code: 3, msg: msg.into() }
+        AppError {
+            code: 3,
+            msg: msg.into(),
+        }
     }
     pub fn incompatible(msg: impl Into<String>) -> Self {
-        AppError { code: 4, msg: msg.into() }
+        AppError {
+            code: 4,
+            msg: msg.into(),
+        }
     }
 }
 

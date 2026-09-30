@@ -82,8 +82,10 @@ impl GrubEnv {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
         let mut f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        f.write_all(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
-        f.sync_all().map_err(|e| format!("{}: {e}", path.display()))?;
+        f.write_all(&bytes)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         Ok(())
     }
 

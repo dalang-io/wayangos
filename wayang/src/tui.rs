@@ -16,15 +16,15 @@
 //! without touching the system.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::time::Instant;
 
+use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Gauge, Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::cli::UpdateArgs;
 pub use crate::hud::Tone;
@@ -33,7 +33,6 @@ use crate::manifest::SlotMeta;
 use crate::net;
 use crate::netui;
 use crate::paths;
-use crate::{help, input, review};
 use crate::slot::{self, Slot};
 use crate::sshkeys;
 use crate::sshkeysui;
@@ -41,9 +40,14 @@ use crate::status::{self, Status};
 use crate::ui;
 use crate::update;
 use crate::wifiui;
+use crate::{help, input, review};
 
 /// One command-deck card: `(title, lines, gauge)`.
-type CardLines = (&'static str, Vec<Line<'static>>, Option<(usize, f64, String)>);
+type CardLines = (
+    &'static str,
+    Vec<Line<'static>>,
+    Option<(usize, f64, String)>,
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Module {
@@ -91,11 +95,19 @@ pub struct Companion {
 impl Companion {
     fn probe(name: &str, dir: &str) -> Companion {
         let data = paths::data_dir();
-        let bin = [data.join("bin").join(name), PathBuf::from("/usr/bin").join(name)]
-            .into_iter()
-            .find(|p| p.is_file());
+        let bin = [
+            data.join("bin").join(name),
+            PathBuf::from("/usr/bin").join(name),
+        ]
+        .into_iter()
+        .find(|p| p.is_file());
         let etc = data.join("etc").join(dir);
-        Companion { bin, confirmed: etc.join("config.toml").is_file(), pending: etc.join("pending.toml").is_file(), configless: false }
+        Companion {
+            bin,
+            confirmed: etc.join("config.toml").is_file(),
+            pending: etc.join("pending.toml").is_file(),
+            configless: false,
+        }
     }
 
     fn tone(&self) -> Option<Tone> {
@@ -126,8 +138,17 @@ pub struct Deck {
 
 impl Deck {
     fn probe() -> Deck {
-        let read = |p: &str| std::fs::read_to_string(p).unwrap_or_default().trim().to_string();
-        let secs: u64 = read("/proc/uptime").split('.').next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let read = |p: &str| {
+            std::fs::read_to_string(p)
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        };
+        let secs: u64 = read("/proc/uptime")
+            .split('.')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         Deck {
             host: read("/proc/sys/kernel/hostname"),
             uptime: uptime(secs),
@@ -135,7 +156,10 @@ impl Deck {
             wifi_saved: paths::wpa_conf_file().is_file(),
             fw: Companion::probe("wayang-fw", "fw"),
             rt: Companion::probe("wayang-router", "router"),
-            dcheck: Companion { configless: true, ..Companion::probe("dcheck", "dcheck") },
+            dcheck: Companion {
+                configless: true,
+                ..Companion::probe("dcheck", "dcheck")
+            },
             nft: Path::new("/usr/sbin/nft").is_file(),
             ssh_keys: sshkeys::load().len(),
         }
@@ -160,9 +184,19 @@ impl Deck {
                 i("wlan0", false, true, false, &[]),
             ],
             wifi_saved: false,
-            fw: Companion { bin: Some("/data/bin/wayang-fw".into()), confirmed: false, pending: false, configless: false },
+            fw: Companion {
+                bin: Some("/data/bin/wayang-fw".into()),
+                confirmed: false,
+                pending: false,
+                configless: false,
+            },
             rt: Companion::default(),
-            dcheck: Companion { bin: Some("/usr/bin/dcheck".into()), confirmed: false, pending: false, configless: true },
+            dcheck: Companion {
+                bin: Some("/usr/bin/dcheck".into()),
+                confirmed: false,
+                pending: false,
+                configless: true,
+            },
             nft: true,
             ssh_keys: 2,
         }
@@ -367,8 +401,12 @@ impl App {
         // `?` help overlay (scrollable, `p` prints).
         if self.help {
             match key.code {
-                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.help_scroll = self.help_scroll.saturating_sub(1)
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.help_scroll = self.help_scroll.saturating_add(1)
+                }
                 KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(5),
                 KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(5),
                 KeyCode::Home => self.help_scroll = 0,
@@ -416,8 +454,10 @@ impl App {
             KeyCode::Esc | KeyCode::Char('0') => self.exit = true,
             KeyCode::Char('q') => {
                 if self.job.is_some() {
-                    self.message =
-                        Some((Tone::Warn, "An action is running; wait for it, or press 0 to leave.".into()));
+                    self.message = Some((
+                        Tone::Warn,
+                        "An action is running; wait for it, or press 0 to leave.".into(),
+                    ));
                 } else {
                     self.exit = true;
                 }
@@ -427,7 +467,9 @@ impl App {
                 self.open(self.sel);
             }
             // update actions: only from the UPDATES card, never from a number key
-            KeyCode::Char(c @ ('c' | 'u' | 'g' | 'x' | 'b')) if self.module() == Some(Module::Updates) => {
+            KeyCode::Char(c @ ('c' | 'u' | 'g' | 'x' | 'b'))
+                if self.module() == Some(Module::Updates) =>
+            {
                 if let Some(j) = &self.job {
                     self.message = Some((Tone::Warn, format!("{} is still running.", j.label)));
                     return;
@@ -446,7 +488,10 @@ impl App {
                         self.armed = true;
                         self.message = Some((
                             Tone::Warn,
-                            format!("Press x again to stage slot {} (rollback).", self.status.active.idle().as_str()),
+                            format!(
+                                "Press x again to stage slot {} (rollback).",
+                                self.status.active.idle().as_str()
+                            ),
                         ));
                         return;
                     }
@@ -454,7 +499,10 @@ impl App {
                         self.armed_other = true;
                         self.message = Some((
                             Tone::Warn,
-                            format!("Press b again to boot slot {} next (one-shot).", self.status.active.idle().as_str()),
+                            format!(
+                                "Press b again to boot slot {} next (one-shot).",
+                                self.status.active.idle().as_str()
+                            ),
                         ));
                         return;
                     }
@@ -466,8 +514,10 @@ impl App {
             KeyCode::Char('x') if self.module() == Some(Module::System) => {
                 if !armed_reset {
                     self.armed_reset = true;
-                    self.message =
-                        Some((Tone::Warn, "Press x again to reset the box's config to defaults.".into()));
+                    self.message = Some((
+                        Tone::Warn,
+                        "Press x again to reset the box's config to defaults.".into(),
+                    ));
                     return;
                 }
                 self.request(Action::Reset);
@@ -479,7 +529,10 @@ impl App {
     /// Open a REVIEW for a mutating action (or run a read-only one directly).
     fn request(&mut self, action: Action) {
         if self.job.is_some() {
-            self.message = Some((Tone::Warn, "An action is already running; wait for it.".into()));
+            self.message = Some((
+                Tone::Warn,
+                "An action is already running; wait for it.".into(),
+            ));
             return;
         }
         if action == Action::Check {
@@ -508,7 +561,10 @@ impl App {
             Action::Upgrade => (
                 "UPGRADE (may cross a major version)".into(),
                 vec![
-                    format!("check channel {} for the newest release", self.status.channel),
+                    format!(
+                        "check channel {} for the newest release",
+                        self.status.channel
+                    ),
                     "download the signed bundle".into(),
                     "verify its signature and manifest".into(),
                     format!("stage it in slot {other}; it boots on the next reboot"),
@@ -609,7 +665,6 @@ impl App {
         }
     }
 
-
     pub fn sub_exited(&self) -> bool {
         match &self.sub {
             Some(Sub::Net(a)) => a.exit,
@@ -647,22 +702,34 @@ impl App {
             Some(Module::Wifi) => self.sub = Some(Sub::Wifi(wifiui::App::new(demo))),
             Some(Module::Ssh) => self.sub = Some(Sub::Ssh(sshkeysui::App::new(demo))),
             Some(m @ (Module::Firewall | Module::Router)) => {
-                let (c, name) =
-                    if m == Module::Firewall { (&self.deck.fw, "wayang-fw") } else { (&self.deck.rt, "wayang-router") };
+                let (c, name) = if m == Module::Firewall {
+                    (&self.deck.fw, "wayang-fw")
+                } else {
+                    (&self.deck.rt, "wayang-router")
+                };
                 match (&c.bin, demo) {
-                    (Some(_), true) => self.message = Some((Tone::Ok, format!("demo: would open {name}"))),
+                    (Some(_), true) => {
+                        self.message = Some((Tone::Ok, format!("demo: would open {name}")))
+                    }
                     (Some(b), false) => self.launch = Some(b.clone()),
                     (None, _) => {
-                        self.message =
-                            Some((Tone::Warn, format!("{name} is not installed: copy it to /data/bin/{name}")))
+                        self.message = Some((
+                            Tone::Warn,
+                            format!("{name} is not installed: copy it to /data/bin/{name}"),
+                        ))
                     }
                 }
             }
             Some(Module::Dcheck) => match (&self.deck.dcheck.bin, demo) {
-                (Some(_), true) => self.message = Some((Tone::Ok, "demo: would open dcheck".into())),
+                (Some(_), true) => {
+                    self.message = Some((Tone::Ok, "demo: would open dcheck".into()))
+                }
                 (Some(b), false) => self.launch = Some(b.clone()),
                 (None, _) => {
-                    self.message = Some((Tone::Warn, "dcheck is not installed (ships at /usr/bin/dcheck)".into()))
+                    self.message = Some((
+                        Tone::Warn,
+                        "dcheck is not installed (ships at /usr/bin/dcheck)".into(),
+                    ))
                 }
             },
         }
@@ -678,18 +745,31 @@ impl App {
             JobKind::Reset => "Resetting config",
         };
         if self.demo {
-            self.message = Some((Tone::Ok, format!("demo: {} (nothing runs)", label.to_lowercase())));
+            self.message = Some((
+                Tone::Ok,
+                format!("demo: {} (nothing runs)", label.to_lowercase()),
+            ));
             return;
         }
         let (tx, rx) = mpsc::channel();
         // Only a fetch reports bytes; slot switches have nothing to measure.
-        let progress = matches!(kind, JobKind::Update | JobKind::Upgrade).then(update::Progress::new);
+        let progress =
+            matches!(kind, JobKind::Update | JobKind::Upgrade).then(update::Progress::new);
         let hook = progress.clone();
         let upgrade = kind == JobKind::Upgrade;
         let args = match kind {
-            JobKind::Check => UpdateArgs { check: true, ..Default::default() },
-            JobKind::Rollback => UpdateArgs { rollback: true, ..Default::default() },
-            JobKind::BootOther => UpdateArgs { boot_other: true, ..Default::default() },
+            JobKind::Check => UpdateArgs {
+                check: true,
+                ..Default::default()
+            },
+            JobKind::Rollback => UpdateArgs {
+                rollback: true,
+                ..Default::default()
+            },
+            JobKind::BootOther => UpdateArgs {
+                boot_other: true,
+                ..Default::default()
+            },
             _ => UpdateArgs::default(),
         };
         std::thread::spawn(move || {
@@ -698,7 +778,13 @@ impl App {
             let _ = tx.send(r);
         });
         self.message = Some((Tone::Warn, format!("{label}…")));
-        self.job = Some(Job { label: label.into(), rx, kind, progress, started: Instant::now() });
+        self.job = Some(Job {
+            label: label.into(),
+            rx,
+            kind,
+            progress,
+            started: Instant::now(),
+        });
     }
 
     /// Reset the box's config in the background (shares the CLI's implementation).
@@ -728,19 +814,31 @@ impl App {
     pub fn poll(&mut self) {
         self.tick = self.tick.wrapping_add(1);
         let Some(job) = &self.job else { return };
-        let Ok(result) = job.rx.try_recv() else { return };
+        let Ok(result) = job.rx.try_recv() else {
+            return;
+        };
         let kind = job.kind;
         self.job = None;
         let msg = match result {
-            Ok(0) if kind == JobKind::Check => {
-                (Tone::Ok, "An update is available: u installs it into the other slot.".into())
+            Ok(0) if kind == JobKind::Check => (
+                Tone::Ok,
+                "An update is available: u installs it into the other slot.".into(),
+            ),
+            Ok(0) if kind == JobKind::Rollback => {
+                (Tone::Warn, "Rollback staged: reboot to apply.".into())
             }
-            Ok(0) if kind == JobKind::Rollback => (Tone::Warn, "Rollback staged: reboot to apply.".into()),
-            Ok(0) if kind == JobKind::BootOther => {
-                (Tone::Warn, "Boot to the other slot staged: reboot to apply.".into())
-            }
-            Ok(0) if kind == JobKind::Reset => (Tone::Ok, "Config reset to defaults. Reboot to apply.".into()),
-            Ok(0) => (Tone::Ok, "Update staged in the other slot: reboot to apply.".into()),
+            Ok(0) if kind == JobKind::BootOther => (
+                Tone::Warn,
+                "Boot to the other slot staged: reboot to apply.".into(),
+            ),
+            Ok(0) if kind == JobKind::Reset => (
+                Tone::Ok,
+                "Config reset to defaults. Reboot to apply.".into(),
+            ),
+            Ok(0) => (
+                Tone::Ok,
+                "Update staged in the other slot: reboot to apply.".into(),
+            ),
             Ok(2) => (Tone::Ok, "Up to date: no update available.".into()),
             Ok(code) => (Tone::Bad, format!("Finished with exit code {code}.")),
             Err(e) => (Tone::Bad, e),
@@ -775,7 +873,11 @@ impl App {
                 _ => Some(Tone::Ok),
             },
             Module::Network => {
-                let up = self.deck.ifaces.iter().any(|i| i.link && !i.ipv4.is_empty());
+                let up = self
+                    .deck
+                    .ifaces
+                    .iter()
+                    .any(|i| i.link && !i.ipv4.is_empty());
                 Some(if up { Tone::Ok } else { Tone::Warn })
             }
             Module::Wifi => {
@@ -790,7 +892,11 @@ impl App {
             Module::Firewall => self.deck.fw.tone(),
             Module::Router => self.deck.rt.tone(),
             Module::Dcheck => self.deck.dcheck.tone(),
-            Module::Ssh => Some(if self.deck.ssh_keys > 0 { Tone::Ok } else { Tone::Warn }),
+            Module::Ssh => Some(if self.deck.ssh_keys > 0 {
+                Tone::Ok
+            } else {
+                Tone::Warn
+            }),
         }
     }
 }
@@ -826,7 +932,14 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     // §5b: before any sampling the first frame is the splash, never an empty
     // (light/SSH → white) alternate screen. Same on return from a child tool.
     if app.loading {
-        wayang_tui::splash::render(f, f.area(), "wayang", Some("OS CONSOLE"), tick as u64, &app.t);
+        wayang_tui::splash::render(
+            f,
+            f.area(),
+            "wayang",
+            Some("OS CONSOLE"),
+            tick as u64,
+            &app.t,
+        );
         return;
     }
     if let Some(sub) = &app.sub {
@@ -839,39 +952,62 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     }
     let t = &app.t;
     let area = f.area();
-    f.render_widget(ratatui::widgets::Block::default().style(t.palette.base()), area);
-    let [header, body, status, footer] =
-        Layout::vertical([Constraint::Length(1), Constraint::Min(4), Constraint::Length(1), Constraint::Length(1)])
-            .areas(area);
+    f.render_widget(
+        ratatui::widgets::Block::default().style(t.palette.base()),
+        area,
+    );
+    let [header, body, status, footer] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(4),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(area);
 
     let st = &app.status;
     let sev = app.system_tone().sev();
-    let label = if app.error.is_some() { "UPDATER UNAVAILABLE".to_string() } else { format!("SLOT {}", st.active.as_str()) };
+    let label = if app.error.is_some() {
+        "UPDATER UNAVAILABLE".to_string()
+    } else {
+        format!("SLOT {}", st.active.as_str())
+    };
     let mut right = Vec::new();
     if app.demo {
         right.push(Span::styled("DEMO DATA  ", t.palette.bold(t.palette.warn)));
     }
     if !app.deck.host.is_empty() {
-        right.push(Span::styled(format!("{} {}  ", hud::brand(t), app.deck.host), t.palette.fg(t.palette.dim)));
+        right.push(Span::styled(
+            format!("{} {}  ", hud::brand(t), app.deck.host),
+            t.palette.fg(t.palette.dim),
+        ));
     }
     right.push(hud::badge(sev, &label, t));
     right.push(Span::raw(" "));
     let crumb = match app.module() {
         Some(m) => {
-            let name = MODULES.iter().find(|(mm, _)| *mm == m).map(|(_, n)| *n).unwrap_or("");
+            let name = MODULES
+                .iter()
+                .find(|(mm, _)| *mm == m)
+                .map(|(_, n)| *n)
+                .unwrap_or("");
             t.breadcrumb(&["COMMAND DECK", name])
         }
         None => "COMMAND DECK".to_string(),
     };
     // The demo header must not show a real-looking release; the SYSTEM card
     // still shows the sample versions, clearly marked DEMO DATA.
-    let ver = if app.demo { "demo" } else { st.version.as_deref().unwrap_or("") };
+    let ver = if app.demo {
+        "demo"
+    } else {
+        st.version.as_deref().unwrap_or("")
+    };
     hud::header_bar(f, header, &crumb, ver, right, t);
 
     let wide = body.width >= 72 && body.height >= 10;
     let deck_w = if body.width >= 110 { 42 } else { 32 };
     let (left, right) = if wide {
-        let [l, r] = Layout::horizontal([Constraint::Length(deck_w), Constraint::Min(30)]).areas(body);
+        let [l, r] =
+            Layout::horizontal([Constraint::Length(deck_w), Constraint::Min(30)]).areas(body);
         (l, Some(r))
     } else {
         (body, None)
@@ -936,7 +1072,9 @@ fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
     let inner = hud::panel_focused(f, area, "MODULES", None, t);
     let mut lines: Vec<Line> = Vec::new();
     let logo = t.logo_lines();
-    if inner.height as usize >= logo.len() + MODULES.len() + 3 && logo.iter().all(|l| l.width() <= inner.width as usize) {
+    if inner.height as usize >= logo.len() + MODULES.len() + 3
+        && logo.iter().all(|l| l.width() <= inner.width as usize)
+    {
         lines.extend(logo.into_iter().map(|l| l.centered()));
         lines.push(Line::from(""));
     }
@@ -945,19 +1083,34 @@ fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
         let selected = i == app.sel;
         let pad = row_w.saturating_sub(num.len() + 1 + name.len() + 2);
         let (cur, name_style) = if selected {
-            (Span::styled(t.selection_mark(), t.palette.bold(t.palette.accent2)), t.palette.highlight())
+            (
+                Span::styled(t.selection_mark(), t.palette.bold(t.palette.accent2)),
+                t.palette.highlight(),
+            )
         } else {
             (Span::raw("  "), t.palette.bold(t.palette.fg))
         };
         Line::from(vec![
             cur,
-            Span::styled(format!("{num} "), if selected { t.palette.highlight() } else { t.palette.fg(t.palette.dim) }),
+            Span::styled(
+                format!("{num} "),
+                if selected {
+                    t.palette.highlight()
+                } else {
+                    t.palette.fg(t.palette.dim)
+                },
+            ),
             Span::styled(format!("{name}{}", " ".repeat(pad)), name_style),
             sym,
         ])
     };
     for (i, (m, name)) in MODULES.iter().enumerate() {
-        lines.push(item(i, &format!("{:02}", i + 1), name, hud::sev(t, app.module_tone(*m))));
+        lines.push(item(
+            i,
+            &format!("{:02}", i + 1),
+            name,
+            hud::sev(t, app.module_tone(*m)),
+        ));
     }
     lines.push(item(MODULES.len(), "00", "EXIT", Span::raw("")));
     // RECENT / QUICK strip: the last actions plus any staged update.
@@ -971,17 +1124,28 @@ fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
             )));
         }
         for r in app.recent.iter().take(2) {
-            lines.push(Line::from(Span::styled(format!("  {}", t.clip(r, row_w)), t.palette.fg(t.palette.dim))));
+            lines.push(Line::from(Span::styled(
+                format!("  {}", t.clip(r, row_w)),
+                t.palette.fg(t.palette.dim),
+            )));
         }
         if app.recent.is_empty() && !app.pending_update() {
-            lines.push(Line::from(Span::styled("  nothing yet — / to find", t.palette.fg(t.palette.dim))));
+            lines.push(Line::from(Span::styled(
+                "  nothing yet — / to find",
+                t.palette.fg(t.palette.dim),
+            )));
         }
     }
     f.render_widget(Paragraph::new(lines), inner);
 }
 
 fn field(label: &str, value: impl Into<String>, t: &Theme) -> Line<'static> {
-    hud::field(label, 12, vec![Span::styled(value.into(), t.palette.fg(t.palette.fg))], t)
+    hud::field(
+        label,
+        12,
+        vec![Span::styled(value.into(), t.palette.fg(t.palette.fg))],
+        t,
+    )
 }
 
 fn hint(text: String, t: &Theme) -> Line<'static> {
@@ -1003,8 +1167,14 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
         // The deck's preview card never owns the keyboard: MODULES does.
         let inner = hud::panel(f, area, "EXIT", None, false, t);
         let lines = vec![
-            Line::from(Span::styled("Leave the console.", t.palette.fg(t.palette.fg))),
-            Line::from(Span::styled("Everything keeps running; `wayang` brings this back.", t.palette.fg(t.palette.dim))),
+            Line::from(Span::styled(
+                "Leave the console.",
+                t.palette.fg(t.palette.fg),
+            )),
+            Line::from(Span::styled(
+                "Everything keeps running; `wayang` brings this back.",
+                t.palette.fg(t.palette.dim),
+            )),
             Line::from(""),
             hint(format!("enter {arrow} quit"), t),
         ];
@@ -1021,11 +1191,35 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
         Module::System => {
             let good = st.good.map(Slot::as_str).unwrap_or("-");
             let mut l = vec![
-                status_field(tone, if app.error.is_some() { "UNAVAILABLE" } else { "OK" }, t),
-                field("VERSION", st.version.clone().unwrap_or_else(|| "unknown".into()), t),
+                status_field(
+                    tone,
+                    if app.error.is_some() {
+                        "UNAVAILABLE"
+                    } else {
+                        "OK"
+                    },
+                    t,
+                ),
+                field(
+                    "VERSION",
+                    st.version.clone().unwrap_or_else(|| "unknown".into()),
+                    t,
+                ),
                 field("CHANNEL", st.channel.clone(), t),
-                field("HOST", format!("{} {} up {}", d.host, hud::brand(t), d.uptime), t),
-                field("DATA", if st.data { "/data mounted (persistent)" } else { "missing: nothing survives a reboot" }, t),
+                field(
+                    "HOST",
+                    format!("{} {} up {}", d.host, hud::brand(t), d.uptime),
+                    t,
+                ),
+                field(
+                    "DATA",
+                    if st.data {
+                        "/data mounted (persistent)"
+                    } else {
+                        "missing: nothing survives a reboot"
+                    },
+                    t,
+                ),
                 Line::from(""),
                 hud::caption("A/B SLOTS", cap_w, t),
             ];
@@ -1042,17 +1236,37 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     tags.push("boots next");
                 }
                 l.push(Line::from(vec![
-                    Span::styled(format!("  {} {:<3}", hud::brand(t), si.slot.as_str()), t.palette.bold(if si.slot == st.active { t.palette.ok } else { t.palette.fg })),
+                    Span::styled(
+                        format!("  {} {:<3}", hud::brand(t), si.slot.as_str()),
+                        t.palette.bold(if si.slot == st.active {
+                            t.palette.ok
+                        } else {
+                            t.palette.fg
+                        }),
+                    ),
                     Span::styled(format!("{v:<10}"), t.palette.fg(t.palette.fg)),
                     Span::styled(tags.join(", "), t.palette.fg(t.palette.dim)),
                 ]));
             }
             l.push(Line::from(""));
-            l.push(field("BOOT", format!("next {} {} good {good} {} attempts {}", st.boot_next.as_str(), hud::brand(t), hud::brand(t), st.attempts), t));
+            l.push(field(
+                "BOOT",
+                format!(
+                    "next {} {} good {good} {} attempts {}",
+                    st.boot_next.as_str(),
+                    hud::brand(t),
+                    hud::brand(t),
+                    st.attempts
+                ),
+                t,
+            ));
             l.push(field("BACKEND", st.backend.clone(), t));
             if let Some(e) = &app.error {
                 l.push(Line::from(""));
-                l.push(Line::from(Span::styled(e.clone(), t.palette.fg(t.palette.bad))));
+                l.push(Line::from(Span::styled(
+                    e.clone(),
+                    t.palette.fg(t.palette.bad),
+                )));
             }
             l.push(Line::from(""));
             l.push(hint(format!("enter {arrow} refresh"), t));
@@ -1060,10 +1274,26 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
         }
         Module::Updates => {
             let mut l = vec![
-                status_field(tone, if app.job.is_some() { "RUNNING" } else { "READY" }, t),
-                field("INSTALLED", st.version.clone().unwrap_or_else(|| "unknown".into()), t),
+                status_field(
+                    tone,
+                    if app.job.is_some() {
+                        "RUNNING"
+                    } else {
+                        "READY"
+                    },
+                    t,
+                ),
+                field(
+                    "INSTALLED",
+                    st.version.clone().unwrap_or_else(|| "unknown".into()),
+                    t,
+                ),
                 field("CHANNEL", st.channel.clone(), t),
-                field("TARGET", format!("slot {} (the one not running)", st.active.idle().as_str()), t),
+                field(
+                    "TARGET",
+                    format!("slot {} (the one not running)", st.active.idle().as_str()),
+                    t,
+                ),
             ];
             let mut gauge = None;
             if let Some(job) = &app.job {
@@ -1074,8 +1304,14 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     Some((ratio, label)) => gauge = Some((l.len(), ratio, label)),
                     // No byte count: the sweeping bar stays as the fallback.
                     None => l.push(Line::from(vec![
-                        Span::styled(hud::progress_bar(tick, 24), t.palette.bold(t.palette.accent2)),
-                        Span::styled(format!("  {}s", job.started.elapsed().as_secs()), t.palette.fg(t.palette.dim)),
+                        Span::styled(
+                            hud::progress_bar(tick, 24),
+                            t.palette.bold(t.palette.accent2),
+                        ),
+                        Span::styled(
+                            format!("  {}s", job.started.elapsed().as_secs()),
+                            t.palette.fg(t.palette.dim),
+                        ),
                     ])),
                 }
                 l.push(Line::from(Span::styled(
@@ -1099,7 +1335,8 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             }
             l.push(Line::from(""));
             if app.job.is_none()
-                && let Some((_, m)) = &app.message {
+                && let Some((_, m)) = &app.message
+            {
                 l.push(field("LAST", m.clone(), t));
             }
             l.push(Line::from(Span::styled(
@@ -1111,11 +1348,28 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
         Module::Network => {
             let prim = d.ifaces.iter().find(|i| i.primary);
             let mut l = vec![
-                status_field(tone, if tone == Some(Tone::Ok) { "ONLINE" } else { "NO ADDRESS" }, t),
+                status_field(
+                    tone,
+                    if tone == Some(Tone::Ok) {
+                        "ONLINE"
+                    } else {
+                        "NO ADDRESS"
+                    },
+                    t,
+                ),
                 field(
                     "UPLINK",
-                    prim.map(|i| format!("{} {}", i.name, i.ipv4.first().cloned().unwrap_or_else(|| "(no address)".into())))
-                        .unwrap_or_else(|| "automatic (first wired port with a DHCP lease)".into()),
+                    prim.map(|i| {
+                        format!(
+                            "{} {}",
+                            i.name,
+                            i.ipv4
+                                .first()
+                                .cloned()
+                                .unwrap_or_else(|| "(no address)".into())
+                        )
+                    })
+                    .unwrap_or_else(|| "automatic (first wired port with a DHCP lease)".into()),
                     t,
                 ),
             ];
@@ -1127,21 +1381,68 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             for i in &d.ifaces {
                 l.push(Line::from(vec![
                     Span::styled(format!("  {:<10}", i.name), t.palette.bold(t.palette.fg)),
-                    Span::styled(if i.link { "up    " } else { "down  " }, t.palette.fg(if i.link { t.palette.ok } else { t.palette.dim })),
-                    Span::styled(format!("{:<18}", i.ipv4.first().cloned().unwrap_or_default()), t.palette.fg(t.palette.fg)),
-                    Span::styled(format!("{}{}", if i.wireless { "wifi " } else { "" }, if i.primary { "primary" } else { "" }), t.palette.fg(t.palette.dim)),
+                    Span::styled(
+                        if i.link { "up    " } else { "down  " },
+                        t.palette
+                            .fg(if i.link { t.palette.ok } else { t.palette.dim }),
+                    ),
+                    Span::styled(
+                        format!("{:<18}", i.ipv4.first().cloned().unwrap_or_default()),
+                        t.palette.fg(t.palette.fg),
+                    ),
+                    Span::styled(
+                        format!(
+                            "{}{}",
+                            if i.wireless { "wifi " } else { "" },
+                            if i.primary { "primary" } else { "" }
+                        ),
+                        t.palette.fg(t.palette.dim),
+                    ),
                 ]));
             }
             l.push(Line::from(""));
-            l.push(hint(format!("enter {arrow} uplink: DHCP or static, IPv4/IPv6"), t));
+            l.push(hint(
+                format!("enter {arrow} uplink: DHCP or static, IPv4/IPv6"),
+                t,
+            ));
             ("NETWORK", l, None)
         }
         Module::Wifi => {
             let radios: Vec<&net::Iface> = d.ifaces.iter().filter(|i| i.wireless).collect();
             let l = vec![
-                status_field(tone, if radios.is_empty() { "NO RADIO" } else if tone == Some(Tone::Ok) { "CONNECTED" } else { "NOT CONNECTED" }, t),
-                field("RADIOS", if radios.is_empty() { "none found".to_string() } else { radios.iter().map(|i| format!("{} ({})", i.name, i.driver)).collect::<Vec<_>>().join(", ") }, t),
-                field("SAVED", if d.wifi_saved { "a network is saved (/data)" } else { "nothing saved" }, t),
+                status_field(
+                    tone,
+                    if radios.is_empty() {
+                        "NO RADIO"
+                    } else if tone == Some(Tone::Ok) {
+                        "CONNECTED"
+                    } else {
+                        "NOT CONNECTED"
+                    },
+                    t,
+                ),
+                field(
+                    "RADIOS",
+                    if radios.is_empty() {
+                        "none found".to_string()
+                    } else {
+                        radios
+                            .iter()
+                            .map(|i| format!("{} ({})", i.name, i.driver))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    },
+                    t,
+                ),
+                field(
+                    "SAVED",
+                    if d.wifi_saved {
+                        "a network is saved (/data)"
+                    } else {
+                        "nothing saved"
+                    },
+                    t,
+                ),
                 Line::from(""),
                 hint(format!("enter {arrow} scan and connect"), t),
             ];
@@ -1149,10 +1450,18 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
         }
         Module::Dcheck => {
             let c = &d.dcheck;
-            let state = if c.bin.is_some() { "INSTALLED" } else { "NOT INSTALLED" };
+            let state = if c.bin.is_some() {
+                "INSTALLED"
+            } else {
+                "NOT INSTALLED"
+            };
             let mut l = vec![
                 status_field(tone, state, t),
-                field("APP", "dcheck: storage health (SMART, RAID/NVMe, fake-drive checks)", t),
+                field(
+                    "APP",
+                    "dcheck: storage health (SMART, RAID/NVMe, fake-drive checks)",
+                    t,
+                ),
             ];
             if c.bin.is_some() {
                 l.push(field("CONFIG", "not needed: dcheck has no config", t));
@@ -1161,11 +1470,17 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 Some(b) => {
                     l.push(field("BINARY", b.display().to_string(), t));
                     l.push(Line::from(""));
-                    l.push(hint(format!("enter {arrow} open dcheck (q there comes back here)"), t));
+                    l.push(hint(
+                        format!("enter {arrow} open dcheck (q there comes back here)"),
+                        t,
+                    ));
                 }
                 None => {
                     l.push(Line::from(""));
-                    l.push(Line::from(Span::styled("dcheck ships at /usr/bin/dcheck.", t.palette.fg(t.palette.dim))));
+                    l.push(Line::from(Span::styled(
+                        "dcheck ships at /usr/bin/dcheck.",
+                        t.palette.fg(t.palette.dim),
+                    )));
                 }
             }
             ("DCHECK", l, None)
@@ -1175,7 +1490,11 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             let l = vec![
                 status_field(tone, if n > 0 { "AUTHORIZED" } else { "NO KEYS" }, t),
                 field("KEYS", format!("{n} authorized key(s) for root"), t),
-                field("STORED", "/data/etc/ssh/authorized_keys (survives updates)", t),
+                field(
+                    "STORED",
+                    "/data/etc/ssh/authorized_keys (survives updates)",
+                    t,
+                ),
                 field("LIVE", "/root/.ssh/authorized_keys (this boot)", t),
                 Line::from(""),
                 hint(format!("enter {arrow} manage SSH keys"), t),
@@ -1185,9 +1504,17 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
         Module::Firewall | Module::Router => {
             let fw = m == Module::Firewall;
             let (c, name, what) = if fw {
-                (&d.fw, "wayang-fw", "zones, policies, NAT (nftables), commit-confirm")
+                (
+                    &d.fw,
+                    "wayang-fw",
+                    "zones, policies, NAT (nftables), commit-confirm",
+                )
             } else {
-                (&d.rt, "wayang-router", "interfaces, VLANs, bridges, routes, DHCP, commit-confirm")
+                (
+                    &d.rt,
+                    "wayang-router",
+                    "interfaces, VLANs, bridges, routes, DHCP, commit-confirm",
+                )
             };
             let state = match (&c.bin, c.pending, c.confirmed) {
                 (None, _, _) => "NOT INSTALLED",
@@ -1204,13 +1531,29 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     l.push(field("BINARY", b.display().to_string(), t));
                     l.push(field(
                         "CONFIG",
-                        if c.confirmed { "confirmed config, applied at boot".to_string() } else { "nothing committed yet (boot leaves the box alone)".to_string() },
+                        if c.confirmed {
+                            "confirmed config, applied at boot".to_string()
+                        } else {
+                            "nothing committed yet (boot leaves the box alone)".to_string()
+                        },
                         t,
                     ));
                     if fw {
-                        l.push(field("ENGINE", if d.nft { "nftables ready" } else { "no nft on this OS: preview only" }, t));
+                        l.push(field(
+                            "ENGINE",
+                            if d.nft {
+                                "nftables ready"
+                            } else {
+                                "no nft on this OS: preview only"
+                            },
+                            t,
+                        ));
                     } else if c.confirmed {
-                        l.push(field("NETWORK", "interfaces are managed by the router at boot", t));
+                        l.push(field(
+                            "NETWORK",
+                            "interfaces are managed by the router at boot",
+                            t,
+                        ));
                     }
                     if c.pending {
                         l.push(Line::from(Span::styled(
@@ -1219,11 +1562,17 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                         )));
                     }
                     l.push(Line::from(""));
-                    l.push(hint(format!("enter {arrow} open {name} (q there comes back here)"), t));
+                    l.push(hint(
+                        format!("enter {arrow} open {name} (q there comes back here)"),
+                        t,
+                    ));
                 }
                 None => {
                     l.push(Line::from(""));
-                    l.push(Line::from(Span::styled(format!("Copy {name} to /data/bin/{name} (survives updates)."), t.palette.fg(t.palette.dim))));
+                    l.push(Line::from(Span::styled(
+                        format!("Copy {name} to /data/bin/{name} (survives updates)."),
+                        t.palette.fg(t.palette.dim),
+                    )));
                 }
             }
             (if fw { "FIREWALL" } else { "ROUTER" }, l, None)
@@ -1237,10 +1586,21 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             let at = at.min(inner.height as usize) as u16;
             if at > 0 {
                 let prefix: Vec<Line> = lines.iter().take(at as usize).cloned().collect();
-                f.render_widget(Paragraph::new(prefix).wrap(wrap), Rect { height: at, ..inner });
+                f.render_widget(
+                    Paragraph::new(prefix).wrap(wrap),
+                    Rect {
+                        height: at,
+                        ..inner
+                    },
+                );
             }
             if at < inner.height {
-                let bar = Rect { x: inner.x, y: inner.y + at, width: inner.width, height: 1 };
+                let bar = Rect {
+                    x: inner.x,
+                    y: inner.y + at,
+                    width: inner.width,
+                    height: 1,
+                };
                 f.render_widget(
                     Gauge::default()
                         .ratio(ratio)
@@ -1256,7 +1616,11 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 if !suffix.is_empty() {
                     f.render_widget(
                         Paragraph::new(suffix).wrap(wrap),
-                        Rect { y: inner.y + below, height: inner.height - below, ..inner },
+                        Rect {
+                            y: inner.y + below,
+                            height: inner.height - below,
+                            ..inner
+                        },
                     );
                 }
             }
@@ -1284,7 +1648,8 @@ fn match_modules(q: &str) -> Vec<usize> {
         return Vec::new();
     }
     if let Ok(n) = q.parse::<usize>()
-        && (1..=MODULES.len()).contains(&n) {
+        && (1..=MODULES.len()).contains(&n)
+    {
         return vec![n - 1];
     }
     MODULES
@@ -1305,11 +1670,18 @@ fn draw_jump_hits(f: &mut Frame, body: Rect, jump: &input::Input, t: &Theme) {
         return;
     }
     let ir = hud::centered(body, 76, 9);
-    let h = (hits.len() as u16 + 2).min(8).min(body.bottom().saturating_sub(ir.y + 9));
+    let h = (hits.len() as u16 + 2)
+        .min(8)
+        .min(body.bottom().saturating_sub(ir.y + 9));
     if h < 3 {
         return;
     }
-    let rect = Rect { x: ir.x, y: ir.y + 9, width: ir.width, height: h };
+    let rect = Rect {
+        x: ir.x,
+        y: ir.y + 9,
+        width: ir.width,
+        height: h,
+    };
     f.render_widget(Clear, rect);
     let inner = hud::panel_focused(f, rect, "JUMP TO", None, t);
     let mut lines = Vec::new();
@@ -1386,7 +1758,10 @@ pub fn demo_states() -> Vec<DemoState> {
             "updates",
             Box::new(|app: &mut App| {
                 app.sel = 1;
-                app.message = Some((Tone::Ok, "An update is available: u installs it into the other slot.".into()));
+                app.message = Some((
+                    Tone::Ok,
+                    "An update is available: u installs it into the other slot.".into(),
+                ));
             }),
         ),
         (
@@ -1443,7 +1818,11 @@ pub fn demo_states() -> Vec<DemoState> {
         (
             "jump",
             Box::new(|app: &mut App| {
-                app.jump = Some(input::Input::new("QUICK JUMP", "Type a module or screen (fuzzy):", ""));
+                app.jump = Some(input::Input::new(
+                    "QUICK JUMP",
+                    "Type a module or screen (fuzzy):",
+                    "",
+                ));
                 if let Some(j) = app.jump.as_mut() {
                     j.buf = "net".into();
                 }
@@ -1570,14 +1949,20 @@ mod tests {
         let app = App::shell(false);
         assert!(app.loading, "a fresh shell has not sampled yet");
         let text = render(&app, 80, 24).unwrap();
-        assert!(text.contains("loading wayang"), "splash loading line:\n{text}");
+        assert!(
+            text.contains("loading wayang"),
+            "splash loading line:\n{text}"
+        );
         assert!(text.contains("OS CONSOLE"), "splash subtitle:\n{text}");
         // Sampling clears the flag and the real deck replaces the splash.
         let mut app = App::shell(false);
         app.sample();
         assert!(!app.loading);
         let text = render(&app, 120, 36).unwrap();
-        assert!(text.contains("COMMAND DECK"), "real deck after sample:\n{text}");
+        assert!(
+            text.contains("COMMAND DECK"),
+            "real deck after sample:\n{text}"
+        );
     }
 
     #[test]
@@ -1622,11 +2007,20 @@ mod tests {
         let app = App::new(true);
         let text = render(&app, 120, 36).unwrap();
         let header = text.lines().next().unwrap_or("");
-        assert!(header.contains("demo"), "the demo header is labelled:\n{header}");
-        assert!(!header.contains("v1.4.1"), "no fake release in the header:\n{header}");
+        assert!(
+            header.contains("demo"),
+            "the demo header is labelled:\n{header}"
+        );
+        assert!(
+            !header.contains("v1.4.1"),
+            "no fake release in the header:\n{header}"
+        );
         // The sample data still shows on the card, marked DEMO DATA.
         assert!(text.contains("DEMO DATA"));
-        assert!(text.contains("1.4.1"), "the card keeps the sample version:\n{text}");
+        assert!(
+            text.contains("1.4.1"),
+            "the card keeps the sample version:\n{text}"
+        );
     }
 
     #[test]
@@ -1635,7 +2029,10 @@ mod tests {
         app.status.version = Some("9.9.9".into());
         let text = render(&app, 140, 36).unwrap();
         let header = text.lines().next().unwrap_or("");
-        assert!(header.contains("v9.9.9"), "the real header shows the box version:\n{header}");
+        assert!(
+            header.contains("v9.9.9"),
+            "the real header shows the box version:\n{header}"
+        );
     }
 
     #[test]
@@ -1644,7 +2041,10 @@ mod tests {
         let app = App::new(true);
         let text = render(&app, 120, 36).unwrap();
         assert!(text.contains("◢ ▸ MODULES ◣"), "{text}");
-        assert!(text.contains("◢ SYSTEM ◣"), "the card is dim (no marker):\n{text}");
+        assert!(
+            text.contains("◢ SYSTEM ◣"),
+            "the card is dim (no marker):\n{text}"
+        );
         assert!(!text.contains("◢ ▸ SYSTEM ◣"), "{text}");
     }
 
@@ -1654,7 +2054,10 @@ mod tests {
         app.sub = Some(Sub::Net(netui::App::new(true)));
         let text = render(&app, 110, 34).unwrap();
         assert!(text.contains("◢ ▸ INTERFACES ◣"), "{text}");
-        assert!(!text.contains("◢ ▸ CONFIG"), "the CONFIG tab is not shown yet:\n{text}");
+        assert!(
+            !text.contains("◢ ▸ CONFIG"),
+            "the CONFIG tab is not shown yet:\n{text}"
+        );
         // → gives the CONFIG tab the whole body, and it owns the keyboard.
         app.on_key(KeyEvent::from(KeyCode::Right));
         let text = render(&app, 110, 34).unwrap();
@@ -1667,8 +2070,14 @@ mod tests {
         let mut app = App::new(true);
         app.t = Theme::from_env(hud::WAYANG_OS, hud::Flags::default(), true, None, None);
         let text = render(&app, 120, 36).unwrap();
-        assert!(text.contains("◢ ▸ MODULES ◣"), "mono keeps `▸` (colour-free):\n{text}");
-        assert!(!text.contains("◢ ▸ SYSTEM ◣"), "the card stays unfocused:\n{text}");
+        assert!(
+            text.contains("◢ ▸ MODULES ◣"),
+            "mono keeps `▸` (colour-free):\n{text}"
+        );
+        assert!(
+            !text.contains("◢ ▸ SYSTEM ◣"),
+            "the card stays unfocused:\n{text}"
+        );
     }
 
     #[test]
@@ -1693,11 +2102,18 @@ mod tests {
         key(&mut app, KeyCode::Up);
         key(&mut app, KeyCode::Char('x'));
         key(&mut app, KeyCode::Char('x'));
-        assert!(app.review.is_some(), "the second x opens REVIEW, nothing runs yet");
+        assert!(
+            app.review.is_some(),
+            "the second x opens REVIEW, nothing runs yet"
+        );
         assert!(app.job.is_none());
         key(&mut app, KeyCode::Enter);
         assert!(app.review.is_none());
-        assert!(app.message.as_ref().unwrap().1.contains("rolling back"), "{:?}", app.message);
+        assert!(
+            app.message.as_ref().unwrap().1.contains("rolling back"),
+            "{:?}",
+            app.message
+        );
     }
 
     #[test]
@@ -1718,7 +2134,16 @@ mod tests {
         assert!(!app.armed_other);
         assert!(app.review.is_some(), "the second b opens REVIEW");
         key(&mut app, KeyCode::Enter);
-        assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("staging boot"), "{:?}", app.message);
+        assert!(
+            app.message
+                .as_ref()
+                .unwrap()
+                .1
+                .to_lowercase()
+                .contains("staging boot"),
+            "{:?}",
+            app.message
+        );
     }
 
     #[test]
@@ -1727,14 +2152,36 @@ mod tests {
         key(&mut app, KeyCode::Char('2'));
         key(&mut app, KeyCode::Char('u'));
         let (_, rev) = app.review.as_ref().expect("u opens REVIEW");
-        assert!(rev.effect.iter().any(|l| l.contains("stage it in slot")), "{:?}", rev.effect);
+        assert!(
+            rev.effect.iter().any(|l| l.contains("stage it in slot")),
+            "{:?}",
+            rev.effect
+        );
         key(&mut app, KeyCode::Esc);
-        assert!(app.review.is_none() && app.job.is_none(), "esc cancels; nothing runs");
-        assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("nothing changed"));
+        assert!(
+            app.review.is_none() && app.job.is_none(),
+            "esc cancels; nothing runs"
+        );
+        assert!(
+            app.message
+                .as_ref()
+                .unwrap()
+                .1
+                .to_lowercase()
+                .contains("nothing changed")
+        );
         // check does not need a review
         key(&mut app, KeyCode::Char('c'));
         assert!(app.review.is_none());
-        assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("checking") || app.job.is_some());
+        assert!(
+            app.message
+                .as_ref()
+                .unwrap()
+                .1
+                .to_lowercase()
+                .contains("checking")
+                || app.job.is_some()
+        );
     }
 
     #[test]
@@ -1748,7 +2195,14 @@ mod tests {
         assert!(app.review.is_some(), "second x opens REVIEW");
         key(&mut app, KeyCode::Enter);
         assert!(app.job.is_none(), "demo never runs a job");
-        assert!(app.message.as_ref().unwrap().1.to_lowercase().contains("resetting config"));
+        assert!(
+            app.message
+                .as_ref()
+                .unwrap()
+                .1
+                .to_lowercase()
+                .contains("resetting config")
+        );
     }
 
     #[test]
@@ -1756,7 +2210,10 @@ mod tests {
         let mut app = App::new(true);
         key(&mut app, KeyCode::Right);
         key(&mut app, KeyCode::Left);
-        assert!(!app.exit && app.sel == 0, "←→ never leave or move the deck selection");
+        assert!(
+            !app.exit && app.sel == 0,
+            "←→ never leave or move the deck selection"
+        );
         key(&mut app, KeyCode::End);
         assert_eq!(app.sel, MODULES.len());
         key(&mut app, KeyCode::Home);
@@ -1804,7 +2261,10 @@ mod tests {
             }
             let text = render(&app, 110, 34).unwrap();
             let on_disk = std::fs::read_to_string(&path).unwrap();
-            assert_eq!(text, on_disk, "screens/{name}.txt is stale; regenerate with `--screens screens`");
+            assert_eq!(
+                text, on_disk,
+                "screens/{name}.txt is stale; regenerate with `--screens screens`"
+            );
         }
     }
 
@@ -1815,13 +2275,25 @@ mod tests {
         app.sub = Some(Sub::Net(netui::App::new(true)));
         let text = render(&app, 110, 34).unwrap();
         assert!(text.contains("◢ ▸ INTERFACES ◣"), "{text}");
-        assert!(text.contains("◢ DETAIL ◣"), "the shared DETAIL strip:\n{text}");
-        assert!(!text.contains("◢ ▸ CONFIG — EDIT: form ◣"), "no side-by-side form:\n{text}");
+        assert!(
+            text.contains("◢ DETAIL ◣"),
+            "the shared DETAIL strip:\n{text}"
+        );
+        assert!(
+            !text.contains("◢ ▸ CONFIG — EDIT: form ◣"),
+            "no side-by-side form:\n{text}"
+        );
         app.on_key(KeyEvent::from(KeyCode::Right));
         let text = render(&app, 110, 34).unwrap();
         assert!(text.contains("◢ ▸ CONFIG — EDIT: form ◣"), "{text}");
-        assert!(!text.contains("◢ ▸ INTERFACES ◣"), "the list tab is gone:\n{text}");
-        assert!(!text.contains("◢ DETAIL ◣"), "CONFIG needs no detail:\n{text}");
+        assert!(
+            !text.contains("◢ ▸ INTERFACES ◣"),
+            "the list tab is gone:\n{text}"
+        );
+        assert!(
+            !text.contains("◢ DETAIL ◣"),
+            "CONFIG needs no detail:\n{text}"
+        );
 
         let mut app = App::new(true);
         app.sub = Some(Sub::Wifi(wifiui::App::new(true)));
@@ -1836,7 +2308,10 @@ mod tests {
         app.on_key(KeyEvent::from(KeyCode::Right));
         let text = render(&app, 110, 34).unwrap();
         assert!(text.contains("◢ ▸ DETAILS ◣"), "{text}");
-        assert!(!text.contains("◢ DETAIL ◣"), "DETAILS is the full-screen detail:\n{text}");
+        assert!(
+            !text.contains("◢ DETAIL ◣"),
+            "DETAILS is the full-screen detail:\n{text}"
+        );
 
         let mut app = App::new(true);
         app.sub = Some(Sub::Ssh(sshkeysui::App::new(true)));
@@ -1851,13 +2326,23 @@ mod tests {
     #[test]
     fn multi_pane_screens_have_a_tab_row_and_arrows_stay() {
         let mut app = App::new(true);
-        for (num, tab) in [('3', "INTERFACES"), ('4', "ACCESS POINTS"), ('5', "AUTHORIZED KEYS")] {
+        for (num, tab) in [
+            ('3', "INTERFACES"),
+            ('4', "ACCESS POINTS"),
+            ('5', "AUTHORIZED KEYS"),
+        ] {
             key(&mut app, KeyCode::Char(num));
             let text = render(&app, 120, 36).unwrap();
-            assert!(text.contains(tab), "module {num} shows its tab row:\n{text}");
+            assert!(
+                text.contains(tab),
+                "module {num} shows its tab row:\n{text}"
+            );
             key(&mut app, KeyCode::Right);
             key(&mut app, KeyCode::Left);
-            assert!(!app.exit && app.sub.is_some(), "arrows stay inside module {num}");
+            assert!(
+                !app.exit && app.sub.is_some(),
+                "arrows stay inside module {num}"
+            );
             key(&mut app, KeyCode::Char('b'));
             assert!(app.sub.is_none() && !app.exit, "b returns to the deck");
         }
@@ -1948,7 +2433,10 @@ mod tests {
         assert!(app.message.as_ref().unwrap().1.contains("not installed"));
         app.demo = false;
         key(&mut app, KeyCode::Char('7'));
-        assert_eq!(app.launch.as_deref(), Some(Path::new("/data/bin/wayang-fw")));
+        assert_eq!(
+            app.launch.as_deref(),
+            Some(Path::new("/data/bin/wayang-fw"))
+        );
         key(&mut app, KeyCode::Char('6'));
         assert_eq!(app.launch.as_deref(), Some(Path::new("/usr/bin/dcheck")));
     }
@@ -1956,7 +2444,11 @@ mod tests {
     #[test]
     fn dcheck_is_green_when_installed_and_absent_is_none() {
         let mut app = App::new(true);
-        assert_eq!(app.module_tone(Module::Dcheck), Some(Tone::Ok), "configless app reads healthy");
+        assert_eq!(
+            app.module_tone(Module::Dcheck),
+            Some(Tone::Ok),
+            "configless app reads healthy"
+        );
         app.deck.dcheck = Companion::default();
         assert_eq!(app.module_tone(Module::Dcheck), None, "absent: no symbol");
         // a config-having companion still warns without config.toml
@@ -1989,7 +2481,10 @@ mod tests {
         assert!(text.contains("PROGRESS"), "{text}");
         assert!(text.contains("RUNNING"), "{text}");
         assert!(text.contains("Updating"), "{text}");
-        assert!(text.contains("50%"), "the gauge shows the real percent:\n{text}");
+        assert!(
+            text.contains("50%"),
+            "the gauge shows the real percent:\n{text}"
+        );
         assert!(text.contains("MB/s"), "the gauge shows the rate:\n{text}");
     }
 
@@ -2008,8 +2503,14 @@ mod tests {
         });
         let text = render(&app, 120, 36).unwrap();
         assert!(text.contains("PROGRESS"), "{text}");
-        assert!(text.contains('█') && text.contains('░'), "indeterminate sweep is drawn:\n{text}");
-        assert!(!text.contains('%'), "no percent when the total is unknown:\n{text}");
+        assert!(
+            text.contains('█') && text.contains('░'),
+            "indeterminate sweep is drawn:\n{text}"
+        );
+        assert!(
+            !text.contains('%'),
+            "no percent when the total is unknown:\n{text}"
+        );
     }
 
     #[test]

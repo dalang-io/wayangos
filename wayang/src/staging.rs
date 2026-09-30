@@ -34,11 +34,15 @@ fn refresh_grub_cfg(boot: &BootRoot) {
 
 fn write_file_sync(path: &Path, data: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| AppError::err(format!("{}: {e}", dir.display())))?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| AppError::err(format!("{}: {e}", dir.display())))?;
     }
-    let mut f = File::create(path).map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
-    f.write_all(data).map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
-    f.sync_all().map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
+    let mut f =
+        File::create(path).map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
+    f.write_all(data)
+        .map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
+    f.sync_all()
+        .map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
     Ok(())
 }
 
@@ -51,15 +55,27 @@ pub fn stage(boot: &BootRoot, kernel: &[u8], initramfs: &[u8], meta: &SlotMeta) 
 
 /// [`stage`] with the running slot given; never writes into it. `None`
 /// (no `wayang.slot=` on the command line) trusts `wayang_slot`.
-pub fn stage_from(boot: &BootRoot, running: Option<Slot>, kernel: &[u8], initramfs: &[u8], meta: &SlotMeta) -> Result<Slot> {
+pub fn stage_from(
+    boot: &BootRoot,
+    running: Option<Slot>,
+    kernel: &[u8],
+    initramfs: &[u8],
+    meta: &SlotMeta,
+) -> Result<Slot> {
     let mut store = state_store(boot)?;
     let active = running.unwrap_or_else(|| slot::staged_slot(&store));
     let target = active.idle();
 
     write_file_sync(&boot.path.join(target.as_str()).join("vmlinuz"), kernel)?;
-    write_file_sync(&boot.path.join(target.as_str()).join("initramfs.img"), initramfs)?;
     write_file_sync(
-        &boot.path.join("var").join(format!("meta-{}.json", target.as_str())),
+        &boot.path.join(target.as_str()).join("initramfs.img"),
+        initramfs,
+    )?;
+    write_file_sync(
+        &boot
+            .path
+            .join("var")
+            .join(format!("meta-{}.json", target.as_str())),
         meta.to_json().as_bytes(),
     )?;
 
@@ -91,9 +107,16 @@ pub fn mark_ok_from(boot: &BootRoot, running: Option<Slot>) -> Result<Slot> {
     // Refresh the per-slot version/kernel from the on-ESP metadata so the GRUB
     // menu reflects whatever each slot actually holds.
     for s in [Slot::A, Slot::B] {
-        let meta = boot.path.join("var").join(format!("meta-{}.json", s.as_str()));
-        let Ok(text) = std::fs::read_to_string(&meta) else { continue };
-        let Ok(m) = serde_json::from_str::<SlotMeta>(&text) else { continue };
+        let meta = boot
+            .path
+            .join("var")
+            .join(format!("meta-{}.json", s.as_str()));
+        let Ok(text) = std::fs::read_to_string(&meta) else {
+            continue;
+        };
+        let Ok(m) = serde_json::from_str::<SlotMeta>(&text) else {
+            continue;
+        };
         if m.version.is_empty() {
             continue;
         }
@@ -168,13 +191,17 @@ pub fn fallback(boot: &BootRoot) -> Result<Slot> {
 /// be the one that just failed.
 pub fn fallback_from(boot: &BootRoot, running: Option<Slot>) -> Result<Slot> {
     let mut store = state_store(boot)?;
-    let running = running.ok_or_else(|| AppError::err("no wayang.slot= on the kernel command line"))?;
+    let running =
+        running.ok_or_else(|| AppError::err("no wayang.slot= on the kernel command line"))?;
     let good = store
         .get("wayang_good")
         .and_then(Slot::parse)
         .ok_or_else(|| AppError::err("no good slot recorded in update state"))?;
     if good == running {
-        return Err(AppError::err(format!("already running the good slot {}", good.as_str())));
+        return Err(AppError::err(format!(
+            "already running the good slot {}",
+            good.as_str()
+        )));
     }
     store.set("wayang_prev", running.as_str());
     store.set("wayang_slot", good.as_str());
@@ -199,7 +226,10 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("grub")).unwrap();
-        let boot = BootRoot { path: dir.clone(), mounted: None };
+        let boot = BootRoot {
+            path: dir.clone(),
+            mounted: None,
+        };
         (dir, boot)
     }
 
@@ -242,7 +272,10 @@ mod tests {
         env.set("wayang_attempts", "1");
         env.write(&dir.join("grub/grubenv")).unwrap();
 
-        assert!(fallback_from(&boot, Some(Slot::B)).is_err(), "running good slot");
+        assert!(
+            fallback_from(&boot, Some(Slot::B)).is_err(),
+            "running good slot"
+        );
         assert!(fallback_from(&boot, None).is_err(), "unknown running slot");
         let env = GrubEnv::read(&dir.join("grub/grubenv")).unwrap();
         assert_eq!(env.get("wayang_slot"), Some("B"), "nothing written");
@@ -299,14 +332,19 @@ mod tests {
         env.set("wayang_slot", "B");
         env.write(&dir.join("grub/grubenv")).unwrap();
         // running A although B is staged: the update must go to B, not A
-        assert_eq!(stage_from(&boot, Some(Slot::A), b"k", b"i", &meta()).unwrap(), Slot::B);
+        assert_eq!(
+            stage_from(&boot, Some(Slot::A), b"k", b"i", &meta()).unwrap(),
+            Slot::B
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn running_slot_from_cmdline() {
         assert_eq!(
-            slot::parse_cmdline("BOOT_IMAGE=/boot/A/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA wayang.slot=A"),
+            slot::parse_cmdline(
+                "BOOT_IMAGE=/boot/A/vmlinuz loglevel=3 wayang.data=LABEL=WAYANGDATA wayang.slot=A"
+            ),
             Some(Slot::A)
         );
         assert_eq!(slot::parse_cmdline("console=ttyS0"), None);
@@ -369,8 +407,16 @@ mod tests {
         let env = GrubEnv::read(&dir.join("grub/grubenv")).unwrap();
         assert_eq!(env.get("wayang_slot"), Some("B"));
         assert_eq!(env.get("wayang_prev"), Some("A"));
-        assert_eq!(env.get("wayang_attempts"), Some("0"), "attempt budget resets for the new slot");
-        assert_eq!(env.get("wayang_good"), Some("A"), "fallback target is preserved");
+        assert_eq!(
+            env.get("wayang_attempts"),
+            Some("0"),
+            "attempt budget resets for the new slot"
+        );
+        assert_eq!(
+            env.get("wayang_good"),
+            Some("A"),
+            "fallback target is preserved"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -383,7 +429,11 @@ mod tests {
 
         assert_eq!(stage_other(&boot).unwrap(), Slot::B);
         let env = GrubEnv::read(&dir.join("grub/grubenv")).unwrap();
-        assert_eq!(env.get("wayang_good"), Some("A"), "running slot becomes the fallback");
+        assert_eq!(
+            env.get("wayang_good"),
+            Some("A"),
+            "running slot becomes the fallback"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

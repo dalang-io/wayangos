@@ -21,10 +21,13 @@ mod tests {
 
     #[test]
     fn maps_known() {
-        assert_eq!(host_arch(), match std::env::consts::ARCH {
-            "x86_64" => "x86_64",
-            "aarch64" => "arm64",
-            other => other,
-        });
+        assert_eq!(
+            host_arch(),
+            match std::env::consts::ARCH {
+                "x86_64" => "x86_64",
+                "aarch64" => "arm64",
+                other => other,
+            }
+        );
     }
 }

@@ -57,7 +57,9 @@ pub fn agent_binary() -> Option<PathBuf> {
 
 /// The agent's log file (`WAYANGI_LOG` overrides it in tests).
 pub fn agent_log_path() -> PathBuf {
-    std::env::var_os("WAYANGI_LOG").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(AGENT_LOG))
+    std::env::var_os("WAYANGI_LOG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(AGENT_LOG))
 }
 
 /// Light shape check for a dashboard device token: one non-empty line of
@@ -210,7 +212,8 @@ impl Status {
             return Health::TunnelUp;
         }
         if let Some(e) = &self.error
-            && !e.trim().is_empty() {
+            && !e.trim().is_empty()
+        {
             return Health::Blocked(e.clone());
         }
         if self.tunnel_up {
@@ -255,7 +258,9 @@ impl Health {
 /// default `/etc/wayangi` is read too, in case it runs without a conf-dir
 /// override.
 pub fn status() -> Status {
-    let sys = std::env::var_os("WAYANG_SYS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/sys"));
+    let sys = std::env::var_os("WAYANG_SYS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/sys"));
     status_full(&paths::wayangi_dir(), &sys, Some(&agent_log_path()))
 }
 
@@ -281,7 +286,8 @@ fn status_full(base: &Path, sys: &Path, log: Option<&Path>) -> Status {
     // The agent exits after a rejected bootstrap and only records the hub's
     // reason in its log, so consult the tail (newest-up finding wins).
     if let Some(path) = log
-        && let Some(text) = read_tail(path, LOG_TAIL_BYTES) {
+        && let Some(text) = read_tail(path, LOG_TAIL_BYTES)
+    {
         merge_agent_text(&mut st, &text);
     }
     st
@@ -295,7 +301,8 @@ pub fn tunnel_up_at(sys: &Path) -> bool {
         return false;
     }
     if let Ok(raw) = fs::read_to_string(iface.join("flags"))
-        && let Ok(flags) = u32::from_str_radix(raw.trim().trim_start_matches("0x"), 16) {
+        && let Ok(flags) = u32::from_str_radix(raw.trim().trim_start_matches("0x"), 16)
+    {
         return flags & 0x1 != 0;
     }
     match fs::read_to_string(iface.join("operstate")) {
@@ -319,7 +326,13 @@ fn str_field(v: &Value, key: &str) -> Option<String> {
 fn str_list(v: &Value, key: &str) -> Vec<String> {
     v.get(key)
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -329,7 +342,11 @@ fn merge_snapshot(st: &mut Status, v: &Option<Value>) {
     st.running |= v.get("running").and_then(Value::as_bool).unwrap_or(false);
     st.connected |= v.get("connected").and_then(Value::as_bool).unwrap_or(false);
     st.version = str_field(v, "version").or_else(|| st.version.clone());
-    if let Some(h) = v.get("last_handshake").and_then(Value::as_i64).filter(|h| *h > 0) {
+    if let Some(h) = v
+        .get("last_handshake")
+        .and_then(Value::as_i64)
+        .filter(|h| *h > 0)
+    {
         st.last_handshake = Some(h);
     }
     st.device = str_field(v, "device").or_else(|| st.device.clone());
@@ -414,7 +431,10 @@ fn merge_agent_text(st: &mut Status, text: &str) {
 /// hub writes "invalid or revoked token"; the agent wraps it as `hub attach`).
 pub fn classify_agent_text(raw: &str) -> Option<String> {
     let l = raw.to_ascii_lowercase();
-    let hub = l.contains("hub attach") || l.contains("hub rejected") || l.contains("bootstrap") || l.contains("token");
+    let hub = l.contains("hub attach")
+        || l.contains("hub rejected")
+        || l.contains("bootstrap")
+        || l.contains("token");
     if l.contains("payment required") {
         return Some(
             "The device's wayangi subscription is not active (payment required). Complete checkout in the dashboard, then restart the agent."
@@ -427,7 +447,12 @@ pub fn classify_agent_text(raw: &str) -> Option<String> {
                 .into(),
         );
     }
-    if hub && (l.contains("http 401") || l.contains("http 403") || l.contains("unauthorized") || l.contains("forbidden")) {
+    if hub
+        && (l.contains("http 401")
+            || l.contains("http 403")
+            || l.contains("unauthorized")
+            || l.contains("forbidden"))
+    {
         return Some(
             "The wayangi hub rejected the token (unauthorized). Check or rotate it in the dashboard, then re-enrol."
                 .into(),
@@ -445,23 +470,53 @@ pub fn classify_agent_text(raw: &str) -> Option<String> {
 impl Status {
     /// Human-readable `wayang edgerouter status` output.
     pub fn print_human(&self) {
-        let agent = self.binary.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "not installed".into());
+        let agent = self
+            .binary
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "not installed".into());
         let health = self.health();
         println!("agent:     {agent}");
-        println!("token:     {}", if self.token { format!("saved ({})", token_path().display()) } else { "none".into() });
-        println!("tunnel:    {IFACE} {}", if self.tunnel_up { "up" } else { "down" });
+        println!(
+            "token:     {}",
+            if self.token {
+                format!("saved ({})", token_path().display())
+            } else {
+                "none".into()
+            }
+        );
+        println!(
+            "tunnel:    {IFACE} {}",
+            if self.tunnel_up { "up" } else { "down" }
+        );
         println!("state:     {}", health.label());
         println!("           {}", health.message());
         if self.running || self.connected || self.last_handshake.is_some() {
-            let hs = self.last_handshake.map(|s| format!("{s}")).unwrap_or_else(|| "-".into());
-            println!("runtime:   {} (last handshake {hs})", if self.connected { "connected" } else if self.running { "running" } else { "not running" });
+            let hs = self
+                .last_handshake
+                .map(|s| format!("{s}"))
+                .unwrap_or_else(|| "-".into());
+            println!(
+                "runtime:   {} (last handshake {hs})",
+                if self.connected {
+                    "connected"
+                } else if self.running {
+                    "running"
+                } else {
+                    "not running"
+                }
+            );
         }
         if let Some(v) = &self.version {
             println!("version:   {v}");
         }
         if self.known() {
             if let Some(d) = &self.device {
-                let id = self.device_id.as_deref().map(|i| format!(" (id {i})")).unwrap_or_default();
+                let id = self
+                    .device_id
+                    .as_deref()
+                    .map(|i| format!(" (id {i})"))
+                    .unwrap_or_default();
                 println!("device:    {d}{id}");
             }
             if let Some(a) = &self.account {
@@ -527,7 +582,8 @@ impl AgentOp {
 /// device identity survives OS updates. Returns once the parent exits (it
 /// daemonizes after its preflight).
 pub fn start_agent() -> std::result::Result<String, String> {
-    let bin = agent_binary().ok_or_else(|| "the wayangi agent is not installed (bundle wayangi)".to_string())?;
+    let bin = agent_binary()
+        .ok_or_else(|| "the wayangi agent is not installed (bundle wayangi)".to_string())?;
     let dir = paths::wayangi_dir();
     let token = read_token_at(&dir);
     if token.is_none() && !dir.join(STATE_FILE).is_file() {
@@ -537,7 +593,9 @@ pub fn start_agent() -> std::result::Result<String, String> {
     let args = ["start", "--conf-dir", dir.as_str()];
     let (code, output) = run_agent(&bin, &args, token.as_deref(), START_TIMEOUT)?;
     if code == Some(0) {
-        Ok(format!("wayangi agent started; {IFACE} is coming up (log: {AGENT_LOG})."))
+        Ok(format!(
+            "wayangi agent started; {IFACE} is coming up (log: {AGENT_LOG})."
+        ))
     } else {
         Err(agent_failure(code, &output))
     }
@@ -545,7 +603,8 @@ pub fn start_agent() -> std::result::Result<String, String> {
 
 /// Stop the running agent (a no-op when none is running).
 pub fn stop_agent() -> std::result::Result<String, String> {
-    let bin = agent_binary().ok_or_else(|| "the wayangi agent is not installed (bundle wayangi)".to_string())?;
+    let bin = agent_binary()
+        .ok_or_else(|| "the wayangi agent is not installed (bundle wayangi)".to_string())?;
     let dir = paths::wayangi_dir().to_string_lossy().to_string();
     let args = ["stop", "--conf-dir", dir.as_str()];
     let (code, output) = run_agent(&bin, &args, None, STOP_TIMEOUT)?;
@@ -569,7 +628,9 @@ fn agent_failure(code: Option<i32>, output: &str) -> String {
     if let Some(msg) = classify_agent_text(output).or_else(|| merge_find(output)) {
         return msg;
     }
-    let how = code.map(|c| format!("exit code {c}")).unwrap_or_else(|| "timeout".into());
+    let how = code
+        .map(|c| format!("exit code {c}"))
+        .unwrap_or_else(|| "timeout".into());
     format!("wayangi agent failed ({how}); see {AGENT_LOG}.")
 }
 
@@ -589,7 +650,9 @@ fn run_agent(
 ) -> std::result::Result<(Option<i32>, String), String> {
     let log = std::env::temp_dir().join(format!("wayang-edgerouter-{}.log", std::process::id()));
     let out = fs::File::create(&log).map_err(|e| format!("{}: {e}", log.display()))?;
-    let err = out.try_clone().map_err(|e| format!("{}: {e}", log.display()))?;
+    let err = out
+        .try_clone()
+        .map_err(|e| format!("{}: {e}", log.display()))?;
     // Built through the shared helper (its default stream policy is then
     // overridden to the daemon log file, per §5c).
     let mut cmd = wayang_tui::term::command(bin);
@@ -633,8 +696,22 @@ const BACKUP_SUFFIX: &str = ".bak";
 
 /// Tables that mark a file as a wayang-router config, and as a wayang-fw
 /// config. Best-effort: the apps remain the authority when they `check` it.
-const ROUTER_MARKERS: &[&str] = &["[[interface]]", "[[policy]]", "[[uplink]]", "[[route]]", "[[vlan]]", "[[bridge]]"];
-const FW_MARKERS: &[&str] = &["[[zone]]", "[[policy]]", "[[object]]", "[[nat]]", "[[service]]", "[[rule]]"];
+const ROUTER_MARKERS: &[&str] = &[
+    "[[interface]]",
+    "[[policy]]",
+    "[[uplink]]",
+    "[[route]]",
+    "[[vlan]]",
+    "[[bridge]]",
+];
+const FW_MARKERS: &[&str] = &[
+    "[[zone]]",
+    "[[policy]]",
+    "[[object]]",
+    "[[nat]]",
+    "[[service]]",
+    "[[rule]]",
+];
 
 /// What a successful `apply` wrote. No token is ever stored here.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -672,13 +749,17 @@ impl ApplyReport {
         if self.enrolled {
             println!("token:         enrolled (this box now shows on the wayangi dashboard)");
         } else {
-            println!("token:         none in the bundle (enrol with `wayang edgerouter enroll <token>` if the dashboard gave you one)");
+            println!(
+                "token:         none in the bundle (enrol with `wayang edgerouter enroll <token>` if the dashboard gave you one)"
+            );
         }
         println!();
         println!("The configs are written to /data but NOT applied yet: wayang-fw and");
         println!("wayang-router use commit-confirm, so review and commit them yourself.");
         println!("  wayang-router check      # validate the config and show what would change");
-        println!("  wayang-router commit     # review, then confirm to keep it (else it rolls back)");
+        println!(
+            "  wayang-router commit     # review, then confirm to keep it (else it rolls back)"
+        );
         println!("  wayang-fw check");
         println!("  wayang-fw commit");
         if self.enrolled {
@@ -692,7 +773,11 @@ impl ApplyReport {
     /// gone (the full next steps go to the CLI).
     #[allow(dead_code)]
     pub fn summary(&self) -> String {
-        let token = if self.enrolled { "token enrolled" } else { "no token in the bundle" };
+        let token = if self.enrolled {
+            "token enrolled"
+        } else {
+            "no token in the bundle"
+        };
         format!(
             "Edge bundle installed ({token}); nothing applied yet. Next: `wayang-router check` then commit, `wayang-fw check` then commit."
         )
@@ -727,10 +812,20 @@ fn apply_into(
 
     // Archives are unpacked to a temp dir (removed on drop); a directory is read
     // in place. Either way we then locate the root that holds the configs.
-    let _tmp = if bundle.is_dir() { None } else { Some(unpack_archive(bundle)?) };
+    let _tmp = if bundle.is_dir() {
+        None
+    } else {
+        Some(unpack_archive(bundle)?)
+    };
     let search = _tmp.as_ref().map(|t| t.path()).unwrap_or(bundle);
-    let root = find_bundle_root(search)
-        .ok_or_else(|| format!("{}: no {} or {} found in the bundle", bundle.display(), ROUTER_CONF, FW_CONF))?;
+    let root = find_bundle_root(search).ok_or_else(|| {
+        format!(
+            "{}: no {} or {} found in the bundle",
+            bundle.display(),
+            ROUTER_CONF,
+            FW_CONF
+        )
+    })?;
 
     // Read + validate both configs *before* writing anything, so a bad bundle
     // never leaves a half-applied pair behind.
@@ -785,8 +880,9 @@ fn apply_into(
     // Enrol the token, if any. Never print it or echo the bundle file.
     let enrolled = match bundle_token(&root) {
         Some(token) => {
-            enroll_at(token_base, &token)
-                .map_err(|e| format!("configs written, but enrolling the bundle token failed: {e}"))?;
+            enroll_at(token_base, &token).map_err(|e| {
+                format!("configs written, but enrolling the bundle token failed: {e}")
+            })?;
             true
         }
         None => false,
@@ -872,11 +968,18 @@ fn find_bundle_root(dir: &Path) -> Option<PathBuf> {
 fn read_config(root: &Path, name: &str) -> std::result::Result<String, String> {
     let path = root.join(name);
     if !path.is_file() {
-        return Err(format!("bundle is missing {name} (looked in {})", root.display()));
+        return Err(format!(
+            "bundle is missing {name} (looked in {})",
+            root.display()
+        ));
     }
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     if text.trim().is_empty() {
-        return Err(format!("{name} is empty ({} bytes: {})", text.len(), path.display()));
+        return Err(format!(
+            "{name} is empty ({} bytes: {})",
+            text.len(),
+            path.display()
+        ));
     }
     Ok(text)
 }
@@ -887,7 +990,11 @@ fn validate_config(name: &str, text: &str, markers: &[&str]) -> std::result::Res
     if markers.iter().any(|m| text.contains(m)) {
         return Ok(());
     }
-    let kind = if name == ROUTER_CONF { "wayang-router" } else { "wayang-fw" };
+    let kind = if name == ROUTER_CONF {
+        "wayang-router"
+    } else {
+        "wayang-fw"
+    };
     Err(format!(
         "{name} does not look like a {kind} config (expected one of {}); the bundle may be malformed or its files swapped",
         markers.join(", ")
@@ -902,7 +1009,11 @@ fn backup_path(dest: &Path) -> PathBuf {
 
 /// Write `dest` mode 0644, keeping the previous file as `<dest>.bak` when one
 /// existed (only reached with `force`, since the caller pre-checks otherwise).
-fn write_config(dest: &Path, contents: &str, force: bool) -> std::result::Result<Option<PathBuf>, String> {
+fn write_config(
+    dest: &Path,
+    contents: &str,
+    force: bool,
+) -> std::result::Result<Option<PathBuf>, String> {
     let mut backup = None;
     if dest.exists() {
         if !force {
@@ -925,10 +1036,14 @@ fn write_config(dest: &Path, contents: &str, force: bool) -> std::result::Result
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o644);
     }
-    let mut f = opts.open(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-    f.write_all(contents.as_bytes()).map_err(|e| format!("{}: {e}", dest.display()))?;
+    let mut f = opts
+        .open(dest)
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
+    f.write_all(contents.as_bytes())
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
     if !contents.ends_with('\n') {
-        f.write_all(b"\n").map_err(|e| format!("{}: {e}", dest.display()))?;
+        f.write_all(b"\n")
+            .map_err(|e| format!("{}: {e}", dest.display()))?;
     }
     #[cfg(unix)]
     {
@@ -962,10 +1077,14 @@ fn write_key(dest: &Path, key: &str, force: bool) -> std::result::Result<(), Str
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut f = opts.open(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-    f.write_all(key.as_bytes()).map_err(|e| format!("{}: {e}", dest.display()))?;
+    let mut f = opts
+        .open(dest)
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
+    f.write_all(key.as_bytes())
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
     if !key.ends_with('\n') {
-        f.write_all(b"\n").map_err(|e| format!("{}: {e}", dest.display()))?;
+        f.write_all(b"\n")
+            .map_err(|e| format!("{}: {e}", dest.display()))?;
     }
     #[cfg(unix)]
     {
@@ -984,8 +1103,10 @@ fn bundle_wg_keys(root: &Path) -> Vec<(String, String)> {
         for e in rd.flatten() {
             let p = e.path();
             if p.extension().and_then(|s| s.to_str()) == Some("key")
-                && let (Some(name), Ok(raw)) =
-                    (p.file_name().and_then(|s| s.to_str()), fs::read_to_string(&p))
+                && let (Some(name), Ok(raw)) = (
+                    p.file_name().and_then(|s| s.to_str()),
+                    fs::read_to_string(&p),
+                )
             {
                 let val = raw.trim();
                 if is_wg_key(val) {
@@ -1014,8 +1135,10 @@ fn keys_from_install(text: &str) -> Vec<(String, String)> {
         if let Some((var, val)) = l.split_once('=') {
             let var = var.trim();
             let val = val.trim().trim_matches('"').trim_matches('\'');
-            if var.ends_with("_KEY") && val.ends_with(".key")
-                && let Some(base) = val.rsplit('/').next() {
+            if var.ends_with("_KEY")
+                && val.ends_with(".key")
+                && let Some(base) = val.rsplit('/').next()
+            {
                 files.insert(var.to_string(), base.trim().to_string());
             }
         }
@@ -1042,7 +1165,8 @@ fn keys_from_install(text: &str) -> Vec<(String, String)> {
             None => continue,
         };
         if let Some(name) = files.get(var)
-            && is_wg_key(val) {
+            && is_wg_key(val)
+        {
             out.push((name.clone(), val.to_string()));
         }
     }
@@ -1068,7 +1192,8 @@ fn is_wg_key(s: &str) -> bool {
 /// `install.sh`. Already validated; never logged.
 fn bundle_token(root: &Path) -> Option<String> {
     if let Ok(raw) = fs::read_to_string(root.join(TOKEN_BUNDLE_FILE))
-        && let Ok(t) = validate_token(&raw) {
+        && let Ok(t) = validate_token(&raw)
+    {
         return Some(t);
     }
     let install = fs::read_to_string(root.join(INSTALL_SH)).ok()?;
@@ -1080,7 +1205,10 @@ fn bundle_token(root: &Path) -> Option<String> {
 fn token_from_install(text: &str) -> Option<String> {
     for line in text.lines() {
         if let Some(idx) = line.find("edgerouter enroll") {
-            let arg = line[idx + "edgerouter enroll".len()..].split_whitespace().next().unwrap_or("");
+            let arg = line[idx + "edgerouter enroll".len()..]
+                .split_whitespace()
+                .next()
+                .unwrap_or("");
             if let Some(t) = clean_token(arg) {
                 return Some(t);
             }
@@ -1088,7 +1216,12 @@ fn token_from_install(text: &str) -> Option<String> {
     }
     for line in text.lines() {
         let rest = line.trim().strip_prefix("export ").unwrap_or(line.trim());
-        for key in ["WAYANGI_TOKEN", "WAYANGI_DEVICE_TOKEN", "DEVICE_TOKEN", "TOKEN"] {
+        for key in [
+            "WAYANGI_TOKEN",
+            "WAYANGI_DEVICE_TOKEN",
+            "DEVICE_TOKEN",
+            "TOKEN",
+        ] {
             if let Some(v) = rest.strip_prefix(key).and_then(|r| r.strip_prefix('=')) {
                 let v = v.trim().trim_end_matches(';');
                 if let Some(t) = clean_token(v) {
@@ -1105,7 +1238,9 @@ fn token_from_install(text: &str) -> Option<String> {
 /// pointing at a file, an unexpanded `$VAR`) so a bad `install.sh` cannot enrol
 /// with garbage.
 fn clean_token(raw: &str) -> Option<String> {
-    let t = raw.trim().trim_matches(|c| c == '"' || c == '\'' || c == '`');
+    let t = raw
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'' || c == '`');
     if t.contains('/') || t.contains('\\') || t.contains('$') {
         return None;
     }
@@ -1129,7 +1264,9 @@ pub fn run(action: EdgeRouterAction) -> Result<i32> {
         EdgeRouterAction::Enroll(token) => {
             enroll(&token).map_err(AppError::err)?;
             println!("Saved the device token to {}.", token_path().display());
-            println!("The agent will pick it up on the next boot (or run `wayang edgerouter start`).");
+            println!(
+                "The agent will pick it up on the next boot (or run `wayang edgerouter start`)."
+            );
             Ok(0)
         }
         EdgeRouterAction::Clear => {
@@ -1211,7 +1348,11 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(dir.join(TOKEN_FILE)).unwrap().permissions().mode() & 0o777;
+            let mode = fs::metadata(dir.join(TOKEN_FILE))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
             assert_eq!(mode, 0o600, "the token file must stay private");
         }
         assert!(clear_at(&dir).unwrap());
@@ -1314,7 +1455,12 @@ mod tests {
         assert!(a.to_lowercase().contains("revoked"), "{a}");
         assert!(classify_agent_text("payment required — checkout at https://x").is_some());
         assert!(classify_agent_text("hub attach: HTTP 401 unauthorized").is_some());
-        assert!(classify_agent_text("hub rejected device attach: conflict (re-run with --force-rebind)").is_some());
+        assert!(
+            classify_agent_text(
+                "hub rejected device attach: conflict (re-run with --force-rebind)"
+            )
+            .is_some()
+        );
         // benign agent lines must not be classified (avoid false positives)
         assert!(classify_agent_text("awaitTunDeviceCleared(wayangi0): budget expired").is_none());
         assert!(classify_agent_text("preflight OK · transport=udp").is_none());
@@ -1337,7 +1483,8 @@ mod tests {
         assert_eq!(edge_status(false, false).health(), Health::NotEnrolled);
 
         let mut blocked = edge_status(true, false);
-        blocked.error = Some(classify_agent_text("hub attach: HTTP 401 invalid or revoked token").unwrap());
+        blocked.error =
+            Some(classify_agent_text("hub attach: HTTP 401 invalid or revoked token").unwrap());
         match blocked.health() {
             Health::Blocked(m) => {
                 assert!(m.contains("revoked"));
@@ -1360,7 +1507,11 @@ mod tests {
         let sys = tmp();
         let log = tmp().join("wayangi.log");
         enroll_at(&dir, "0123456789abcdef0123456789abcdef").unwrap();
-        fs::write(&log, "banner\nhub attach: HTTP 401: {\"error\":\"invalid or revoked token\"}\n").unwrap();
+        fs::write(
+            &log,
+            "banner\nhub attach: HTTP 401: {\"error\":\"invalid or revoked token\"}\n",
+        )
+        .unwrap();
 
         let clean = status_at(&dir, &sys);
         assert!(clean.error.is_none(), "no log scan in the pure form");
@@ -1388,7 +1539,11 @@ mod tests {
         let dir = tmp();
         let sys = tmp();
         enroll_at(&dir, "0123456789abcdef0123456789abcdef").unwrap();
-        fs::write(dir.join(STATUS_FILE), r#"{"running":false,"error":"invalid or revoked token"}"#).unwrap();
+        fs::write(
+            dir.join(STATUS_FILE),
+            r#"{"running":false,"error":"invalid or revoked token"}"#,
+        )
+        .unwrap();
         let st = status_at(&dir, &sys);
         assert!(st.error.as_deref().unwrap().contains("revoked"));
         let _ = fs::remove_dir_all(&dir);
@@ -1411,8 +1566,8 @@ mod tests {
 
     /// A gzipped tar bundle from `(path-in-archive, contents)` pairs.
     fn write_bundle_targz(dir: &Path, files: &[(&str, &str)]) -> PathBuf {
-        use flate2::write::GzEncoder;
         use flate2::Compression;
+        use flate2::write::GzEncoder;
         let path = dir.join("edge.tar.gz");
         let f = fs::File::create(&path).unwrap();
         let mut enc = GzEncoder::new(f, Compression::fast());
@@ -1449,12 +1604,20 @@ mod tests {
         assert_eq!(rep.fw_config, fw);
         assert!(!rep.enrolled, "no token in this bundle");
         assert!(rep.router_backup.is_none() && rep.fw_backup.is_none());
-        assert!(fs::read_to_string(&router).unwrap().contains("[[interface]]"));
+        assert!(
+            fs::read_to_string(&router)
+                .unwrap()
+                .contains("[[interface]]")
+        );
         assert!(fs::read_to_string(&fw).unwrap().contains("[[zone]]"));
         assert!(read_token_at(&base).is_none());
         #[cfg(unix)]
         {
-            assert_eq!(mode_of(&router), 0o644, "configs are world-readable, not secret");
+            assert_eq!(
+                mode_of(&router),
+                0o644,
+                "configs are world-readable, not secret"
+            );
             assert_eq!(mode_of(&fw), 0o644);
         }
         let _ = fs::remove_dir_all(&dir);
@@ -1535,7 +1698,14 @@ printf '%s\\n' '{jkt}' > \"$JKT_KEY\"\nprintf '%s\\n' '{mlb}' > \"$MLB_KEY\"\n"
         let dir = tmp();
         let not_tar = dir.join("bundle.txt");
         fs::write(&not_tar, "hello").unwrap();
-        let err = apply_into(&not_tar, &dir.join("r"), &dir.join("f"), &dir.join("w"), false).unwrap_err();
+        let err = apply_into(
+            &not_tar,
+            &dir.join("r"),
+            &dir.join("f"),
+            &dir.join("w"),
+            false,
+        )
+        .unwrap_err();
         assert!(err.contains(".tar.gz"), "{err}");
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1550,15 +1720,27 @@ printf '%s\\n' '{jkt}' > \"$JKT_KEY\"\nprintf '%s\\n' '{mlb}' > \"$MLB_KEY\"\n"
 
         let err = apply_into(&b, &router, &fw, &dir.join("w"), false).unwrap_err();
         assert!(err.contains("--force"), "{err}");
-        assert_eq!(fs::read_to_string(&router).unwrap(), "[[old]]\n", "refused: untouched");
+        assert_eq!(
+            fs::read_to_string(&router).unwrap(),
+            "[[old]]\n",
+            "refused: untouched"
+        );
         assert!(!fw.exists(), "nothing is written when one side is refused");
 
         let rep = apply_into(&b, &router, &fw, &dir.join("w"), true).unwrap();
         let bak = dir.join("router.toml.bak");
         assert_eq!(rep.router_backup.as_deref(), Some(bak.as_path()));
         assert!(rep.fw_backup.is_none(), "fw had nothing to back up");
-        assert_eq!(fs::read_to_string(&bak).unwrap(), "[[old]]\n", "the old config is kept");
-        assert!(fs::read_to_string(&router).unwrap().contains("[[interface]]"));
+        assert_eq!(
+            fs::read_to_string(&bak).unwrap(),
+            "[[old]]\n",
+            "the old config is kept"
+        );
+        assert!(
+            fs::read_to_string(&router)
+                .unwrap()
+                .contains("[[interface]]")
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1576,16 +1758,27 @@ printf '%s\\n' '{jkt}' > \"$JKT_KEY\"\nprintf '%s\\n' '{mlb}' > \"$MLB_KEY\"\n"
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(base.join(TOKEN_FILE)).unwrap().permissions().mode() & 0o777;
+            let mode = fs::metadata(base.join(TOKEN_FILE))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
             assert_eq!(mode, 0o600, "the token stays private");
         }
         let summary = rep.summary();
-        assert!(!summary.contains(hex), "the HUD summary must not leak the token");
+        assert!(
+            !summary.contains(hex),
+            "the HUD summary must not leak the token"
+        );
         assert!(format!("{rep:?}").find(hex).is_none());
 
         // A token carried in install.sh is picked up too.
         let b2 = bundle_dir(&dir, "b2");
-        fs::write(b2.join(INSTALL_SH), format!("#!/bin/sh\nwayang edgerouter enroll {hex}\n")).unwrap();
+        fs::write(
+            b2.join(INSTALL_SH),
+            format!("#!/bin/sh\nwayang edgerouter enroll {hex}\n"),
+        )
+        .unwrap();
         let base2 = dir.join("wayangi2");
         let rep2 = apply_into(&b2, &dir.join("r2"), &dir.join("f2"), &base2, false).unwrap();
         assert!(rep2.enrolled);
@@ -1594,7 +1787,11 @@ printf '%s\\n' '{jkt}' > \"$JKT_KEY\"\nprintf '%s\\n' '{mlb}' > \"$MLB_KEY\"\n"
         // No token anywhere: not enrolled, no file written.
         let b3 = bundle_dir(&dir, "b3");
         let base3 = dir.join("wayangi3");
-        assert!(!apply_into(&b3, &dir.join("r3"), &dir.join("f3"), &base3, false).unwrap().enrolled);
+        assert!(
+            !apply_into(&b3, &dir.join("r3"), &dir.join("f3"), &base3, false)
+                .unwrap()
+                .enrolled
+        );
         assert!(!base3.join(TOKEN_FILE).exists());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1610,7 +1807,10 @@ printf '%s\\n' '{jkt}' > \"$JKT_KEY\"\nprintf '%s\\n' '{mlb}' > \"$MLB_KEY\"\n"
         fs::write(b.join(ROUTER_CONF), ROUTER_TOML).unwrap();
         let err = apply_into(&b, &r, &f, &dir.join("w"), false).unwrap_err();
         assert!(err.contains(FW_CONF), "{err}");
-        assert!(!r.exists() && !f.exists(), "validation happens before any write");
+        assert!(
+            !r.exists() && !f.exists(),
+            "validation happens before any write"
+        );
 
         // empty fw.toml
         fs::write(b.join(FW_CONF), "   \n").unwrap();
@@ -1629,16 +1829,33 @@ printf '%s\\n' '{jkt}' > \"$JKT_KEY\"\nprintf '%s\\n' '{mlb}' > \"$MLB_KEY\"\n"
     #[test]
     fn token_from_install_reads_enroll_and_assignments() {
         let hex = "0123456789abcdef0123456789abcdef";
-        assert_eq!(token_from_install(&format!("wayang edgerouter enroll {hex}\n")).as_deref(), Some(hex));
+        assert_eq!(
+            token_from_install(&format!("wayang edgerouter enroll {hex}\n")).as_deref(),
+            Some(hex)
+        );
         assert_eq!(
             token_from_install(&format!("wayang edgerouter enroll \"{hex}\"\n")).as_deref(),
             Some(hex)
         );
-        assert_eq!(token_from_install(&format!("WAYANGI_TOKEN={hex}\n")).as_deref(), Some(hex));
-        assert_eq!(token_from_install(&format!("export TOKEN='{hex}'\n")).as_deref(), Some(hex));
+        assert_eq!(
+            token_from_install(&format!("WAYANGI_TOKEN={hex}\n")).as_deref(),
+            Some(hex)
+        );
+        assert_eq!(
+            token_from_install(&format!("export TOKEN='{hex}'\n")).as_deref(),
+            Some(hex)
+        );
         // not token lines
         assert_eq!(token_from_install("echo hello world\n"), None);
-        assert_eq!(token_from_install("TOKEN=/data/etc/wayangi/token\n"), None, "a path is not a token");
-        assert_eq!(token_from_install("WAYANGI_TOKEN=$WAYANGI_TOKEN\n"), None, "unexpanded var");
+        assert_eq!(
+            token_from_install("TOKEN=/data/etc/wayangi/token\n"),
+            None,
+            "a path is not a token"
+        );
+        assert_eq!(
+            token_from_install("WAYANGI_TOKEN=$WAYANGI_TOKEN\n"),
+            None,
+            "unexpanded var"
+        );
     }
 }

@@ -42,7 +42,8 @@ fn default_keyid() -> String {
 
 impl Manifest {
     pub fn from_slice(bytes: &[u8]) -> Result<Manifest> {
-        serde_json::from_slice(bytes).map_err(|e| AppError::err(format!("invalid manifest.json: {e}")))
+        serde_json::from_slice(bytes)
+            .map_err(|e| AppError::err(format!("invalid manifest.json: {e}")))
     }
 }
 

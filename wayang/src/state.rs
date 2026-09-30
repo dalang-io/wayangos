@@ -78,7 +78,8 @@ impl VarsFile {
         let mut f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
         f.write_all(&self.to_bytes())
             .map_err(|e| format!("{}: {e}", path.display()))?;
-        f.sync_all().map_err(|e| format!("{}: {e}", path.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         Ok(())
     }
 
@@ -100,8 +101,14 @@ impl EnvView for VarsFile {
 /// A resolved state backend plus the path to persist it to.
 #[derive(Debug, Clone)]
 pub enum EnvStore {
-    Grub { path: PathBuf, env: GrubEnv },
-    Vars { path: PathBuf, vars: VarsFile },
+    Grub {
+        path: PathBuf,
+        env: GrubEnv,
+    },
+    Vars {
+        path: PathBuf,
+        vars: VarsFile,
+    },
     /// No backend found; used for status display only (never saves).
     Empty,
 }
@@ -125,7 +132,10 @@ impl EnvStore {
         let vars_path = Self::vars_path(boot);
         if vars_path.exists() {
             let vars = VarsFile::read(&vars_path)?;
-            return Ok(EnvStore::Vars { path: vars_path, vars });
+            return Ok(EnvStore::Vars {
+                path: vars_path,
+                vars,
+            });
         }
         Err(format!(
             "no update state backend under {}: expected grub/grubenv or wayang/vars",

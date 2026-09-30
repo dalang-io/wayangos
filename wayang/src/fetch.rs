@@ -29,7 +29,10 @@ pub fn manifest_url(base: &str, channel: &str, arch: &str) -> String {
 }
 
 pub fn bundle_url(base: &str, channel: &str, arch: &str, version: &str) -> String {
-    join_base(base, &format!("{channel}/{arch}/wayang-{version}-{arch}.wup"))
+    join_base(
+        base,
+        &format!("{channel}/{arch}/wayang-{version}-{arch}.wup"),
+    )
 }
 
 fn curl(args: &[&str]) -> Result<std::process::Output> {
@@ -42,7 +45,11 @@ fn curl(args: &[&str]) -> Result<std::process::Output> {
     })?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        return Err(AppError::err(format!("curl {}: {}", args.join(" "), err.trim())));
+        return Err(AppError::err(format!(
+            "curl {}: {}",
+            args.join(" "),
+            err.trim()
+        )));
     }
     Ok(out)
 }
@@ -55,7 +62,11 @@ pub fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
 /// Stream `url` to `dest`, calling `on_progress(downloaded, total)` after every
 /// chunk. `total` is 0 when the server does not advertise a length, so the
 /// caller can keep the UI indeterminate.
-pub fn download_with_progress<F: FnMut(u64, u64)>(url: &str, dest: &Path, mut on_progress: F) -> Result<()> {
+pub fn download_with_progress<F: FnMut(u64, u64)>(
+    url: &str,
+    dest: &Path,
+    mut on_progress: F,
+) -> Result<()> {
     let total = content_length(url);
     let mut child = term::command_capture("curl")
         .args(["-fsSL", "-o", "-", url])
@@ -67,26 +78,36 @@ pub fn download_with_progress<F: FnMut(u64, u64)>(url: &str, dest: &Path, mut on
                 AppError::err(format!("failed to run curl: {e}"))
             }
         })?;
-    let mut stdout = child.stdout.take().ok_or_else(|| AppError::err("curl: no stdout"))?;
-    let mut file = File::create(dest).map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::err("curl: no stdout"))?;
+    let mut file =
+        File::create(dest).map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
     let mut buf = vec![0u8; 64 * 1024];
     let mut got: u64 = 0;
     on_progress(0, total);
     loop {
-        let n = stdout.read(&mut buf).map_err(|e| AppError::err(format!("curl: {e}")))?;
+        let n = stdout
+            .read(&mut buf)
+            .map_err(|e| AppError::err(format!("curl: {e}")))?;
         if n == 0 {
             break;
         }
-        file.write_all(&buf[..n]).map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
+        file.write_all(&buf[..n])
+            .map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
         got += n as u64;
         on_progress(got, total);
     }
-    let out = child.wait_with_output().map_err(|e| AppError::err(format!("curl: {e}")))?;
+    let out = child
+        .wait_with_output()
+        .map_err(|e| AppError::err(format!("curl: {e}")))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(AppError::err(format!("curl {}: {}", url, err.trim())));
     }
-    file.sync_all().map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
+    file.sync_all()
+        .map_err(|e| AppError::err(format!("{}: {e}", dest.display())))?;
     Ok(())
 }
 
@@ -118,7 +139,10 @@ mod tests {
     #[test]
     fn urls() {
         let b = "https://example.com/dl/";
-        assert_eq!(manifest_url(b, "stable", "x86_64"), "https://example.com/dl/stable/x86_64/manifest.json");
+        assert_eq!(
+            manifest_url(b, "stable", "x86_64"),
+            "https://example.com/dl/stable/x86_64/manifest.json"
+        );
         assert_eq!(
             bundle_url(b, "stable", "x86_64", "1.4.1"),
             "https://example.com/dl/stable/x86_64/wayang-1.4.1-x86_64.wup"

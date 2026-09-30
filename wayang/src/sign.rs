@@ -68,7 +68,10 @@ mod tests {
         let seed = seed_hex(&sk);
         assert_eq!(seed.len(), 64);
         let sk2 = signing_key_from_hex(&seed).unwrap();
-        assert_eq!(public_hex(&sk.verifying_key()), public_hex(&sk2.verifying_key()));
+        assert_eq!(
+            public_hex(&sk.verifying_key()),
+            public_hex(&sk2.verifying_key())
+        );
         let msg = b"x";
         let sig = sign_bytes(&sk2, msg);
         assert!(verify_pub(&sk.verifying_key().to_bytes(), msg, &sig).is_ok());

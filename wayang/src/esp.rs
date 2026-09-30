@@ -9,9 +9,14 @@ pub const BY_LABEL: &str = "/dev/disk/by-label/WAYANGBOOT";
 
 /// Pure discovery given the environment value, whether the by-label symlink
 /// exists, and the captured `blkid` output.
-pub fn discover_from(env_esp: Option<String>, by_label_exists: bool, blkid: &str) -> Option<PathBuf> {
+pub fn discover_from(
+    env_esp: Option<String>,
+    by_label_exists: bool,
+    blkid: &str,
+) -> Option<PathBuf> {
     if let Some(e) = env_esp
-        && !e.trim().is_empty() {
+        && !e.trim().is_empty()
+    {
         return Some(PathBuf::from(e));
     }
     if by_label_exists {
@@ -52,7 +57,8 @@ fn run_blkid() -> String {
 mod tests {
     use super::*;
 
-    const BLKID: &str = "/dev/sda1: LABEL=\"WAYANGDATA\" UUID=\"x\"\n/dev/sda2: LABEL=\"WAYANGBOOT\" UUID=\"y\"\n";
+    const BLKID: &str =
+        "/dev/sda1: LABEL=\"WAYANGDATA\" UUID=\"x\"\n/dev/sda2: LABEL=\"WAYANGBOOT\" UUID=\"y\"\n";
 
     #[test]
     fn env_wins() {
@@ -75,7 +81,10 @@ mod tests {
     #[test]
     fn none_when_absent() {
         assert_eq!(discover_from(None, false, ""), None);
-        assert_eq!(discover_from(None, false, "/dev/sda1: LABEL=\"OTHER\"\n"), None);
+        assert_eq!(
+            discover_from(None, false, "/dev/sda1: LABEL=\"OTHER\"\n"),
+            None
+        );
     }
 
     #[test]

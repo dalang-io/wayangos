@@ -45,7 +45,11 @@ pub fn gather(boot_dir: &Path, version: Option<String>, channel: String, data: b
     let env = EnvStore::open_or_empty(boot_dir);
     let slot_info = |s: Slot| SlotInfo {
         slot: s,
-        meta: SlotMeta::read(&boot_dir.join("var").join(format!("meta-{}.json", s.as_str()))),
+        meta: SlotMeta::read(
+            &boot_dir
+                .join("var")
+                .join(format!("meta-{}.json", s.as_str())),
+        ),
     };
     Status {
         version,
@@ -63,7 +67,12 @@ pub fn gather(boot_dir: &Path, version: Option<String>, channel: String, data: b
 
 /// Status that is still renderable when the ESP cannot be resolved.
 pub fn unavailable() -> Status {
-    gather(Path::new("/nonexistent-wayang"), None, "stable".into(), false)
+    gather(
+        Path::new("/nonexistent-wayang"),
+        None,
+        "stable".into(),
+        false,
+    )
 }
 
 /// Open the boot tree and collect the current status (used by CLI and HUD).
@@ -103,12 +112,23 @@ impl Status {
     }
 
     pub fn print_human(&self) {
-        println!("version:   {}", self.version.clone().unwrap_or_else(|| "unknown".into()));
-        println!("kernel:    {}", self.kernel.clone().unwrap_or_else(|| "unknown".into()));
+        println!(
+            "version:   {}",
+            self.version.clone().unwrap_or_else(|| "unknown".into())
+        );
+        println!(
+            "kernel:    {}",
+            self.kernel.clone().unwrap_or_else(|| "unknown".into())
+        );
         println!("channel:   {}", self.channel);
         println!("backend:   {}", self.backend);
         println!("active:    {}", self.active.as_str());
-        println!("boot next: {} (good: {}, attempts: {})", self.boot_next.as_str(), self.good.map(|s| s.as_str()).unwrap_or("-"), self.attempts);
+        println!(
+            "boot next: {} (good: {}, attempts: {})",
+            self.boot_next.as_str(),
+            self.good.map(|s| s.as_str()).unwrap_or("-"),
+            self.attempts
+        );
         for si in &self.slots {
             let v = si.meta.as_ref().map(|m| m.version.as_str()).unwrap_or("-");
             let k = si
@@ -121,7 +141,10 @@ impl Status {
                 None => println!("slot {}:    {}", si.slot.as_str(), v),
             }
         }
-        println!("data:      {}", if self.data { "present" } else { "missing" });
+        println!(
+            "data:      {}",
+            if self.data { "present" } else { "missing" }
+        );
     }
 }
 
@@ -162,8 +185,16 @@ mod tests {
         env.set("wayang_good", "A");
         env.set("wayang_attempts", "3");
         env.write(&d.join("grub/grubenv")).unwrap();
-        std::fs::write(d.join("var/meta-A.json"), r#"{"version":"1.2.0","channel":"stable","arch":"x86_64"}"#).unwrap();
-        std::fs::write(d.join("var/meta-B.json"), r#"{"version":"1.4.1","channel":"stable","arch":"x86_64"}"#).unwrap();
+        std::fs::write(
+            d.join("var/meta-A.json"),
+            r#"{"version":"1.2.0","channel":"stable","arch":"x86_64"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            d.join("var/meta-B.json"),
+            r#"{"version":"1.4.1","channel":"stable","arch":"x86_64"}"#,
+        )
+        .unwrap();
 
         let st = gather(&d, Some("1.4.1".into()), "stable".into(), true);
         assert_eq!(st.active, Slot::B);

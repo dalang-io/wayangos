@@ -2,11 +2,11 @@
 //! static fields and Apply. Writes `/data/etc/network/{primary,config}` and
 //! brings the choice up immediately (see `crate::net`).
 
+use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
@@ -187,10 +187,18 @@ impl App {
         if self.choice.mode == Mode::Static {
             r.push(Row::Family);
             if self.choice.family.has_v4() {
-                r.extend([Row::Field(Field::V4Addr), Row::Field(Field::V4Gw), Row::Field(Field::V4Dns)]);
+                r.extend([
+                    Row::Field(Field::V4Addr),
+                    Row::Field(Field::V4Gw),
+                    Row::Field(Field::V4Dns),
+                ]);
             }
             if self.choice.family.has_v6() {
-                r.extend([Row::Field(Field::V6Addr), Row::Field(Field::V6Gw), Row::Field(Field::V6Dns)]);
+                r.extend([
+                    Row::Field(Field::V6Addr),
+                    Row::Field(Field::V6Gw),
+                    Row::Field(Field::V6Dns),
+                ]);
             }
         }
         r
@@ -246,7 +254,13 @@ impl App {
         }
     }
 
-    fn request_review(&mut self, pending: Pending, title: String, effect: Vec<String>, note: Option<String>) {
+    fn request_review(
+        &mut self,
+        pending: Pending,
+        title: String,
+        effect: Vec<String>,
+        note: Option<String>,
+    ) {
         let mut r = review::Review::new(title, effect);
         if let Some(n) = note {
             r = r.note(n);
@@ -266,10 +280,17 @@ impl App {
             return;
         }
         let name = iface.name.clone();
-        let current = self.ifaces.iter().find(|i| i.primary).map(|i| i.name.clone());
+        let current = self
+            .ifaces
+            .iter()
+            .find(|i| i.primary)
+            .map(|i| i.name.clone());
         let mut effect = vec![
             format!("write /data/etc/network/primary  ->  {name}"),
-            format!("write /data/etc/network/config  ({})", self.choice.summary()),
+            format!(
+                "write /data/etc/network/config  ({})",
+                self.choice.summary()
+            ),
         ];
         match self.choice.mode {
             Mode::Dhcp => effect.push(format!("run udhcpc on {name} for a lease")),
@@ -285,11 +306,18 @@ impl App {
         effect.push("replace the default route and /etc/resolv.conf".into());
         let note = Some(match &current {
             Some(c) if *c != name => {
-                format!("This promotes {name} to the primary uplink (default route); {c} is demoted.")
+                format!(
+                    "This promotes {name} to the primary uplink (default route); {c} is demoted."
+                )
             }
             _ => format!("This makes {name} the primary uplink at boot."),
         });
-        self.request_review(Pending::Apply, format!("APPLY network on {name}"), effect, note);
+        self.request_review(
+            Pending::Apply,
+            format!("APPLY network on {name}"),
+            effect,
+            note,
+        );
     }
 
     fn request_pending(&mut self, pending: Pending) {
@@ -300,7 +328,10 @@ impl App {
         let (title, effect, note) = match pending {
             Pending::Link(up) => (
                 format!("LINK {} {}", iface, if up { "up" } else { "down" }),
-                vec![format!("ip link set {iface} {}", if up { "up" } else { "down" })],
+                vec![format!(
+                    "ip link set {iface} {}",
+                    if up { "up" } else { "down" }
+                )],
                 Some("The link only; the address and primary are unchanged.".into()),
             ),
             Pending::Dhcp => (
@@ -314,8 +345,14 @@ impl App {
             Pending::Also => {
                 let on = !net::is_also(&self.also, &iface);
                 (
-                    format!("ALSO-LEASE {iface} at boot: {}", if on { "on" } else { "off" }),
-                    vec![format!("{} {iface} in /data/etc/network/also", if on { "add" } else { "remove" })],
+                    format!(
+                        "ALSO-LEASE {iface} at boot: {}",
+                        if on { "on" } else { "off" }
+                    ),
+                    vec![format!(
+                        "{} {iface} in /data/etc/network/also",
+                        if on { "add" } else { "remove" }
+                    )],
                     None,
                 )
             }
@@ -407,8 +444,12 @@ impl App {
         }
         if self.help {
             match key.code {
-                KeyCode::Up | KeyCode::Char('k') => self.help_scroll = self.help_scroll.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.help_scroll = self.help_scroll.saturating_add(1),
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.help_scroll = self.help_scroll.saturating_sub(1)
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.help_scroll = self.help_scroll.saturating_add(1)
+                }
                 KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(5),
                 KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(5),
                 KeyCode::Home => self.help_scroll = 0,
@@ -429,7 +470,10 @@ impl App {
         // While a background job runs, only the result matters; don't let a
         // stray key queue a conflicting operation or drop the pending result.
         if self.job.is_some() {
-            self.message = Some((Tone::Warn, "An action is running; wait for it to finish.".into()));
+            self.message = Some((
+                Tone::Warn,
+                "An action is running; wait for it to finish.".into(),
+            ));
             return;
         }
         match key.code {
@@ -506,7 +550,9 @@ impl App {
     }
 
     fn on_input_key(&mut self, key: KeyEvent) {
-        let Some((field, input)) = self.input.as_mut() else { return };
+        let Some((field, input)) = self.input.as_mut() else {
+            return;
+        };
         let field = *field;
         match input.on_key(key) {
             Outcome::None => {}
@@ -553,7 +599,11 @@ impl App {
     }
 
     /// Run `f` on a worker thread; the result is picked up by [`Self::poll_job`].
-    fn start_job(&mut self, label: &str, f: impl FnOnce() -> Result<String, String> + Send + 'static) {
+    fn start_job(
+        &mut self,
+        label: &str,
+        f: impl FnOnce() -> Result<String, String> + Send + 'static,
+    ) {
         if self.busy() {
             return;
         }
@@ -589,7 +639,9 @@ impl App {
         };
         let state = if up { "up" } else { "down" };
         self.record(format!("Network: {name} link {state}"));
-        self.start_job(&format!("{name}: link {state}"), move || net::set_link(&name, up));
+        self.start_job(&format!("{name}: link {state}"), move || {
+            net::set_link(&name, up)
+        });
     }
 
     /// Lease this interface without making it the primary uplink.
@@ -611,7 +663,9 @@ impl App {
         };
         let demo = self.demo;
         self.record(format!("Network: {name} also-lease"));
-        self.start_job(&format!("{name}: also lease"), move || net::toggle_also(&name, demo));
+        self.start_job(&format!("{name}: also lease"), move || {
+            net::toggle_also(&name, demo)
+        });
     }
 
     fn apply(&mut self) {
@@ -690,7 +744,10 @@ pub fn demo_static() -> App {
 pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let t = &app.t;
     let area = f.area();
-    f.render_widget(ratatui::widgets::Block::default().style(t.palette.base()), area);
+    f.render_widget(
+        ratatui::widgets::Block::default().style(t.palette.base()),
+        area,
+    );
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -720,9 +777,23 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
     // Context footer: at most six, most relevant first.
     let keys: Vec<(&str, &str)> = if app.pane == 0 {
-        vec![("↑↓", "pick"), ("/", "find"), ("a", "apply"), ("u/d", "link"), ("?", "help"), ("q", "back")]
+        vec![
+            ("↑↓", "pick"),
+            ("/", "find"),
+            ("a", "apply"),
+            ("u/d", "link"),
+            ("?", "help"),
+            ("q", "back"),
+        ]
     } else {
-        vec![("↑↓", "field"), ("/", "find"), ("enter", "edit"), ("space", "toggle"), ("a", "apply"), ("q", "back")]
+        vec![
+            ("↑↓", "field"),
+            ("/", "find"),
+            ("enter", "edit"),
+            ("space", "toggle"),
+            ("a", "apply"),
+            ("q", "back"),
+        ]
     };
     hud::footer(f, rows[3], &keys, t);
 
@@ -750,7 +821,10 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let item = app.selected().unwrap_or_else(|| app.choice.summary());
     let crumb = t.breadcrumb(&["NETWORK", TABS[app.pane.min(1)], &item]);
-    let right = vec![Span::styled("persists /data/etc/network  ", t.palette.fg(t.palette.dim))];
+    let right = vec![Span::styled(
+        "persists /data/etc/network  ",
+        t.palette.fg(t.palette.dim),
+    )];
     hud::header_bar(f, area, &crumb, "", right, t);
 }
 
@@ -779,8 +853,18 @@ fn iface_line(iface: &net::Iface, selected: bool, also: bool, t: &Theme) -> Line
             Span::raw("  "),
             Span::styled(format!("{tag} "), t.palette.fg(t.palette.accent2)),
             Span::styled(format!("{:<10}", iface.name), t.palette.bold(t.palette.fg)),
-            Span::styled(format!("{:<4} ", link), t.palette.fg(if iface.link { t.palette.ok } else { t.palette.warn })),
-            Span::styled(format!("{:<8} ", iface.driver), t.palette.fg(t.palette.accent)),
+            Span::styled(
+                format!("{:<4} ", link),
+                t.palette.fg(if iface.link {
+                    t.palette.ok
+                } else {
+                    t.palette.warn
+                }),
+            ),
+            Span::styled(
+                format!("{:<8} ", iface.driver),
+                t.palette.fg(t.palette.accent),
+            ),
             Span::styled(format!("{:<17} ", iface.mac), t.palette.fg(t.palette.dim)),
             Span::styled(format!("{ip:<15} "), t.palette.fg(t.palette.fg)),
             Span::styled(primary.to_string(), t.palette.bold(t.palette.accent2)),
@@ -794,7 +878,10 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     // The list owns the keyboard while the INTERFACES tab is active.
     let inner = hud::panel(f, area, "INTERFACES", None, app.pane == 0, t);
     let mut lines = vec![Line::from(Span::styled(
-        format!("  W {:<10} {:<4} {:<8} {:<17} {:<15} P A", "IFACE", "LINK", "DRIVER", "MAC", "IPV4"),
+        format!(
+            "  W {:<10} {:<4} {:<8} {:<17} {:<15} P A",
+            "IFACE", "LINK", "DRIVER", "MAC", "IPV4"
+        ),
         t.palette.fg(t.palette.dim),
     ))];
     if app.ifaces.is_empty() {
@@ -805,11 +892,19 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
         )));
     }
     for (i, iface) in app.ifaces.iter().enumerate() {
-        lines.push(iface_line(iface, i == app.sel, net::is_also(&app.also, &iface.name), t));
+        lines.push(iface_line(
+            iface,
+            i == app.sel,
+            net::is_also(&app.also, &iface.name),
+            t,
+        ));
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
-        format!("{} wireless   * current primary   + also lease at boot", t.ui.sym(2)),
+        format!(
+            "{} wireless   * current primary   + also lease at boot",
+            t.ui.sym(2)
+        ),
         t.palette.fg(t.palette.dim),
     )));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
@@ -826,12 +921,39 @@ fn iface_detail_lines(app: &App, t: &Theme) -> Vec<Line<'static>> {
         return Vec::new();
     };
     let kind = if i.wireless { "wireless" } else { "wired" };
-    let role = if i.primary { " · primary" } else if net::is_also(&app.also, &i.name) { " · also lease" } else { "" };
+    let role = if i.primary {
+        " · primary"
+    } else if net::is_also(&app.also, &i.name) {
+        " · also lease"
+    } else {
+        ""
+    };
     let ip = i.ipv4.first().cloned().unwrap_or_else(|| "-".into());
     vec![
-        hud::field("IFACE", 8, vec![Span::styled(format!("{}  {kind}{role}", i.name), t.palette.bold(t.palette.fg))], t),
-        hud::field("ADDRESS", 8, vec![Span::styled(ip, t.palette.fg(t.palette.fg))], t),
-        hud::field("MAC", 8, vec![Span::styled(format!("{}  {}", i.mac, i.driver), t.palette.fg(t.palette.dim))], t),
+        hud::field(
+            "IFACE",
+            8,
+            vec![Span::styled(
+                format!("{}  {kind}{role}", i.name),
+                t.palette.bold(t.palette.fg),
+            )],
+            t,
+        ),
+        hud::field(
+            "ADDRESS",
+            8,
+            vec![Span::styled(ip, t.palette.fg(t.palette.fg))],
+            t,
+        ),
+        hud::field(
+            "MAC",
+            8,
+            vec![Span::styled(
+                format!("{}  {}", i.mac, i.driver),
+                t.palette.fg(t.palette.dim),
+            )],
+            t,
+        ),
     ]
 }
 
@@ -855,7 +977,14 @@ fn draw_config(f: &mut Frame, area: Rect, app: &App) {
         lines.push(hud::line_with_hint(
             vec![
                 Span::styled(cur.to_string(), t.palette.bold(t.palette.accent2)),
-                Span::styled(format!("{:<8}", m.label()), if sel { t.palette.bold(t.palette.ok) } else { t.palette.fg(t.palette.fg) }),
+                Span::styled(
+                    format!("{:<8}", m.label()),
+                    if sel {
+                        t.palette.bold(t.palette.ok)
+                    } else {
+                        t.palette.fg(t.palette.fg)
+                    },
+                ),
                 Span::styled(note, t.palette.fg(t.palette.dim)),
             ],
             hint,
@@ -874,39 +1003,116 @@ fn draw_config(f: &mut Frame, area: Rect, app: &App) {
             let sel = app.choice.family == famly;
             fam.push(Span::styled(
                 format!("{} ", famly.label()),
-                if sel { t.palette.bold(t.palette.accent2) } else { t.palette.fg(t.palette.dim) },
+                if sel {
+                    t.palette.bold(t.palette.accent2)
+                } else {
+                    t.palette.fg(t.palette.dim)
+                },
             ));
         }
-        lines.push(hud::line_with_hint(fam, if focused { "space cycle" } else { "" }, row_w, t));
+        lines.push(hud::line_with_hint(
+            fam,
+            if focused { "space cycle" } else { "" },
+            row_w,
+            t,
+        ));
     }
     lines.push(Line::raw(""));
     lines.push(hud::caption("ADDRESS — EDIT: form", inner.width, t));
     if app.choice.mode == Mode::Dhcp {
-        lines.push(Line::from(Span::styled(format!("{} DHCP needs no fields", t.ui.sym(0)), t.palette.bold(t.palette.ok))));
-        lines.push(Line::from(Span::styled("the interface gets address, route and DNS from the network automatically.", t.palette.fg(t.palette.dim))));
+        lines.push(Line::from(Span::styled(
+            format!("{} DHCP needs no fields", t.ui.sym(0)),
+            t.palette.bold(t.palette.ok),
+        )));
+        lines.push(Line::from(Span::styled(
+            "the interface gets address, route and DNS from the network automatically.",
+            t.palette.fg(t.palette.dim),
+        )));
     } else {
         if app.choice.family.has_v4() {
-            lines.push(net_field(t, "1", "ADDRESS", &app.choice.ipv4_address, "192.168.1.50/24", net_row_focus(app, Row::Field(Field::V4Addr)), row_w));
-            lines.push(net_field(t, "2", "GATEWAY", &app.choice.ipv4_gateway, "192.168.1.1", net_row_focus(app, Row::Field(Field::V4Gw)), row_w));
-            lines.push(net_field(t, "3", "DNS", &app.choice.ipv4_dns, "1.1.1.1 8.8.8.8", net_row_focus(app, Row::Field(Field::V4Dns)), row_w));
+            lines.push(net_field(
+                t,
+                "1",
+                "ADDRESS",
+                &app.choice.ipv4_address,
+                "192.168.1.50/24",
+                net_row_focus(app, Row::Field(Field::V4Addr)),
+                row_w,
+            ));
+            lines.push(net_field(
+                t,
+                "2",
+                "GATEWAY",
+                &app.choice.ipv4_gateway,
+                "192.168.1.1",
+                net_row_focus(app, Row::Field(Field::V4Gw)),
+                row_w,
+            ));
+            lines.push(net_field(
+                t,
+                "3",
+                "DNS",
+                &app.choice.ipv4_dns,
+                "1.1.1.1 8.8.8.8",
+                net_row_focus(app, Row::Field(Field::V4Dns)),
+                row_w,
+            ));
         }
         if app.choice.family.has_v6() {
             if app.choice.family.has_v4() {
                 lines.push(Line::raw(""));
             }
-            lines.push(net_field(t, "4", "ADDRESS", &app.choice.ipv6_address, "2001:db8::50/64", net_row_focus(app, Row::Field(Field::V6Addr)), row_w));
-            lines.push(net_field(t, "5", "GATEWAY", &app.choice.ipv6_gateway, "2001:db8::1", net_row_focus(app, Row::Field(Field::V6Gw)), row_w));
-            lines.push(net_field(t, "6", "DNS", &app.choice.ipv6_dns, "2001:4860:4860::8888", net_row_focus(app, Row::Field(Field::V6Dns)), row_w));
+            lines.push(net_field(
+                t,
+                "4",
+                "ADDRESS",
+                &app.choice.ipv6_address,
+                "2001:db8::50/64",
+                net_row_focus(app, Row::Field(Field::V6Addr)),
+                row_w,
+            ));
+            lines.push(net_field(
+                t,
+                "5",
+                "GATEWAY",
+                &app.choice.ipv6_gateway,
+                "2001:db8::1",
+                net_row_focus(app, Row::Field(Field::V6Gw)),
+                row_w,
+            ));
+            lines.push(net_field(
+                t,
+                "6",
+                "DNS",
+                &app.choice.ipv6_dns,
+                "2001:4860:4860::8888",
+                net_row_focus(app, Row::Field(Field::V6Dns)),
+                row_w,
+            ));
         }
         lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled("gateway and DNS are optional", t.palette.fg(t.palette.dim))));
+        lines.push(Line::from(Span::styled(
+            "gateway and DNS are optional",
+            t.palette.fg(t.palette.dim),
+        )));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("↑↓ field · space toggle · a apply", t.palette.fg(t.palette.dim))));
+    lines.push(Line::from(Span::styled(
+        "↑↓ field · space toggle · a apply",
+        t.palette.fg(t.palette.dim),
+    )));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
-fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str, focused: bool, row_w: usize) -> Line<'static> {
+fn net_field(
+    t: &Theme,
+    n: &str,
+    label: &str,
+    value: &str,
+    hint: &str,
+    focused: bool,
+    row_w: usize,
+) -> Line<'static> {
     let shown = if value.is_empty() {
         Span::styled(format!("{hint}  (press {n})"), t.palette.fg(t.palette.dim))
     } else {
@@ -915,7 +1121,14 @@ fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str, focused: 
     let cur = if focused { t.selection_mark() } else { "  " };
     let left = vec![
         Span::styled(cur.to_string(), t.palette.bold(t.palette.accent2)),
-        Span::styled(format!("{n} {label:<8}"), if focused { t.palette.bold(t.palette.accent) } else { t.palette.fg(t.palette.dim) }),
+        Span::styled(
+            format!("{n} {label:<8}"),
+            if focused {
+                t.palette.bold(t.palette.accent)
+            } else {
+                t.palette.fg(t.palette.dim)
+            },
+        ),
         shown,
     ];
     hud::line_with_hint(left, if focused { "enter edit" } else { "" }, row_w, t)
@@ -923,7 +1136,14 @@ fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str, focused: 
 
 fn draw_result(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
-    hud::status_row(f, area, msg, app.busy().then(|| hud::spinner(tick)), "↑↓ pick, enter config, a apply.", &app.t);
+    hud::status_row(
+        f,
+        area,
+        msg,
+        app.busy().then(|| hud::spinner(tick)),
+        "↑↓ pick, enter config, a apply.",
+        &app.t,
+    );
 }
 
 /// Run the screen on the real terminal.
@@ -982,7 +1202,10 @@ mod tests {
     #[test]
     fn also_toggle_is_demo_safe_and_reviewed() {
         let mut app = App::new(true);
-        assert!(net::is_also(&app.also, "enp0s20u1"), "demo shows an also entry");
+        assert!(
+            net::is_also(&app.also, "enp0s20u1"),
+            "demo shows an also entry"
+        );
         app.on_key(KeyEvent::from(KeyCode::Char('l')));
         assert!(app.review.is_some(), "also toggle opens REVIEW");
         app.on_key(KeyEvent::from(KeyCode::Enter));
@@ -1005,16 +1228,26 @@ mod tests {
         app.sel = app.ifaces.iter().position(|i| !i.primary).unwrap();
         app.on_key(KeyEvent::from(KeyCode::Char('a')));
         let (_, rev) = app.review.as_ref().expect("a opens REVIEW");
-        assert!(rev.note.as_ref().unwrap().contains("primary uplink"), "{:?}", rev.note);
+        assert!(
+            rev.note.as_ref().unwrap().contains("primary uplink"),
+            "{:?}",
+            rev.note
+        );
         app.on_key(KeyEvent::from(KeyCode::Esc));
-        assert!(app.review.is_none() && !app.busy(), "esc cancels; nothing runs");
+        assert!(
+            app.review.is_none() && !app.busy(),
+            "esc cancels; nothing runs"
+        );
     }
 
     #[test]
     fn mutations_are_recorded_for_the_deck() {
         let mut app = App::new(true);
         app.on_key(KeyEvent::from(KeyCode::Char('h'))); // dhcp REVIEW
-        assert!(app.take_recent().is_empty(), "nothing recorded before the confirm");
+        assert!(
+            app.take_recent().is_empty(),
+            "nothing recorded before the confirm"
+        );
         app.on_key(KeyEvent::from(KeyCode::Enter));
         let r = app.take_recent();
         assert_eq!(r.len(), 1, "{r:?}");
@@ -1033,7 +1266,10 @@ mod tests {
         }
         app.on_key(KeyEvent::from(KeyCode::Enter));
         assert!(app.jump.is_none());
-        assert_eq!(app.ifaces[app.sel].name, "enp0s20u1", "jump selects the match");
+        assert_eq!(
+            app.ifaces[app.sel].name, "enp0s20u1",
+            "jump selects the match"
+        );
         assert_eq!(app.pane, 0, "jump is read-only and lands on the list");
     }
 
@@ -1101,7 +1337,10 @@ mod tests {
         assert_eq!(app.pane, 0);
         app.on_key(KeyEvent::from(KeyCode::Right));
         app.on_key(KeyEvent::from(KeyCode::Esc));
-        assert_eq!(app.pane, 0, "esc steps back to the list, not out of the module");
+        assert_eq!(
+            app.pane, 0,
+            "esc steps back to the list, not out of the module"
+        );
         assert!(!app.exit);
         app.on_key(KeyEvent::from(KeyCode::Char('b')));
         assert!(app.exit, "b returns to the deck");

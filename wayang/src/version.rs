@@ -10,10 +10,14 @@ pub const BUILD_MARKER: &str = "ux-p1";
 
 pub fn read() -> Result<String> {
     let path = paths::version_file();
-    let s = std::fs::read_to_string(&path).map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
+    let s = std::fs::read_to_string(&path)
+        .map_err(|e| AppError::err(format!("{}: {e}", path.display())))?;
     let s = s.trim().to_string();
     if s.is_empty() {
-        return Err(AppError::err(format!("{}: empty version file", path.display())));
+        return Err(AppError::err(format!(
+            "{}: empty version file",
+            path.display()
+        )));
     }
     Ok(s)
 }

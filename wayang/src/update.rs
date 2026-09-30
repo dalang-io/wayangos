@@ -1,7 +1,7 @@
 //! `wayang update` / `wayang upgrade` / `wayang update --rollback`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::arch::host_arch;
 use crate::bundle::{self, Bundle};
@@ -83,22 +83,32 @@ pub fn run(upgrade: bool, a: &UpdateArgs) -> Result<i32> {
 }
 
 /// [`run`] with an optional progress hook fed by the bundle download.
-pub fn run_with_progress(upgrade: bool, a: &UpdateArgs, progress: Option<Arc<Progress>>) -> Result<i32> {
+pub fn run_with_progress(
+    upgrade: bool,
+    a: &UpdateArgs,
+    progress: Option<Arc<Progress>>,
+) -> Result<i32> {
     if a.rollback {
         if upgrade {
-            return Err(AppError::err("--rollback is only valid for `wayang update`"));
+            return Err(AppError::err(
+                "--rollback is only valid for `wayang update`",
+            ));
         }
         return run_rollback(a);
     }
     if a.boot_other {
         if upgrade {
-            return Err(AppError::err("--boot-other is only valid for `wayang update`"));
+            return Err(AppError::err(
+                "--boot-other is only valid for `wayang update`",
+            ));
         }
         return run_boot_other(a);
     }
     if a.fallback {
         if upgrade {
-            return Err(AppError::err("--fallback is only valid for `wayang update`"));
+            return Err(AppError::err(
+                "--fallback is only valid for `wayang update`",
+            ));
         }
         return run_fallback(a);
     }
@@ -129,7 +139,8 @@ pub fn run_with_progress(upgrade: bool, a: &UpdateArgs, progress: Option<Arc<Pro
     if let Decision::NoUpdate = sema::decide(upgrade, &installed, &manifest)? {
         crate::outln!(
             "No update available: installed {} is up to date (bundle {}).",
-            installed, manifest.version
+            installed,
+            manifest.version
         );
         return Ok(2);
     }
@@ -137,7 +148,10 @@ pub fn run_with_progress(upgrade: bool, a: &UpdateArgs, progress: Option<Arc<Pro
     if a.check {
         crate::outln!(
             "Update available: {} -> {} ({} / {}).",
-            installed, manifest.version, manifest.channel, manifest.arch
+            installed,
+            manifest.version,
+            manifest.channel,
+            manifest.arch
         );
         if let Some(n) = &manifest.notes {
             crate::outln!("notes: {n}");
@@ -163,7 +177,11 @@ pub fn run_with_progress(upgrade: bool, a: &UpdateArgs, progress: Option<Arc<Pro
     let target = staging::stage(&boot, &bundle.kernel, &bundle.initramfs, &meta)?;
     drop(boot);
 
-    crate::outln!("Staged {} into slot {}.", bundle.manifest.version, target.as_str());
+    crate::outln!(
+        "Staged {} into slot {}.",
+        bundle.manifest.version,
+        target.as_str()
+    );
     maybe_reboot(a.reboot)?;
     Ok(0)
 }
@@ -225,7 +243,10 @@ pub fn run_fallback(a: &UpdateArgs) -> Result<i32> {
     let boot = mount::open(a.esp.as_deref())?;
     let target = staging::fallback(&boot)?;
     drop(boot);
-    crate::outln!("Fallback staged: next boot uses the good slot {}.", target.as_str());
+    crate::outln!(
+        "Fallback staged: next boot uses the good slot {}.",
+        target.as_str()
+    );
     maybe_reboot(a.reboot)?;
     Ok(0)
 }
@@ -286,7 +307,10 @@ mod tests {
 
     #[test]
     fn boot_other_only_valid_for_update() {
-        let mut a = UpdateArgs { boot_other: true, ..Default::default() };
+        let mut a = UpdateArgs {
+            boot_other: true,
+            ..Default::default()
+        };
         let err = run_with_progress(true, &a, None).unwrap_err();
         assert!(err.msg.contains("--boot-other"), "{}", err.msg);
         a.boot_other = false;

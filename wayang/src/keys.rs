@@ -37,6 +37,9 @@ pub fn sign_file(key: &Path, keyid: Option<&str>, manifest: &Path) -> Result<i32
     let dest = format!("{}.sig", manifest.display());
     std::fs::write(&dest, sig).map_err(|e| AppError::err(format!("{dest}: {e}")))?;
     let who = keyid.unwrap_or("(unnamed)");
-    println!("wrote {dest} ({}-byte signature for keyid {who})", sig.len());
+    println!(
+        "wrote {dest} ({}-byte signature for keyid {who})",
+        sig.len()
+    );
     Ok(0)
 }

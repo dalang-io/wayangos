@@ -2,11 +2,11 @@
 //! runs, with `enter`/`y` = confirm and `esc`/`n`/`q` = cancel. One renderer,
 //! used by every apply path (updates, reset, network, wifi, ssh).
 
+use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::hud::{self, Theme};
 use wayang_tui::overlay::Overlay;
@@ -35,7 +35,12 @@ pub enum Decision {
 
 impl Review {
     pub fn new(title: impl Into<String>, effect: Vec<String>) -> Review {
-        Review { title: title.into(), effect, note: None, scroll: 0 }
+        Review {
+            title: title.into(),
+            effect,
+            note: None,
+            scroll: 0,
+        }
     }
 
     pub fn note(mut self, note: impl Into<String>) -> Review {
@@ -100,7 +105,10 @@ pub fn draw(f: &mut Frame, area: Rect, t: &Theme, r: &Review) {
     ))];
     for e in &r.effect[start..end] {
         lines.push(Line::from(vec![
-            Span::styled(format!("{} ", t.ui.arrow()), t.palette.fg(t.palette.accent2)),
+            Span::styled(
+                format!("{} ", t.ui.arrow()),
+                t.palette.fg(t.palette.accent2),
+            ),
             Span::styled(e.clone(), t.palette.fg(t.palette.fg)),
         ]));
     }
@@ -109,7 +117,10 @@ pub fn draw(f: &mut Frame, area: Rect, t: &Theme, r: &Review) {
             lines.push(Line::from(""));
         }
         if lines.len() < room {
-            lines.push(Line::from(Span::styled(note.clone(), t.palette.bold(t.palette.bad))));
+            lines.push(Line::from(Span::styled(
+                note.clone(),
+                t.palette.bold(t.palette.bad),
+            )));
         }
     }
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
@@ -137,8 +148,14 @@ mod tests {
     #[test]
     fn renders_the_plan_lines() {
         let t = Theme::from_env(hud::WAYANG_OS, hud::Flags::default(), true, None, None);
-        let r = Review::new("reset", vec!["remove /data/etc/router".into(), "clear pending update".into()])
-            .note("SSH keys are kept.");
+        let r = Review::new(
+            "reset",
+            vec![
+                "remove /data/etc/router".into(),
+                "clear pending update".into(),
+            ],
+        )
+        .note("SSH keys are kept.");
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
         term.draw(|f| draw(f, f.area(), &t, &r)).unwrap();
         let buf = term.backend().buffer();

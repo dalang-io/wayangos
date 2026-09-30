@@ -1,12 +1,12 @@
 //! A small centered text-input modal, mirroring the installer's `Modal::Input`
 //! but self-contained for the runtime HUD (different crate, same look).
 
+use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
-use ratatui::Frame;
 
 use crate::hud::{self, Theme};
 use wayang_tui::overlay::Overlay;
@@ -33,7 +33,11 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn new(title: impl Into<String>, prompt: impl Into<String>, hint: impl Into<String>) -> Input {
+    pub fn new(
+        title: impl Into<String>,
+        prompt: impl Into<String>,
+        hint: impl Into<String>,
+    ) -> Input {
         Input {
             title: title.into(),
             prompt: prompt.into(),
@@ -97,7 +101,12 @@ pub enum Pick {
 
 impl Picker {
     pub fn new(title: impl Into<String>, prompt: impl Into<String>, items: Vec<String>) -> Picker {
-        Picker { title: title.into(), prompt: prompt.into(), items, sel: 0 }
+        Picker {
+            title: title.into(),
+            prompt: prompt.into(),
+            items,
+            sel: 0,
+        }
     }
 
     pub fn on_key(&mut self, key: KeyEvent) -> Pick {
@@ -151,11 +160,18 @@ pub fn draw_hits(f: &mut Frame, area: Rect, t: &Theme, title: &str, hits: &[Stri
         return;
     }
     let ir = hud::centered(area, 76, 9);
-    let h = (hits.len() as u16 + 2).min(8).min(area.bottom().saturating_sub(ir.y + 9));
+    let h = (hits.len() as u16 + 2)
+        .min(8)
+        .min(area.bottom().saturating_sub(ir.y + 9));
     if h < 3 {
         return;
     }
-    let rect = Rect { x: ir.x, y: ir.y + 9, width: ir.width, height: h };
+    let rect = Rect {
+        x: ir.x,
+        y: ir.y + 9,
+        width: ir.width,
+        height: h,
+    };
     f.render_widget(Clear, rect);
     let inner = hud::panel_focused(f, rect, title, None, t);
     let mut lines = Vec::new();
@@ -185,17 +201,34 @@ pub fn draw(f: &mut Frame, area: Rect, t: &Theme, input: &Input, tick: usize) {
     };
     let cursor = if tick.is_multiple_of(2) { "_" } else { " " };
     let field = Line::from(vec![
-        Span::styled(format!("{} ", t.selection_mark().trim_end()), t.palette.bold(t.palette.accent2)),
-        Span::styled(shown, t.palette.bold(t.palette.fg).add_modifier(Modifier::UNDERLINED)),
+        Span::styled(
+            format!("{} ", t.selection_mark().trim_end()),
+            t.palette.bold(t.palette.accent2),
+        ),
+        Span::styled(
+            shown,
+            t.palette
+                .bold(t.palette.fg)
+                .add_modifier(Modifier::UNDERLINED),
+        ),
         Span::styled(cursor.to_string(), t.palette.fg(t.palette.accent)),
     ]);
     let msg = match &input.error {
-        Some(e) => Line::from(Span::styled(format!("{} {e}", t.ui.sym(3)), t.palette.fg(t.palette.bad))),
-        None => Line::from(Span::styled(input.hint.clone(), t.palette.fg(t.palette.dim))),
+        Some(e) => Line::from(Span::styled(
+            format!("{} {e}", t.ui.sym(3)),
+            t.palette.fg(t.palette.bad),
+        )),
+        None => Line::from(Span::styled(
+            input.hint.clone(),
+            t.palette.fg(t.palette.dim),
+        )),
     };
     let lines = vec![
         Line::raw(""),
-        Line::from(Span::styled(input.prompt.clone(), t.palette.fg(t.palette.fg))),
+        Line::from(Span::styled(
+            input.prompt.clone(),
+            t.palette.fg(t.palette.fg),
+        )),
         Line::raw(""),
         field,
         Line::raw(""),
@@ -217,23 +250,36 @@ pub fn draw_picker(f: &mut Frame, area: Rect, t: &Theme, p: &Picker) {
     let start = if p.sel >= room { p.sel + 1 - room } else { 0 };
 
     let mut lines = vec![
-        Line::from(Span::styled(t.clip(&p.prompt, inner.width as usize), t.palette.fg(t.palette.fg))),
+        Line::from(Span::styled(
+            t.clip(&p.prompt, inner.width as usize),
+            t.palette.fg(t.palette.fg),
+        )),
         Line::raw(""),
     ];
     for (i, item) in p.items.iter().enumerate().skip(start).take(room) {
         let text = t.clip(item, text_w);
         if i == p.sel {
             lines.push(Line::from(vec![
-                Span::styled(format!("{} ", t.selection_mark().trim_end()), t.palette.bold(t.palette.accent2)),
+                Span::styled(
+                    format!("{} ", t.selection_mark().trim_end()),
+                    t.palette.bold(t.palette.accent2),
+                ),
                 Span::styled(text, t.palette.highlight()),
             ]));
         } else {
-            lines.push(Line::from(vec![Span::raw("  "), Span::styled(text, t.palette.fg(t.palette.fg))]));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(text, t.palette.fg(t.palette.fg)),
+            ]));
         }
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
-        format!("{} / {}   ↑↓ move   enter choose   esc cancel", p.sel + 1, p.items.len()),
+        format!(
+            "{} / {}   ↑↓ move   enter choose   esc cancel",
+            p.sel + 1,
+            p.items.len()
+        ),
         t.palette.fg(t.palette.dim),
     )));
     f.render_widget(Paragraph::new(lines), inner);
@@ -266,7 +312,11 @@ mod tests {
 
     #[test]
     fn fuzzy_matches_substring_and_word_prefix() {
-        let items = vec!["eth0 e1000e 192.168.1.42/24".into(), "wlan0 rtl8xxxu".into(), "enp0s20u1 r8152".into()];
+        let items = vec![
+            "eth0 e1000e 192.168.1.42/24".into(),
+            "wlan0 rtl8xxxu".into(),
+            "enp0s20u1 r8152".into(),
+        ];
         assert_eq!(fuzzy_matches("wlan", &items), vec![1]);
         assert_eq!(fuzzy_matches("u1", &items), vec![2]);
         assert_eq!(fuzzy_matches("", &items), Vec::<usize>::new());

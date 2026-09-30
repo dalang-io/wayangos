@@ -37,23 +37,27 @@ pub fn open(esp_override: Option<&str>) -> Result<BootRoot> {
 /// Pure form of [`open`] with an explicit `WAYANG_ROOT` value.
 pub fn open_with(root: Option<PathBuf>, esp_override: Option<&str>) -> Result<BootRoot> {
     if let Some(root) = root {
-        return Ok(BootRoot { path: root.join("boot"), mounted: None });
+        return Ok(BootRoot {
+            path: root.join("boot"),
+            mounted: None,
+        });
     }
 
     let device = match esp_override {
         Some(d) if !d.trim().is_empty() => PathBuf::from(d),
-        _ => crate::esp::discover().ok_or_else(|| {
-            AppError::err("no ESP found (set WAYANG_ESP or pass --esp DEV)")
-        })?,
+        _ => crate::esp::discover()
+            .ok_or_else(|| AppError::err("no ESP found (set WAYANG_ESP or pass --esp DEV)"))?,
     };
 
     if let Some(mp) = mounted_at(&device) {
-        return Ok(BootRoot { path: state_root(&mp), mounted: None });
+        return Ok(BootRoot {
+            path: state_root(&mp),
+            mounted: None,
+        });
     }
 
     let dir = std::env::temp_dir().join(format!("wayang-esp-{}", std::process::id()));
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| AppError::err(format!("{}: {e}", dir.display())))?;
+    std::fs::create_dir_all(&dir).map_err(|e| AppError::err(format!("{}: {e}", dir.display())))?;
 
     let out = term::command_capture("mount")
         .arg("-o")
@@ -71,7 +75,10 @@ pub fn open_with(root: Option<PathBuf>, esp_override: Option<&str>) -> Result<Bo
             err.trim()
         )));
     }
-    Ok(BootRoot { path: state_root(&dir), mounted: Some(dir) })
+    Ok(BootRoot {
+        path: state_root(&dir),
+        mounted: Some(dir),
+    })
 }
 
 /// Directory that holds the A/B state (`grub/grubenv` or `wayang/vars`).
@@ -106,7 +113,9 @@ fn mounted_at(device: &Path) -> Option<PathBuf> {
         };
         let dev_path = PathBuf::from(dev);
         let same = dev_path == want
-            || std::fs::canonicalize(&dev_path).map(|c| c == want).unwrap_or(false);
+            || std::fs::canonicalize(&dev_path)
+                .map(|c| c == want)
+                .unwrap_or(false);
         if same {
             return Some(PathBuf::from(mp));
         }
@@ -120,7 +129,11 @@ mod tests {
 
     #[test]
     fn wayang_root_short_circuits() {
-        let b = open_with(Some(PathBuf::from("/tmp/wayang-root-test")), Some("/dev/whatever")).unwrap();
+        let b = open_with(
+            Some(PathBuf::from("/tmp/wayang-root-test")),
+            Some("/dev/whatever"),
+        )
+        .unwrap();
         assert_eq!(b.path, PathBuf::from("/tmp/wayang-root-test/boot"));
         assert!(b.mounted.is_none());
     }
