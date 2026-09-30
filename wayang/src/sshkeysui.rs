@@ -66,7 +66,7 @@ impl App {
     pub fn new(demo: bool) -> App {
         let keys = if demo { sshkeys::demo() } else { sshkeys::load() };
         let mut app = App {
-            t: Theme::detect(),
+            t: hud::detect(),
             demo,
             keys,
             sel: 0,
@@ -459,7 +459,7 @@ pub fn demo_add() -> App {
 pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let t = &app.t;
     let area = f.area();
-    f.render_widget(ratatui::widgets::Block::default().style(t.base()), area);
+    f.render_widget(ratatui::widgets::Block::default().style(t.palette.base()), area);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -484,7 +484,9 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
     hud::status_row(f, rows[3], msg, busy, "a adds a key, d removes one.", t);
 
-    let mut keys = hud::keycaps(
+    hud::footer(
+        f,
+        rows[4],
         &[
             ("↑↓", "pick"),
             ("/", "find"),
@@ -495,8 +497,6 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         ],
         t,
     );
-    keys.spans.insert(0, Span::raw(" "));
-    f.render_widget(Paragraph::new(keys), rows[4]);
 
     if let Some((_, input)) = &app.input {
         input::draw(f, area, t, input, tick);
@@ -525,7 +525,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let right = vec![Span::styled(
         format!("{} key(s)  persists /data/etc/ssh  ", app.keys.len()),
-        t.fg(t.dim),
+        t.palette.fg(t.palette.dim),
     )];
     let crumb = t.breadcrumb(&["SSH", TABS[app.pane.min(1)], &format!("{} key(s)", app.keys.len())]);
     hud::header_bar(f, area, &crumb, "", right, t);
@@ -533,16 +533,16 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel_focus(f, area, "AUTHORIZED KEYS", app.pane == 0, t);
+    let inner = hud::panel(f, area, "AUTHORIZED KEYS", None, app.pane == 0, t);
     let row_w = inner.width.saturating_sub(1) as usize;
     let mut lines = vec![Line::from(Span::styled(
         format!("  {:<9} {:<44} {}", "TYPE", "FINGERPRINT", "COMMENT"),
-        t.fg(t.dim),
+        t.palette.fg(t.palette.dim),
     ))];
     if app.keys.is_empty() {
         lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled(format!("{} no authorized keys", t.g.warn), t.fg(t.warn))));
-        lines.push(Line::from(Span::styled("press a to add one (paste, GitHub or GitLab)", t.fg(t.dim))));
+        lines.push(Line::from(Span::styled(format!("{} no authorized keys", t.ui.sym(2)), t.palette.fg(t.palette.warn))));
+        lines.push(Line::from(Span::styled("press a to add one (paste, GitHub or GitLab)", t.palette.fg(t.palette.dim))));
     }
     for (i, k) in app.keys.iter().enumerate() {
         let fp = t.clip(&k.fingerprint(), 44);
@@ -550,13 +550,13 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
         let line = format!("{:<9} {:<44} {}", k.kind(), fp, comment);
         if i == app.sel {
             lines.push(hud::line_with_hint(
-                vec![Span::styled(format!("{} {}", t.cursor().trim_end(), line), t.highlight())],
+                vec![Span::styled(format!("{} {}", t.selection_mark().trim_end(), line), t.palette.highlight())],
                 "d remove",
                 row_w,
                 t,
             ));
         } else {
-            lines.push(Line::from(vec![Span::raw("  "), Span::styled(line, t.fg(t.fg))]));
+            lines.push(Line::from(vec![Span::raw("  "), Span::styled(line, t.palette.fg(t.palette.fg))]));
         }
     }
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
@@ -564,31 +564,31 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel_focus(f, area, "DETAILS — EDIT: form", app.pane == 1, t);
+    let inner = hud::panel(f, area, "DETAILS — EDIT: form", None, app.pane == 1, t);
     let mut lines = Vec::new();
     match app.keys.get(app.sel) {
         Some(k) => {
-            lines.push(hud::field("TYPE", 8, vec![Span::styled(k.kind().to_string(), t.bold(t.fg))], t));
-            lines.push(Line::from(Span::styled(k.fingerprint(), t.fg(t.accent))));
+            lines.push(hud::field("TYPE", 8, vec![Span::styled(k.kind().to_string(), t.palette.bold(t.palette.fg))], t));
+            lines.push(Line::from(Span::styled(k.fingerprint(), t.palette.fg(t.palette.accent))));
             lines.push(hud::field(
                 "COMMENT",
                 8,
                 vec![Span::styled(
                     if k.comment.is_empty() { "-".into() } else { k.comment.clone() },
-                    t.fg(t.fg),
+                    t.palette.fg(t.palette.fg),
                 )],
                 t,
             ));
-            lines.push(hud::field("SOURCE", 8, vec![Span::styled(k.source.clone(), t.fg(t.dim))], t));
+            lines.push(hud::field("SOURCE", 8, vec![Span::styled(k.source.clone(), t.palette.fg(t.palette.dim))], t));
         }
-        None => lines.push(Line::from(Span::styled("no key selected", t.fg(t.dim)))),
+        None => lines.push(Line::from(Span::styled("no key selected", t.palette.fg(t.palette.dim)))),
     }
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("New keys are written to", t.fg(t.dim))));
-    lines.push(Line::from(Span::styled("/data/etc/ssh/authorized_keys", t.fg(t.accent))));
-    lines.push(Line::from(Span::styled("and appended to /root/.ssh/authorized_keys.", t.fg(t.dim))));
+    lines.push(Line::from(Span::styled("New keys are written to", t.palette.fg(t.palette.dim))));
+    lines.push(Line::from(Span::styled("/data/etc/ssh/authorized_keys", t.palette.fg(t.palette.accent))));
+    lines.push(Line::from(Span::styled("and appended to /root/.ssh/authorized_keys.", t.palette.fg(t.palette.dim))));
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("a adds a key (paste, GitHub or GitLab)", t.fg(t.dim))));
+    lines.push(Line::from(Span::styled("a adds a key (paste, GitHub or GitLab)", t.palette.fg(t.palette.dim))));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 

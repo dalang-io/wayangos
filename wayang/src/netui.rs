@@ -97,7 +97,7 @@ impl App {
             .and_then(|p| ifaces.iter().position(|i| &i.name == p))
             .unwrap_or(0);
         App {
-            t: Theme::detect(),
+            t: hud::detect(),
             demo,
             ifaces,
             sel,
@@ -688,7 +688,7 @@ pub fn demo_static() -> App {
 pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let t = &app.t;
     let area = f.area();
-    f.render_widget(ratatui::widgets::Block::default().style(t.base()), area);
+    f.render_widget(ratatui::widgets::Block::default().style(t.palette.base()), area);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -722,9 +722,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     } else {
         vec![("↑↓", "field"), ("/", "find"), ("enter", "edit"), ("space", "toggle"), ("a", "apply"), ("q", "back")]
     };
-    let mut kline = hud::keycaps(&keys, t);
-    kline.spans.insert(0, Span::raw(" "));
-    f.render_widget(Paragraph::new(kline), rows[4]);
+    hud::footer(f, rows[4], &keys, t);
 
     if let Some((_, input)) = &app.input {
         input::draw(f, area, t, input, tick);
@@ -750,7 +748,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let item = app.selected().unwrap_or_else(|| app.choice.summary());
     let crumb = t.breadcrumb(&["NETWORK", TABS[app.pane.min(1)], &item]);
-    let right = vec![Span::styled("persists /data/etc/network  ", t.fg(t.dim))];
+    let right = vec![Span::styled("persists /data/etc/network  ", t.palette.fg(t.palette.dim))];
     hud::header_bar(f, area, &crumb, "", right, t);
 }
 
@@ -763,7 +761,7 @@ fn iface_line(iface: &net::Iface, selected: bool, also: bool, t: &Theme) -> Line
     if selected {
         let text = format!(
             "{} {:<2}{:<10} {:<4} {:<8} {:<17} {:<15} {} {}",
-            t.cursor().trim_end(),
+            t.selection_mark().trim_end(),
             tag,
             iface.name,
             link,
@@ -773,18 +771,18 @@ fn iface_line(iface: &net::Iface, selected: bool, also: bool, t: &Theme) -> Line
             primary,
             boot
         );
-        Line::from(Span::styled(text, t.highlight()))
+        Line::from(Span::styled(text, t.palette.highlight()))
     } else {
         Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{tag} "), t.fg(t.accent2)),
-            Span::styled(format!("{:<10}", iface.name), t.bold(t.fg)),
-            Span::styled(format!("{:<4} ", link), t.fg(if iface.link { t.ok } else { t.warn })),
-            Span::styled(format!("{:<8} ", iface.driver), t.fg(t.accent)),
-            Span::styled(format!("{:<17} ", iface.mac), t.fg(t.dim)),
-            Span::styled(format!("{ip:<15} "), t.fg(t.fg)),
-            Span::styled(primary.to_string(), t.bold(t.accent2)),
-            Span::styled(format!(" {boot}"), t.bold(t.accent)),
+            Span::styled(format!("{tag} "), t.palette.fg(t.palette.accent2)),
+            Span::styled(format!("{:<10}", iface.name), t.palette.bold(t.palette.fg)),
+            Span::styled(format!("{:<4} ", link), t.palette.fg(if iface.link { t.palette.ok } else { t.palette.warn })),
+            Span::styled(format!("{:<8} ", iface.driver), t.palette.fg(t.palette.accent)),
+            Span::styled(format!("{:<17} ", iface.mac), t.palette.fg(t.palette.dim)),
+            Span::styled(format!("{ip:<15} "), t.palette.fg(t.palette.fg)),
+            Span::styled(primary.to_string(), t.palette.bold(t.palette.accent2)),
+            Span::styled(format!(" {boot}"), t.palette.bold(t.palette.accent)),
         ])
     }
 }
@@ -792,16 +790,16 @@ fn iface_line(iface: &net::Iface, selected: bool, also: bool, t: &Theme) -> Line
 fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     // The list owns the keyboard while the INTERFACES tab is active.
-    let inner = hud::panel_focus(f, area, "INTERFACES", app.pane == 0, t);
+    let inner = hud::panel(f, area, "INTERFACES", None, app.pane == 0, t);
     let mut lines = vec![Line::from(Span::styled(
         format!("  W {:<10} {:<4} {:<8} {:<17} {:<15} P A", "IFACE", "LINK", "DRIVER", "MAC", "IPV4"),
-        t.fg(t.dim),
+        t.palette.fg(t.palette.dim),
     ))];
     if app.ifaces.is_empty() {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
-            format!("{} no interface found in /sys/class/net", t.g.warn),
-            t.fg(t.warn),
+            format!("{} no interface found in /sys/class/net", t.ui.sym(2)),
+            t.palette.fg(t.palette.warn),
         )));
     }
     for (i, iface) in app.ifaces.iter().enumerate() {
@@ -809,8 +807,8 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
-        format!("{} wireless   * current primary   + also lease at boot", t.g.warn),
-        t.fg(t.dim),
+        format!("{} wireless   * current primary   + also lease at boot", t.ui.sym(2)),
+        t.palette.fg(t.palette.dim),
     )));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
@@ -824,7 +822,7 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
     // On the CONFIG tab the MODE panel is focused while a mode/family row is
     // selected; a field row focuses the ADDRESS panel instead.
     let focused = matches!(app.rows().get(app.field_sel), Some(Row::Mode | Row::Family));
-    let inner = hud::panel_focus(f, area, "MODE — EDIT: form", app.pane == 1 && focused, t);
+    let inner = hud::panel(f, area, "MODE — EDIT: form", None, app.pane == 1 && focused, t);
     let mut lines = Vec::new();
     let row_w = inner.width.saturating_sub(1) as usize;
     for m in [Mode::Dhcp, Mode::Static] {
@@ -834,13 +832,13 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
             Mode::Static => "fixed address, gateway and DNS",
         };
         let focused = sel && net_row_focus(app, Row::Mode);
-        let cur = if focused { t.cursor() } else { "  " };
+        let cur = if focused { t.selection_mark() } else { "  " };
         let hint = if focused { "space toggle" } else { "" };
         lines.push(hud::line_with_hint(
             vec![
-                Span::styled(cur.to_string(), t.bold(t.accent2)),
-                Span::styled(format!("{:<8}", m.label()), if sel { t.bold(t.ok) } else { t.fg(t.fg) }),
-                Span::styled(note, t.fg(t.dim)),
+                Span::styled(cur.to_string(), t.palette.bold(t.palette.accent2)),
+                Span::styled(format!("{:<8}", m.label()), if sel { t.palette.bold(t.palette.ok) } else { t.palette.fg(t.palette.fg) }),
+                Span::styled(note, t.palette.fg(t.palette.dim)),
             ],
             hint,
             row_w,
@@ -850,36 +848,36 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
     if app.choice.mode == Mode::Static {
         lines.push(Line::raw(""));
         let focused = net_row_focus(app, Row::Family);
-        let cur = if focused { t.cursor() } else { "  " };
+        let cur = if focused { t.selection_mark() } else { "  " };
         let mut fam = vec![
-            Span::styled(cur.to_string(), t.bold(t.accent2)),
-            Span::styled("FAMILY  ", t.fg(t.dim)),
+            Span::styled(cur.to_string(), t.palette.bold(t.palette.accent2)),
+            Span::styled("FAMILY  ", t.palette.fg(t.palette.dim)),
         ];
         for famly in [Family::Ipv4, Family::Ipv6, Family::Both] {
             let sel = app.choice.family == famly;
             fam.push(Span::styled(
                 format!("{} ", famly.label()),
-                if sel { t.bold(t.accent2) } else { t.fg(t.dim) },
+                if sel { t.palette.bold(t.palette.accent2) } else { t.palette.fg(t.palette.dim) },
             ));
         }
         lines.push(hud::line_with_hint(fam, if focused { "space cycle" } else { "" }, row_w, t));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("↑↓ field · space toggle · a apply", t.fg(t.dim))));
+    lines.push(Line::from(Span::styled("↑↓ field · space toggle · a apply", t.palette.fg(t.palette.dim))));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 fn draw_fields(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
     let focused = matches!(app.rows().get(app.field_sel), Some(Row::Field(_)));
-    let inner = hud::panel_focus(f, area, "ADDRESS — EDIT: form", app.pane == 1 && focused, t);
+    let inner = hud::panel(f, area, "ADDRESS — EDIT: form", None, app.pane == 1 && focused, t);
     let mut lines = Vec::new();
     let row_w = inner.width.saturating_sub(1) as usize;
     if app.choice.mode == Mode::Dhcp {
         lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled(format!("{} DHCP needs no fields", t.g.ok), t.bold(t.ok))));
-        lines.push(Line::from(Span::styled("the interface gets address, route and DNS", t.fg(t.dim))));
-        lines.push(Line::from(Span::styled("from the network automatically.", t.fg(t.dim))));
+        lines.push(Line::from(Span::styled(format!("{} DHCP needs no fields", t.ui.sym(0)), t.palette.bold(t.palette.ok))));
+        lines.push(Line::from(Span::styled("the interface gets address, route and DNS", t.palette.fg(t.palette.dim))));
+        lines.push(Line::from(Span::styled("from the network automatically.", t.palette.fg(t.palette.dim))));
     } else {
         if app.choice.family.has_v4() {
             lines.push(net_field(t, "1", "ADDRESS", &app.choice.ipv4_address, "192.168.1.50/24", net_row_focus(app, Row::Field(Field::V4Addr)), row_w));
@@ -895,21 +893,21 @@ fn draw_fields(f: &mut Frame, area: Rect, app: &App) {
             lines.push(net_field(t, "6", "DNS", &app.choice.ipv6_dns, "2001:4860:4860::8888", net_row_focus(app, Row::Field(Field::V6Dns)), row_w));
         }
         lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled("gateway and DNS are optional", t.fg(t.dim))));
+        lines.push(Line::from(Span::styled("gateway and DNS are optional", t.palette.fg(t.palette.dim))));
     }
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 fn net_field(t: &Theme, n: &str, label: &str, value: &str, hint: &str, focused: bool, row_w: usize) -> Line<'static> {
     let shown = if value.is_empty() {
-        Span::styled(format!("{hint}  (press {n})"), t.fg(t.dim))
+        Span::styled(format!("{hint}  (press {n})"), t.palette.fg(t.palette.dim))
     } else {
-        Span::styled(value.to_string(), t.bold(t.fg))
+        Span::styled(value.to_string(), t.palette.bold(t.palette.fg))
     };
-    let cur = if focused { t.cursor() } else { "  " };
+    let cur = if focused { t.selection_mark() } else { "  " };
     let left = vec![
-        Span::styled(cur.to_string(), t.bold(t.accent2)),
-        Span::styled(format!("{n} {label:<8}"), if focused { t.bold(t.accent) } else { t.fg(t.dim) }),
+        Span::styled(cur.to_string(), t.palette.bold(t.palette.accent2)),
+        Span::styled(format!("{n} {label:<8}"), if focused { t.palette.bold(t.palette.accent) } else { t.palette.fg(t.palette.dim) }),
         shown,
     ];
     hud::line_with_hint(left, if focused { "enter edit" } else { "" }, row_w, t)

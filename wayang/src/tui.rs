@@ -264,7 +264,7 @@ impl App {
             }
         };
         App {
-            t: Theme::detect(),
+            t: hud::detect(),
             demo,
             sel: 0,
             status,
@@ -804,22 +804,22 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     }
     let t = &app.t;
     let area = f.area();
-    f.render_widget(ratatui::widgets::Block::default().style(t.base()), area);
+    f.render_widget(ratatui::widgets::Block::default().style(t.palette.base()), area);
     let [header, body, status, footer] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(4), Constraint::Length(1), Constraint::Length(1)])
             .areas(area);
 
     let st = &app.status;
-    let (color, sym) = t.tone(app.system_tone());
+    let sev = app.system_tone().sev();
     let label = if app.error.is_some() { "UPDATER UNAVAILABLE".to_string() } else { format!("SLOT {}", st.active.as_str()) };
     let mut right = Vec::new();
     if app.demo {
-        right.push(Span::styled("DEMO DATA  ", t.bold(t.warn)));
+        right.push(Span::styled("DEMO DATA  ", t.palette.bold(t.palette.warn)));
     }
     if !app.deck.host.is_empty() {
-        right.push(Span::styled(format!("{} {}  ", t.g.brand, app.deck.host), t.fg(t.dim)));
+        right.push(Span::styled(format!("{} {}  ", hud::brand(t), app.deck.host), t.palette.fg(t.palette.dim)));
     }
-    right.push(hud::badge(color, sym, &label, t));
+    right.push(hud::badge(sev, &label, t));
     right.push(Span::raw(" "));
     let crumb = match app.module() {
         Some(m) => {
@@ -882,9 +882,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
             ("q", "quit"),
         ],
     };
-    let mut line = hud::keycaps(&keys, t);
-    line.spans.insert(0, Span::raw(" "));
-    f.render_widget(Paragraph::new(line), footer);
+    hud::footer(f, footer, &keys, t);
 
     if app.help {
         help::draw(f, body, t, "DECK", app.help_scroll);
@@ -900,9 +898,9 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
 
 fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "MODULES", t);
+    let inner = hud::panel_focused(f, area, "MODULES", None, t);
     let mut lines: Vec<Line> = Vec::new();
-    let logo = hud::logo(1, t);
+    let logo = t.logo_lines();
     if inner.height as usize >= logo.len() + MODULES.len() + 3 && logo.iter().all(|l| l.width() <= inner.width as usize) {
         lines.extend(logo.into_iter().map(|l| l.centered()));
         lines.push(Line::from(""));
@@ -912,19 +910,19 @@ fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
         let selected = i == app.sel;
         let pad = row_w.saturating_sub(num.len() + 1 + name.len() + 2);
         let (cur, name_style) = if selected {
-            (Span::styled(t.cursor(), t.bold(t.accent2)), t.highlight())
+            (Span::styled(t.selection_mark(), t.palette.bold(t.palette.accent2)), t.palette.highlight())
         } else {
-            (Span::raw("  "), t.bold(t.fg))
+            (Span::raw("  "), t.palette.bold(t.palette.fg))
         };
         Line::from(vec![
             cur,
-            Span::styled(format!("{num} "), if selected { t.highlight() } else { t.fg(t.dim) }),
+            Span::styled(format!("{num} "), if selected { t.palette.highlight() } else { t.palette.fg(t.palette.dim) }),
             Span::styled(format!("{name}{}", " ".repeat(pad)), name_style),
             sym,
         ])
     };
     for (i, (m, name)) in MODULES.iter().enumerate() {
-        lines.push(item(i, &format!("{:02}", i + 1), name, t.sev(app.module_tone(*m))));
+        lines.push(item(i, &format!("{:02}", i + 1), name, hud::sev(t, app.module_tone(*m))));
     }
     lines.push(item(MODULES.len(), "00", "EXIT", Span::raw("")));
     // RECENT / QUICK strip: the last actions plus any staged update.
@@ -933,48 +931,45 @@ fn draw_modules(f: &mut Frame, area: Rect, app: &App) {
         lines.push(hud::caption("RECENT", inner.width, t));
         if app.pending_update() {
             lines.push(Line::from(Span::styled(
-                format!("{} pending update staged", t.g.warn),
-                t.bold(t.warn),
+                format!("{} pending update staged", t.ui.sym(2)),
+                t.palette.bold(t.palette.warn),
             )));
         }
         for r in app.recent.iter().take(2) {
-            lines.push(Line::from(Span::styled(format!("  {}", t.clip(r, row_w)), t.fg(t.dim))));
+            lines.push(Line::from(Span::styled(format!("  {}", t.clip(r, row_w)), t.palette.fg(t.palette.dim))));
         }
         if app.recent.is_empty() && !app.pending_update() {
-            lines.push(Line::from(Span::styled("  nothing yet — / to find", t.fg(t.dim))));
+            lines.push(Line::from(Span::styled("  nothing yet — / to find", t.palette.fg(t.palette.dim))));
         }
     }
     f.render_widget(Paragraph::new(lines), inner);
 }
 
 fn field(label: &str, value: impl Into<String>, t: &Theme) -> Line<'static> {
-    hud::field(label, 12, vec![Span::styled(value.into(), t.fg(t.fg))], t)
+    hud::field(label, 12, vec![Span::styled(value.into(), t.palette.fg(t.palette.fg))], t)
 }
 
 fn hint(text: String, t: &Theme) -> Line<'static> {
-    Line::from(Span::styled(text, t.fg(t.accent)))
+    Line::from(Span::styled(text, t.palette.fg(t.palette.accent)))
 }
 
 fn status_field(tone: Option<Tone>, label: &str, t: &Theme) -> Line<'static> {
     let span = match tone {
-        Some(tone) => {
-            let (c, sym) = t.tone(tone);
-            hud::badge(c, sym, label, t)
-        }
-        None => Span::styled(label.to_string(), t.fg(t.dim)),
+        Some(tone) => hud::badge(tone.sev(), label, t),
+        None => Span::styled(label.to_string(), t.palette.fg(t.palette.dim)),
     };
     hud::field("STATUS", 12, vec![span], t)
 }
 
 fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
     let t = &app.t;
-    let arrow = if t.g.corners.is_some() { "▸" } else { ">" };
+    let arrow = t.focus_mark();
     let Some(m) = app.module() else {
         // The deck's preview card never owns the keyboard: MODULES does.
-        let inner = hud::panel_focus(f, area, "EXIT", false, t);
+        let inner = hud::panel(f, area, "EXIT", None, false, t);
         let lines = vec![
-            Line::from(Span::styled("Leave the console.", t.fg(t.fg))),
-            Line::from(Span::styled("Everything keeps running; `wayang` brings this back.", t.fg(t.dim))),
+            Line::from(Span::styled("Leave the console.", t.palette.fg(t.palette.fg))),
+            Line::from(Span::styled("Everything keeps running; `wayang` brings this back.", t.palette.fg(t.palette.dim))),
             Line::from(""),
             hint(format!("enter {arrow} quit"), t),
         ];
@@ -994,7 +989,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 status_field(tone, if app.error.is_some() { "UNAVAILABLE" } else { "OK" }, t),
                 field("VERSION", st.version.clone().unwrap_or_else(|| "unknown".into()), t),
                 field("CHANNEL", st.channel.clone(), t),
-                field("HOST", format!("{} {} up {}", d.host, t.g.brand, d.uptime), t),
+                field("HOST", format!("{} {} up {}", d.host, hud::brand(t), d.uptime), t),
                 field("DATA", if st.data { "/data mounted (persistent)" } else { "missing: nothing survives a reboot" }, t),
                 Line::from(""),
                 hud::caption("A/B SLOTS", cap_w, t),
@@ -1012,17 +1007,17 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     tags.push("boots next");
                 }
                 l.push(Line::from(vec![
-                    Span::styled(format!("  {} {:<3}", t.g.brand, si.slot.as_str()), t.bold(if si.slot == st.active { t.ok } else { t.fg })),
-                    Span::styled(format!("{v:<10}"), t.fg(t.fg)),
-                    Span::styled(tags.join(", "), t.fg(t.dim)),
+                    Span::styled(format!("  {} {:<3}", hud::brand(t), si.slot.as_str()), t.palette.bold(if si.slot == st.active { t.palette.ok } else { t.palette.fg })),
+                    Span::styled(format!("{v:<10}"), t.palette.fg(t.palette.fg)),
+                    Span::styled(tags.join(", "), t.palette.fg(t.palette.dim)),
                 ]));
             }
             l.push(Line::from(""));
-            l.push(field("BOOT", format!("next {} {} good {good} {} attempts {}", st.boot_next.as_str(), t.g.brand, t.g.brand, st.attempts), t));
+            l.push(field("BOOT", format!("next {} {} good {good} {} attempts {}", st.boot_next.as_str(), hud::brand(t), hud::brand(t), st.attempts), t));
             l.push(field("BACKEND", st.backend.clone(), t));
             if let Some(e) = &app.error {
                 l.push(Line::from(""));
-                l.push(Line::from(Span::styled(e.clone(), t.fg(t.bad))));
+                l.push(Line::from(Span::styled(e.clone(), t.palette.fg(t.palette.bad))));
             }
             l.push(Line::from(""));
             l.push(hint(format!("enter {arrow} refresh"), t));
@@ -1044,13 +1039,13 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     Some((ratio, label)) => gauge = Some((l.len(), ratio, label)),
                     // No byte count: the sweeping bar stays as the fallback.
                     None => l.push(Line::from(vec![
-                        Span::styled(hud::progress_bar(tick, 24), t.bold(t.accent2)),
-                        Span::styled(format!("  {}s", job.started.elapsed().as_secs()), t.fg(t.dim)),
+                        Span::styled(hud::progress_bar(tick, 24), t.palette.bold(t.palette.accent2)),
+                        Span::styled(format!("  {}s", job.started.elapsed().as_secs()), t.palette.fg(t.palette.dim)),
                     ])),
                 }
                 l.push(Line::from(Span::styled(
                     format!("{} {}…", hud::spinner(tick), job.label),
-                    t.fg(t.warn),
+                    t.palette.fg(t.palette.warn),
                 )));
             }
             l.push(Line::from(""));
@@ -1063,8 +1058,8 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 ("x x", "roll back: boot the other slot next (asks twice)"),
             ] {
                 l.push(Line::from(vec![
-                    Span::styled(format!("  {k:<5}"), t.bold(t.accent)),
-                    Span::styled(what, t.fg(t.fg)),
+                    Span::styled(format!("  {k:<5}"), t.palette.bold(t.palette.accent)),
+                    Span::styled(what, t.palette.fg(t.palette.fg)),
                 ]));
             }
             l.push(Line::from(""));
@@ -1075,7 +1070,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             }
             l.push(Line::from(Span::styled(
                 "Staged updates apply on the next reboot; a boot that never reaches `wayang mark-ok` falls back on its own.",
-                t.fg(t.dim),
+                t.palette.fg(t.palette.dim),
             )));
             ("UPDATES", l, gauge)
         }
@@ -1097,10 +1092,10 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
             l.push(hud::caption("INTERFACES", cap_w, t));
             for i in &d.ifaces {
                 l.push(Line::from(vec![
-                    Span::styled(format!("  {:<10}", i.name), t.bold(t.fg)),
-                    Span::styled(if i.link { "up    " } else { "down  " }, t.fg(if i.link { t.ok } else { t.dim })),
-                    Span::styled(format!("{:<18}", i.ipv4.first().cloned().unwrap_or_default()), t.fg(t.fg)),
-                    Span::styled(format!("{}{}", if i.wireless { "wifi " } else { "" }, if i.primary { "primary" } else { "" }), t.fg(t.dim)),
+                    Span::styled(format!("  {:<10}", i.name), t.palette.bold(t.palette.fg)),
+                    Span::styled(if i.link { "up    " } else { "down  " }, t.palette.fg(if i.link { t.palette.ok } else { t.palette.dim })),
+                    Span::styled(format!("{:<18}", i.ipv4.first().cloned().unwrap_or_default()), t.palette.fg(t.palette.fg)),
+                    Span::styled(format!("{}{}", if i.wireless { "wifi " } else { "" }, if i.primary { "primary" } else { "" }), t.palette.fg(t.palette.dim)),
                 ]));
             }
             l.push(Line::from(""));
@@ -1136,7 +1131,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 }
                 None => {
                     l.push(Line::from(""));
-                    l.push(Line::from(Span::styled("dcheck ships at /usr/bin/dcheck.", t.fg(t.dim))));
+                    l.push(Line::from(Span::styled("dcheck ships at /usr/bin/dcheck.", t.palette.fg(t.palette.dim))));
                 }
             }
             ("DCHECK", l, None)
@@ -1186,7 +1181,7 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     if c.pending {
                         l.push(Line::from(Span::styled(
                             "A commit is waiting for confirmation: open it and press y, or it rolls back.",
-                            t.bold(t.bad),
+                            t.palette.bold(t.palette.bad),
                         )));
                     }
                     l.push(Line::from(""));
@@ -1194,13 +1189,13 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                 }
                 None => {
                     l.push(Line::from(""));
-                    l.push(Line::from(Span::styled(format!("Copy {name} to /data/bin/{name} (survives updates)."), t.fg(t.dim))));
+                    l.push(Line::from(Span::styled(format!("Copy {name} to /data/bin/{name} (survives updates)."), t.palette.fg(t.palette.dim))));
                 }
             }
             (if fw { "FIREWALL" } else { "ROUTER" }, l, None)
         }
     };
-    let inner = hud::panel_focus(f, area, title, false, t);
+    let inner = hud::panel(f, area, title, None, false, t);
     let wrap = Wrap { trim: false };
     match gauge {
         None => f.render_widget(Paragraph::new(lines).wrap(wrap), inner),
@@ -1216,8 +1211,8 @@ fn draw_card(f: &mut Frame, area: Rect, app: &App, tick: usize) {
                     Gauge::default()
                         .ratio(ratio)
                         .label(label)
-                        .style(t.fg(t.dim))
-                        .gauge_style(t.bold(t.accent2)),
+                        .style(t.palette.fg(t.palette.dim))
+                        .gauge_style(t.palette.bold(t.palette.accent2)),
                     bar,
                 );
             }
@@ -1283,14 +1278,14 @@ fn draw_jump_hits(f: &mut Frame, body: Rect, jump: &input::Input, t: &Theme) {
     }
     let rect = Rect { x: ir.x, y: ir.y + 9, width: ir.width, height: h };
     f.render_widget(Clear, rect);
-    let inner = hud::panel(f, rect, "JUMP TO", t);
+    let inner = hud::panel_focused(f, rect, "JUMP TO", None, t);
     let mut lines = Vec::new();
     for i in hits.iter().take(inner.height as usize) {
         let (_, name) = MODULES[*i];
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:02} ", i + 1), t.fg(t.dim)),
-            Span::styled(name.to_string(), t.bold(t.fg)),
-            Span::styled("   enter opens it", t.fg(t.dim)),
+            Span::styled(format!("  {:02} ", i + 1), t.palette.fg(t.palette.dim)),
+            Span::styled(name.to_string(), t.palette.bold(t.palette.fg)),
+            Span::styled("   enter opens it", t.palette.fg(t.palette.dim)),
         ]));
     }
     f.render_widget(Paragraph::new(lines), inner);
@@ -1465,13 +1460,13 @@ pub fn dump_screens(dir: &str, size: &str, svg: bool) -> Result<(), String> {
     let (w, h) = parse_size(size)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{dir}: {e}"))?;
     // Deterministic theme so snapshots never depend on the caller's terminal.
-    let mode = if svg { hud::Mode::Neon } else { hud::Mode::Ansi };
+    let theme = snapshot_theme(svg);
     for (name, setup) in demo_states() {
         let mut app = App::new(true);
-        app.t = Theme::new(mode, &hud::FANCY);
+        app.t = theme.clone();
         setup(&mut app);
         if let Some(s) = app.sub.as_mut() {
-            set_theme_with(s, mode);
+            set_theme_with(s, &app.t);
         }
         let path = format!("{dir}/{name}.txt");
         let text = crate::screen::render_text(&app, w, h, draw)?;
@@ -1485,12 +1480,23 @@ pub fn dump_screens(dir: &str, size: &str, svg: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn set_theme_with(s: &mut Sub, mode: hud::Mode) {
-    let t = || Theme::new(mode, &hud::FANCY);
+/// A deterministic theme for the checked-in snapshots: the terminal's own
+/// colours (`ansi`) for text, neon RGB for the SVG docs.
+fn snapshot_theme(svg: bool) -> Theme {
+    Theme::from_env(
+        hud::WAYANG_OS,
+        hud::Flags::default(),
+        false,
+        Some(if svg { "truecolor" } else { "ansi" }),
+        None,
+    )
+}
+
+fn set_theme_with(s: &mut Sub, t: &Theme) {
     match s {
-        Sub::Net(a) => a.t = t(),
-        Sub::Wifi(a) => a.t = t(),
-        Sub::Ssh(a) => a.t = t(),
+        Sub::Net(a) => a.t = t.clone(),
+        Sub::Wifi(a) => a.t = t.clone(),
+        Sub::Ssh(a) => a.t = t.clone(),
     }
 }
 
@@ -1591,7 +1597,7 @@ mod tests {
     #[test]
     fn focus_marker_survives_no_colour() {
         let mut app = App::new(true);
-        app.t = Theme::new(hud::Mode::Mono, &hud::FANCY);
+        app.t = Theme::from_env(hud::WAYANG_OS, hud::Flags::default(), true, None, None);
         let text = render(&app, 120, 36).unwrap();
         assert!(text.contains("◢ > MODULES ◣"), "mono marks focus with `>`:\n{text}");
         assert!(!text.contains("◢ > SYSTEM ◣"), "the card stays unfocused:\n{text}");
@@ -1723,10 +1729,10 @@ mod tests {
                 continue;
             }
             let mut app = App::new(true);
-            app.t = Theme::new(hud::Mode::Ansi, &hud::FANCY);
+            app.t = snapshot_theme(false);
             setup(&mut app);
             if let Some(s) = app.sub.as_mut() {
-                set_theme_with(s, hud::Mode::Ansi);
+                set_theme_with(s, &app.t);
             }
             let text = render(&app, 110, 34).unwrap();
             let on_disk = std::fs::read_to_string(&path).unwrap();

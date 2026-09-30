@@ -106,7 +106,7 @@ pub fn print_keys(screen: &str) -> Result<std::path::PathBuf, String> {
 pub fn draw(f: &mut Frame, body: Rect, t: &Theme, screen: &str, scroll: usize) {
     let r = hud::centered(body, 96, 22);
     f.render_widget(ratatui::widgets::Clear, r);
-    let inner = hud::panel(f, r, &format!("HELP — {screen} — KEYS & CONCEPT MAP"), t);
+    let inner = hud::panel_focused(f, r, &format!("HELP — {screen} — KEYS & CONCEPT MAP"), None, t);
     // Reserve the last row for the footer so it never overwrites content.
     let content = Rect { height: inner.height.saturating_sub(1), ..inner };
     let cols = Layout::horizontal([Constraint::Percentage(52), Constraint::Percentage(48)]).split(content);
@@ -123,13 +123,13 @@ pub fn draw(f: &mut Frame, body: Rect, t: &Theme, screen: &str, scroll: usize) {
     let left: Vec<Line> = keys[start..end].to_vec();
     f.render_widget(Paragraph::new(left).wrap(Wrap { trim: false }), cols[0]);
 
-    let mut right = vec![Line::from(Span::styled("THEY KNOW", t.bold(t.accent))), Line::from("")];
+    let mut right = vec![Line::from(Span::styled("THEY KNOW", t.palette.bold(t.palette.accent))), Line::from("")];
     for (they, here) in CONCEPT {
-        right.push(Line::from(Span::styled(they.to_string(), t.fg(t.dim))));
+        right.push(Line::from(Span::styled(they.to_string(), t.palette.fg(t.palette.dim))));
         right.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{} ", t.g.arrow), t.fg(t.accent2)),
-            Span::styled(here.to_string(), t.fg(t.fg)),
+            Span::styled(format!("{} ", t.ui.arrow()), t.palette.fg(t.palette.accent2)),
+            Span::styled(here.to_string(), t.palette.fg(t.palette.fg)),
         ]));
     }
     f.render_widget(Paragraph::new(right).wrap(Wrap { trim: false }), cols[1]);
@@ -138,7 +138,7 @@ pub fn draw(f: &mut Frame, body: Rect, t: &Theme, screen: &str, scroll: usize) {
         let footer = Rect { y: inner.y + inner.height - 1, height: 1, ..inner };
         let hint = Line::from(Span::styled(
             format!("↑↓ scroll   p print to {}", paths::data_var_dir().join("wayang/keys.txt").display()),
-            t.fg(t.dim),
+            t.palette.fg(t.palette.dim),
         ));
         f.render_widget(Paragraph::new(hint), footer);
     }

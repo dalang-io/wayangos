@@ -859,6 +859,15 @@ dependencies = [
  "serde_json",
  "sha2",
  "tar",
+ "wayang-tui",
+]
+
+[[package]]
+name = "wayang-tui"
+version = "0.1.0"
+source = "git+https://github.com/dalang-io/wayang-tui?tag=v0.1.0#c6b6bf1c4d614ca629f2cd550ccf217c45198900"
+dependencies = [
+ "ratatui",
 ]
 
 [[package]]

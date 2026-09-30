@@ -9,6 +9,7 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::hud::{self, Theme};
+use wayang_tui::overlay::Overlay;
 
 /// A pending mutation: what it will change, awaiting a deliberate confirm.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -72,28 +73,35 @@ impl Review {
 }
 
 /// Draw the review centered in `area`. Starts with a `REVIEW` marker so users
-/// learn to look for it, then the plan lines, then the confirm footer.
+/// learn to look for it, then the plan lines, then the confirm footer. The
+/// chrome (focused panel + keycap footer) is the shared modal frame
+/// [`Overlay`].
 pub fn draw(f: &mut Frame, area: Rect, t: &Theme, r: &Review) {
     let content = 1 + r.effect.len() + if r.note.is_some() { 2 } else { 0 };
     let height = (content as u16 + 3).clamp(8, 22);
-    let rect = hud::centered(area, 78, height);
-    f.render_widget(Clear, rect);
     let title = format!("REVIEW — {}", r.title);
-    let inner = hud::panel(f, rect, &title, t);
-    // Reserve the last row for the confirm footer.
-    let body = Rect { height: inner.height.saturating_sub(1), ..inner };
+    let ov = Overlay::new(&title)
+        .keys(vec![
+            ("enter", "confirm"),
+            ("esc", "cancel"),
+            ("↑↓", "scroll"),
+        ])
+        .size(78, height);
+    // The modal replaces whatever the deck drew underneath it.
+    f.render_widget(Clear, hud::centered(area, 78, height));
+    let body = ov.render(f, area, t).content;
 
     let room = body.height as usize;
     let start = r.scroll.min(r.effect.len().saturating_sub(1));
     let end = (start + room.saturating_sub(2)).min(r.effect.len());
     let mut lines: Vec<Line> = vec![Line::from(Span::styled(
         "This is what will run — nothing has changed yet.",
-        t.fg(t.dim),
+        t.palette.fg(t.palette.dim),
     ))];
     for e in &r.effect[start..end] {
         lines.push(Line::from(vec![
-            Span::styled(format!("{} ", t.g.arrow), t.fg(t.accent2)),
-            Span::styled(e.clone(), t.fg(t.fg)),
+            Span::styled(format!("{} ", t.ui.arrow()), t.palette.fg(t.palette.accent2)),
+            Span::styled(e.clone(), t.palette.fg(t.palette.fg)),
         ]));
     }
     if let Some(note) = &r.note {
@@ -101,16 +109,10 @@ pub fn draw(f: &mut Frame, area: Rect, t: &Theme, r: &Review) {
             lines.push(Line::from(""));
         }
         if lines.len() < room {
-            lines.push(Line::from(Span::styled(note.clone(), t.bold(t.bad))));
+            lines.push(Line::from(Span::styled(note.clone(), t.palette.bold(t.palette.bad))));
         }
     }
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
-
-    if inner.height >= 2 {
-        let footer = Rect { y: inner.y + inner.height - 1, height: 1, ..inner };
-        let line = hud::keycaps(&[("enter", "confirm"), ("esc", "cancel"), ("↑↓", "scroll")], t);
-        f.render_widget(Paragraph::new(line), footer);
-    }
 }
 
 #[cfg(test)]
@@ -134,7 +136,7 @@ mod tests {
 
     #[test]
     fn renders_the_plan_lines() {
-        let t = Theme::new(hud::Mode::Mono, &hud::CONSOLE);
+        let t = Theme::from_env(hud::WAYANG_OS, hud::Flags::default(), true, None, None);
         let r = Review::new("reset", vec!["remove /data/etc/router".into(), "clear pending update".into()])
             .note("SSH keys are kept.");
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();

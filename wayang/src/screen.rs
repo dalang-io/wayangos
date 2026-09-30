@@ -19,13 +19,13 @@ use ratatui::style::{Color, Modifier};
 
 use crate::hud::Theme;
 
-fn restore(console: bool) {
+/// Restore the terminal. The Linux console is no longer re-programmed: the CLI
+/// uses the same ANSI palette as wayang-fw / wayang-router (the crate's
+/// canonical handling), so there is no OSC reset to emit.
+fn restore() {
     let mut out = io::stdout();
     let _ = disable_raw_mode();
     let _ = execute!(out, LeaveAlternateScreen, cursor::Show);
-    if console {
-        let _ = write!(out, "\x1b]R\x1b[0m\x1b[2J\x1b[H");
-    }
     let _ = out.flush();
 }
 
@@ -57,23 +57,15 @@ pub fn run_with_launch<A>(
     take_launch: impl Fn(&mut A) -> Option<std::process::Command>,
     launched: impl Fn(&mut A, io::Result<std::process::ExitStatus>),
 ) -> io::Result<()> {
-    let theme = Theme::detect();
-    let palette = theme.console_palette();
-    let console = palette.is_some();
-
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        restore(console);
+        restore();
         hook(info);
     }));
 
     let mut out = io::stdout();
     enable_raw_mode()?;
     execute!(out, EnterAlternateScreen, cursor::Hide)?;
-    if let Some(p) = &palette {
-        write!(out, "{p}\x1b[2J")?;
-        out.flush()?;
-    }
     let mut terminal = Terminal::new(CrosstermBackend::new(out))?;
     terminal.clear()?;
 
@@ -90,15 +82,11 @@ pub fn run_with_launch<A>(
                     on_key(&mut app, key);
                 }
                 if let Some(mut cmd) = take_launch(&mut app) {
-                    restore(console);
+                    restore();
                     let res = cmd.status();
                     enable_raw_mode()?;
                     let mut out = io::stdout();
                     execute!(out, EnterAlternateScreen, cursor::Hide)?;
-                    if let Some(p) = &palette {
-                        write!(out, "{p}\x1b[2J")?;
-                        out.flush()?;
-                    }
                     terminal.clear()?;
                     launched(&mut app, res);
                 }
@@ -106,7 +94,7 @@ pub fn run_with_launch<A>(
         }
         tick = tick.wrapping_add(1);
     };
-    restore(console);
+    restore();
     result
 }
 
@@ -205,8 +193,8 @@ fn escape(s: &str) -> String {
 /// Cell grid -> standalone SVG (copied from dcheck via wayang-fw).
 fn to_svg(buf: &Buffer, t: &Theme) -> String {
     let (w, h) = (buf.area.width, buf.area.height);
-    let page_bg = hex(t.bg, "#0a0e14");
-    let page_fg = hex(t.fg, "#c4d2e0");
+    let page_bg = hex(t.palette.bg.unwrap_or(Color::Reset), "#0a0e14");
+    let page_fg = hex(t.palette.fg, "#c4d2e0");
     let (px_w, px_h) = (w as f64 * CELL_W, h as f64 * CELL_H);
 
     let mut out = String::new();

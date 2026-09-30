@@ -9,6 +9,7 @@ use ratatui::widgets::{Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::hud::{self, Theme};
+use wayang_tui::overlay::Overlay;
 
 /// What a key did to the input.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,23 +157,24 @@ pub fn draw_hits(f: &mut Frame, area: Rect, t: &Theme, title: &str, hits: &[Stri
     }
     let rect = Rect { x: ir.x, y: ir.y + 9, width: ir.width, height: h };
     f.render_widget(Clear, rect);
-    let inner = hud::panel(f, rect, title, t);
+    let inner = hud::panel_focused(f, rect, title, None, t);
     let mut lines = Vec::new();
     for s in hits.iter().take(inner.height as usize) {
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(s.clone(), t.bold(t.fg)),
-            Span::styled("   enter selects it", t.fg(t.dim)),
+            Span::styled(s.clone(), t.palette.bold(t.palette.fg)),
+            Span::styled("   enter selects it", t.palette.fg(t.palette.dim)),
         ]));
     }
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-/// Draw the modal centered in `area`; `tick` drives the cursor blink.
+/// Draw the modal centered in `area`; `tick` drives the cursor blink. The
+/// chrome is the shared modal frame [`Overlay`].
 pub fn draw(f: &mut Frame, area: Rect, t: &Theme, input: &Input, tick: usize) {
-    let r = hud::centered(area, 76, 9);
-    f.render_widget(Clear, r);
-    let inner = hud::panel(f, r, &input.title, t);
+    let ov = Overlay::new(&input.title).size(76, 9);
+    f.render_widget(Clear, hud::centered(area, 76, 9));
+    let inner = ov.render(f, area, t).content;
 
     let room = inner.width.saturating_sub(6) as usize;
     let shown: String = if input.mask {
@@ -183,17 +185,17 @@ pub fn draw(f: &mut Frame, area: Rect, t: &Theme, input: &Input, tick: usize) {
     };
     let cursor = if tick % 2 == 0 { "_" } else { " " };
     let field = Line::from(vec![
-        Span::styled(format!("{} ", t.cursor().trim_end()), t.bold(t.accent2)),
-        Span::styled(shown, t.bold(t.fg).add_modifier(Modifier::UNDERLINED)),
-        Span::styled(cursor.to_string(), t.fg(t.accent)),
+        Span::styled(format!("{} ", t.selection_mark().trim_end()), t.palette.bold(t.palette.accent2)),
+        Span::styled(shown, t.palette.bold(t.palette.fg).add_modifier(Modifier::UNDERLINED)),
+        Span::styled(cursor.to_string(), t.palette.fg(t.palette.accent)),
     ]);
     let msg = match &input.error {
-        Some(e) => Line::from(Span::styled(format!("{} {e}", t.g.bad), t.fg(t.bad))),
-        None => Line::from(Span::styled(input.hint.clone(), t.fg(t.dim))),
+        Some(e) => Line::from(Span::styled(format!("{} {e}", t.ui.sym(3)), t.palette.fg(t.palette.bad))),
+        None => Line::from(Span::styled(input.hint.clone(), t.palette.fg(t.palette.dim))),
     };
     let lines = vec![
         Line::raw(""),
-        Line::from(Span::styled(input.prompt.clone(), t.fg(t.fg))),
+        Line::from(Span::styled(input.prompt.clone(), t.palette.fg(t.palette.fg))),
         Line::raw(""),
         field,
         Line::raw(""),
@@ -206,33 +208,33 @@ pub fn draw(f: &mut Frame, area: Rect, t: &Theme, input: &Input, tick: usize) {
 pub fn draw_picker(f: &mut Frame, area: Rect, t: &Theme, p: &Picker) {
     // prompt + blank + items + blank + hint, plus the panel's two borders
     let rows = (p.items.len() as u16).saturating_add(6).max(6);
-    let r = hud::centered(area, 64, rows);
-    f.render_widget(Clear, r);
-    let inner = hud::panel(f, r, &p.title, t);
+    let ov = Overlay::new(&p.title).size(64, rows);
+    f.render_widget(Clear, hud::centered(area, 64, rows));
+    let inner = ov.render(f, area, t).content;
     let text_w = inner.width.saturating_sub(4) as usize;
     // prompt, blank, one blank above the hint, hint
     let room = inner.height.saturating_sub(4).max(1) as usize;
     let start = if p.sel >= room { p.sel + 1 - room } else { 0 };
 
     let mut lines = vec![
-        Line::from(Span::styled(t.clip(&p.prompt, inner.width as usize), t.fg(t.fg))),
+        Line::from(Span::styled(t.clip(&p.prompt, inner.width as usize), t.palette.fg(t.palette.fg))),
         Line::raw(""),
     ];
     for (i, item) in p.items.iter().enumerate().skip(start).take(room) {
         let text = t.clip(item, text_w);
         if i == p.sel {
             lines.push(Line::from(vec![
-                Span::styled(format!("{} ", t.cursor().trim_end()), t.bold(t.accent2)),
-                Span::styled(text, t.highlight()),
+                Span::styled(format!("{} ", t.selection_mark().trim_end()), t.palette.bold(t.palette.accent2)),
+                Span::styled(text, t.palette.highlight()),
             ]));
         } else {
-            lines.push(Line::from(vec![Span::raw("  "), Span::styled(text, t.fg(t.fg))]));
+            lines.push(Line::from(vec![Span::raw("  "), Span::styled(text, t.palette.fg(t.palette.fg))]));
         }
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         format!("{} / {}   ↑↓ move   enter choose   esc cancel", p.sel + 1, p.items.len()),
-        t.fg(t.dim),
+        t.palette.fg(t.palette.dim),
     )));
     f.render_widget(Paragraph::new(lines), inner);
 }

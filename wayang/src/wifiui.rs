@@ -56,7 +56,7 @@ impl App {
     pub fn new(demo: bool) -> App {
         let ifaces = if demo { demo_ifaces() } else { wifi::ifaces() };
         let mut app = App {
-            t: Theme::detect(),
+            t: hud::detect(),
             demo,
             ifaces,
             links: Vec::new(),
@@ -464,7 +464,7 @@ pub fn demo_country() -> App {
 pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     let t = &app.t;
     let area = f.area();
-    f.render_widget(ratatui::widgets::Block::default().style(t.base()), area);
+    f.render_widget(ratatui::widgets::Block::default().style(t.palette.base()), area);
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -497,9 +497,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         1 => vec![("↑↓", "pick"), ("/", "find"), ("enter", "switch"), ("s", "scan"), ("?", "help"), ("b", "back")],
         _ => vec![("c", "country"), ("/", "find"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
     };
-    let mut kline = hud::keycaps(&keys, t);
-    kline.spans.insert(0, Span::raw(" "));
-    f.render_widget(Paragraph::new(kline), rows[4]);
+    hud::footer(f, rows[4], &keys, t);
 
     if let Some(input) = &app.input {
         input::draw(f, area, t, input, tick);
@@ -529,15 +527,15 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let st = app.selected_link();
     let name = app.selected_iface().map(|i| i.name.clone()).unwrap_or_default();
     let (color, text) = if st.connected {
-        (t.ok, st.summary())
+        (t.palette.ok, st.summary())
     } else if !st.ssid.is_empty() {
-        (t.warn, st.summary())
+        (t.palette.warn, st.summary())
     } else {
-        (t.dim, st.summary())
+        (t.palette.dim, st.summary())
     };
     let right = vec![
-        Span::styled(format!("{name} "), t.bold(t.accent)),
-        Span::styled(format!("{text}  "), t.fg(color)),
+        Span::styled(format!("{name} "), t.palette.bold(t.palette.accent)),
+        Span::styled(format!("{text}  "), t.palette.fg(color)),
     ];
     let crumb = t.breadcrumb(&["WIFI", TABS[app.pane.min(2)], &name]);
     hud::header_bar(f, area, &crumb, "", right, t);
@@ -545,11 +543,11 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel_focus(f, area, "ACCESS POINTS", app.pane == 0, t);
+    let inner = hud::panel(f, area, "ACCESS POINTS", None, app.pane == 0, t);
     let row_w = inner.width.saturating_sub(1) as usize;
     let mut lines = vec![Line::from(Span::styled(
         format!("  {:<22} {:>6}  {}", "SSID", "SIGNAL", "SECURITY"),
-        t.fg(t.dim),
+        t.palette.fg(t.palette.dim),
     ))];
     if app.bss.is_empty() {
         lines.push(Line::raw(""));
@@ -561,8 +559,8 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
             "no scan yet: press s to scan for networks"
         };
         lines.push(Line::from(Span::styled(
-            format!("{} {hint}", t.g.warn),
-            t.fg(t.warn),
+            format!("{} {hint}", t.ui.sym(2)),
+            t.palette.fg(t.palette.warn),
         )));
     }
     for (i, b) in app.bss.iter().enumerate() {
@@ -572,24 +570,24 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
         if i == app.bss_sel {
             let text = format!(
                 "{} {:<22} {:>6}  {}",
-                t.cursor().trim_end(),
+                t.selection_mark().trim_end(),
                 ssid,
                 sig,
                 b.security
             );
             lines.push(hud::line_with_hint(
-                vec![Span::styled(text, t.highlight())],
+                vec![Span::styled(text, t.palette.highlight())],
                 "enter connect",
                 row_w,
                 t,
             ));
         } else {
-            let color = if b.security == "OPEN" { t.warn } else { t.ok };
+            let color = if b.security == "OPEN" { t.palette.warn } else { t.palette.ok };
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(format!("{ssid:<22} "), t.bold(t.fg)),
-                Span::styled(format!("{sig:>6}  "), t.fg(t.accent)),
-                Span::styled(b.security.clone(), t.fg(color)),
+                Span::styled(format!("{ssid:<22} "), t.palette.bold(t.palette.fg)),
+                Span::styled(format!("{sig:>6}  "), t.palette.fg(t.palette.accent)),
+                Span::styled(b.security.clone(), t.palette.fg(color)),
             ]));
         }
     }
@@ -598,12 +596,12 @@ fn draw_bss(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel_focus(f, area, "WIRELESS IFACE", app.pane == 1, t);
+    let inner = hud::panel(f, area, "WIRELESS IFACE", None, app.pane == 1, t);
     let mut lines = Vec::new();
     if app.ifaces.is_empty() {
         lines.push(Line::from(Span::styled(
-            format!("{} none found", t.g.warn),
-            t.fg(t.warn),
+            format!("{} none found", t.ui.sym(2)),
+            t.palette.fg(t.palette.warn),
         )));
     }
     for (i, iface) in app.ifaces.iter().enumerate() {
@@ -621,8 +619,8 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
         if sel {
             lines.push(hud::line_with_hint(
                 vec![
-                    Span::styled(t.cursor(), t.bold(t.accent2)),
-                    Span::styled(line, t.highlight()),
+                    Span::styled(t.selection_mark(), t.palette.bold(t.palette.accent2)),
+                    Span::styled(line, t.palette.highlight()),
                 ],
                 "enter switch",
                 inner.width.saturating_sub(1) as usize,
@@ -631,37 +629,37 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
         } else {
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(line, t.fg(t.fg)),
+                Span::styled(line, t.palette.fg(t.palette.fg)),
             ]));
         }
     }
     lines.push(Line::from(Span::styled(
         "i cycles interface (clears scan)",
-        t.fg(t.dim),
+        t.palette.fg(t.palette.dim),
     )));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
 fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel_focus(f, area, "DETAILS — EDIT: form", app.pane == 2, t);
+    let inner = hud::panel(f, area, "DETAILS — EDIT: form", None, app.pane == 2, t);
     let mut lines = Vec::new();
     match app.bss.get(app.bss_sel) {
         Some(b) => {
-            lines.push(hud::field("SSID", 10, vec![Span::styled(b.ssid.clone(), t.bold(t.fg))], t));
-            lines.push(hud::field("BSSID", 10, vec![Span::styled(b.bssid.clone(), t.fg(t.dim))], t));
+            lines.push(hud::field("SSID", 10, vec![Span::styled(b.ssid.clone(), t.palette.bold(t.palette.fg))], t));
+            lines.push(hud::field("BSSID", 10, vec![Span::styled(b.bssid.clone(), t.palette.fg(t.palette.dim))], t));
             lines.push(hud::field(
                 "SIGNAL",
                 10,
                 vec![Span::styled(
                     b.signal.map(|s| format!("{s} dBm")).unwrap_or_else(|| "?".into()),
-                    t.fg(t.accent),
+                    t.palette.fg(t.palette.accent),
                 )],
                 t,
             ));
-            lines.push(hud::field("SECURITY", 10, vec![Span::styled(b.security.clone(), t.fg(t.ok))], t));
+            lines.push(hud::field("SECURITY", 10, vec![Span::styled(b.security.clone(), t.palette.fg(t.palette.ok))], t));
         }
-        None => lines.push(Line::from(Span::styled("no network selected", t.fg(t.dim)))),
+        None => lines.push(Line::from(Span::styled("no network selected", t.palette.fg(t.palette.dim)))),
     }
     lines.push(Line::raw(""));
     lines.push(hud::field(
@@ -669,13 +667,13 @@ fn draw_details(f: &mut Frame, area: Rect, app: &App) {
         10,
         vec![Span::styled(
             if app.country.is_empty() { "-".into() } else { app.country.clone() },
-            t.fg(t.fg),
+            t.palette.fg(t.palette.fg),
         )],
         t,
     ));
     lines.push(Line::from(Span::styled(
         "c picks country, enter enters the passphrase",
-        t.fg(t.dim),
+        t.palette.fg(t.palette.dim),
     )));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
