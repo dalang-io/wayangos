@@ -46,6 +46,7 @@ fi
 ./scripts/build-dnsmasq.sh || true
 ./scripts/build-wayang-router.sh
 ./scripts/build-wayang-fw.sh
+./scripts/build-wayang-waf.sh || true
 ./scripts/build-rootfs.sh
 ./scripts/build-installer-iso.sh "$BUILD_DIR/bzImage-installer" "$BUILD_DIR/wayangos-initramfs.img" "$ISO"
 cp "$ISO" "$BUILD_DIR/wayangos-installer.iso"

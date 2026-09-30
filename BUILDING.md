@@ -233,6 +233,23 @@ and warns that no advertisements are sent.
 otherwise the channel's `SHA256SUMS` / `manifest.json`; a binary with no
 findable checksum is only installed with `ALLOW_UNVERIFIED=1`.
 
+`build-wayang-waf.sh` follows `build-wayang-fw.sh` / `build-wayang-router.sh`
+instead of this table: those three fetch an **already built** static binary
+from the WayangOS tool mirror and verify `WAYANG_*_VERSION` + `WAYANG_*_SHA256`
+(recorded in each script) on every run. `wayang-waf` is built from the `waf/`
+Go module in `dalang-io/wayang-fw`:
+
+```sh
+cd wayang-fw/waf
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" \
+    -o wayang-waf-linux-amd64 .
+# publish at $WAYANG_WAF_BASE_URL/wayang-waf-v<ver>-linux-amd64, then bump
+# WAYANG_WAF_VERSION + WAYANG_WAF_SHA256 together in scripts/build-wayang-waf.sh
+```
+
+It is optional (best-effort, like dnsmasq): without it the image simply has no
+WAF and `wayang-fw` warns that `[waf]` cannot run.
+
 ---
 
 ## Fast builds (remote builder)

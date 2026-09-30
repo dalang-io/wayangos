@@ -219,8 +219,9 @@ jobs:
             wayangos-build/wayangi
             wayangos-build/wayang-router
             wayangos-build/wayang-fw
+            wayangos-build/wayang-waf
             wayangos-build/wifi
-          key: wos-tools-${{ hashFiles('scripts/build-nft.sh', 'scripts/build-wg.sh', 'scripts/build-iproute2.sh', 'scripts/build-bird.sh', 'scripts/build-radvd.sh', 'scripts/build-dnsmasq.sh', 'scripts/build-wayangi.sh', 'scripts/build-wayang-router.sh', 'scripts/build-wayang-fw.sh', 'scripts/build-wifi-tools.sh', 'scripts/stage-firmware.sh') }}
+          key: wos-tools-${{ hashFiles('scripts/build-nft.sh', 'scripts/build-wg.sh', 'scripts/build-iproute2.sh', 'scripts/build-bird.sh', 'scripts/build-radvd.sh', 'scripts/build-dnsmasq.sh', 'scripts/build-wayangi.sh', 'scripts/build-wayang-router.sh', 'scripts/build-wayang-fw.sh', 'scripts/build-wayang-waf.sh', 'scripts/build-wifi-tools.sh', 'scripts/stage-firmware.sh') }}
           restore-keys: wos-tools-
 
       # The scripts are idempotent (they skip finished builds), so racing them
@@ -253,6 +254,7 @@ jobs:
           job dnsmasq    0 ./scripts/build-dnsmasq.sh  &
           job w-router   1 ./scripts/build-wayang-router.sh &
           job w-fw       1 ./scripts/build-wayang-fw.sh &
+          job w-waf      0 ./scripts/build-wayang-waf.sh &
           job wayangi    0 env WAYANGI_BASE_URL="$WAYANGI_BASE_URL" ./scripts/build-wayangi.sh &
           wait
           echo "=== required ==="; cat logs/required

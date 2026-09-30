@@ -37,7 +37,9 @@ The rootfs is built around BusyBox, `dropbearmulti` and curl, plus a few
 static tools bundled when their build script has staged them: `nft`
 (`scripts/build-nft.sh`), `wg` (`build-wg.sh`), `tc` from iproute2
 (`build-iproute2.sh`), `bird` (BIRD 2, `build-bird.sh`), `radvd`
-(`build-radvd.sh`, IPv6 RA) and `dcheck` (`fetch-dcheck.sh`). Everything else
+(`build-radvd.sh`, IPv6 RA), `dnsmasq` (`build-dnsmasq.sh`), the firewall and
+router CLIs (`build-wayang-fw.sh`, `build-wayang-router.sh`), the WAF
+(`build-wayang-waf.sh`) and `dcheck` (`fetch-dcheck.sh`). Everything else
 is deployed as a static binary via `scp` — there is no package manager.
 
 ## Hardware Target
@@ -132,6 +134,13 @@ wayang-fw commit -m "why" --confirm 60 && wayang-fw confirm
 At boot `/etc/init.d/fw` loads the last **confirmed** ruleset from
 `/data/etc/fw/config.toml` *before* the network starts; an unconfirmed commit
 is discarded. Without `wayang-fw` or a config it does nothing.
+
+The image also ships **`wayang-waf`** (Go + Coraza + OWASP CRS), the reverse
+proxy that a `[waf]` block in the firewall config drives: `wayang-fw check`
+runs its own `check --config` before a commit, and commit/boot/rollback start,
+reload and stop it. It is optional — without the binary `wayang-fw` warns and
+the WAF simply does not run. Staged by `scripts/build-wayang-waf.sh` (fetched
+from the tool mirror and sha256-verified, like the two CLIs).
 
 When a confirmed config exists, `/etc/init.d/fw` and `/etc/init.d/router` also
 start each app's `monitor --daemon`, appending metrics to

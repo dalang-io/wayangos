@@ -284,8 +284,8 @@ if [ -n "$DATA" ]; then
         # (JSON Lines) for post-incident forensics; on /data so it survives
         # OS updates. Mode 0755 like the other /data state dirs; the collectors
         # are started later by /etc/init.d/{fw,router}. See docs/MONITORING.md.
-        mkdir -p /data/var/wayang-fw /data/var/wayang-router
-        chmod 755 /data/var/wayang-fw /data/var/wayang-router
+        mkdir -p /data/var/wayang-fw /data/var/wayang-router /data/var/wayang-waf
+        chmod 755 /data/var/wayang-fw /data/var/wayang-router /data/var/wayang-waf
         # Retention: before the collectors start, trim each append-only history
         # to its newest 20000 records so a long-lived box cannot fill /data.
         # (`wc`/`tail`/`mv` are BusyBox applets; a missing file is a no-op.)
@@ -1430,6 +1430,10 @@ install_tool dnsmasq/dnsmasq /usr/sbin/dnsmasq build-dnsmasq.sh
 # boot (the init links it over /usr/bin) if one is deployed.
 install_tool wayang-router/wayang-router /usr/bin/wayang-router build-wayang-router.sh
 install_tool wayang-fw/wayang-fw /usr/bin/wayang-fw build-wayang-fw.sh
+# wayang-waf (Go: Coraza + OWASP CRS) is what wayang-fw's `[waf]` block drives.
+# Optional like dnsmasq: without it `wayang-fw check` warns and the WAF simply
+# does not run, and no firewall behaviour depends on it.
+install_tool wayang-waf/wayang-waf /usr/bin/wayang-waf build-wayang-waf.sh
 
 # wayangi EdgeRouter agent (static; scripts/build-wayangi.sh). Optional: the
 # image ships without it if the script skipped. Enrolment state (token, device
