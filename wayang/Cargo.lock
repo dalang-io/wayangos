@@ -864,8 +864,8 @@ dependencies = [
 
 [[package]]
 name = "wayang-tui"
-version = "0.1.0"
-source = "git+https://github.com/dalang-io/wayang-tui?tag=v0.1.0#c6b6bf1c4d614ca629f2cd550ccf217c45198900"
+version = "0.1.1"
+source = "git+https://github.com/dalang-io/wayang-tui?tag=v0.1.1#6693bfbc2f603f617be4070da5b4d2b58ac71df0"
 dependencies = [
  "ratatui",
 ]
