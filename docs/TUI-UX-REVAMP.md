@@ -1,28 +1,29 @@
 # TUI UX revamp — plan (dcheck · wayang-fw · wayang-router)
 
-Status: **in progress** (2026-09-30). Scope (owner decision): the **`wayang`
-CLI HUD**, **`wayang-fw`** and **`wayang-router`**. **`dcheck` is deferred** —
-it stays the historical look-and-feel reference.
+Status: **done** (2026-09-30). Scope: the **`wayang` CLI HUD**, **`wayang-fw`**,
+**`wayang-router`** — all three now render through the shared crate
+**`wayang-tui`**. (`dcheck` was standardized to Rust 2024 but keeps its own HUD.)
 
 ### Status
 
 | HUD | repo | state |
 |---|---|---|
-| `wayang` CLI | `wayangos` (`wayang/src/`) | ✅ P0 `ca49082` · P1 `8b407da`/`eaa92b9`/`655c82c` · visual+focus `38b368d`/`a797448`/`faf9d4d` (206 tests) |
-| `wayang-fw` | `wayang-fw` | ✅ P0 `c9dd87f` (0.4.0) · P1 `b764f78` (0.4.1) · focus ⏳ |
-| `wayang-router` | `wayang-router` | ✅ P0 `a8bc823` · P1 `af4ad8b` (0.4.1) · focus `d0ee09e` (**0.4.2**) |
-| `dcheck` | `dcheck` | ⏸ deferred |
+| `wayang` CLI | `wayangos` (`wayang/src/`) | ✅ nav/REVIEW/focus, splash, repaint, handoff + raw-mode fixes |
+| `wayang-fw` | `wayang-fw` | ✅ **v0.6.0** — full HUD via `wayang-tui` |
+| `wayang-router` | `wayang-router` | ✅ **v0.6.0** — full HUD via `wayang-tui` |
+| shared crate | `wayang-tui` | ✅ **v0.2.1** — theme/widgets/focus/overlay/term/splash/transition/layout |
+| `dcheck` | `dcheck` | ✅ Rust 1.98.1 + edition 2024 (own HUD) |
 
-**Visual spec + focused-pane highlight** (§5) are canonical here. The **shared
-component library [`wayang-tui`](https://github.com/dalang-io/wayang-tui)** has
-been created (scaffold); the next step extracts `theme`/`widgets`/`focus`/
-`overlays` from the three products into it and has each product depend on it (so
-consistency is *by construction*). A **product API** (`api` subcommand per tool)
-is designed in [`docs/PRODUCT-API.md`](PRODUCT-API.md).
+**Visual spec + focused-pane highlight** (§5), **no-flash startup** (§5b),
+**terminal robustness** (§5c) and **one tab = one full-screen view** (§5d) are
+implemented and shipped. A **product API** (`api` subcommand per tool) is
+designed in [`docs/PRODUCT-API.md`](PRODUCT-API.md) — **P0 read-only is live on
+`wayang-router`**.
 
-Released: **wayang-router v0.4.1**, **wayang-fw v0.4.1** (tags + GitHub releases +
-mirror; OS pins bumped; `v0.4.2` for router's focus wave). `wayang` CLI ships
-inside WayangOS (no separate tag); installed on the test box for manual testing.
+Released: **wayang-router v0.6.0** + **wayang-fw v0.6.0** (tags + GitHub +
+mirror; OS pins 0.6.0). `wayang` CLI ships inside WayangOS (no separate tag). On
+the test box, all four binaries are installed in `/data/bin` (the builds are a
+little newer than the `v0.6.0` tag — a `v0.6.1` tag matches them).
 
 ## 1. Why
 

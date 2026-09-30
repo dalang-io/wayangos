@@ -49,40 +49,38 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       (reverse-proxy) needs **no kernel change**; mode **B** (transparent
       inline) needs **TPROXY/NFQUEUE** added to `configs/defconfig-intel`
       (absent today) + a boot soak. Roadmap: wayang-fw `docs/ROADMAP.md` §v0.6.
-- [ ] **TUI UX revamp (PRIORITISED)** — one navigation grammar across
-      wayang-fw/wayang-router/dcheck (`↑↓` within, `←→` between tabs, `tab`,
-      `/` jump, `?` help), inline keycap hints + visible tab rows, and
-      **REVIEW-before-apply with no hidden side effects** (adding a static WAN
-      must not silently promote it to primary/default). Plus wizards and a
-      Winbox/FortiGate/Cloudflare concept map for migrants. Plan:
-      [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md). Touches both product repos.
-- [ ] **No-flash startup & cross-app handoff (all three HUDs)** — the first
-      frame must be a splash drawn *before* sampling (never an empty alternate
-      screen), the clear must be themed via OSC 11 (no white flash on a light
-      terminal / SSH), and a transition frame must cover `wayang` ↔
-      fw/router handoff. Shared `splash`/`transition` component in `wayang-tui`.
-      Design: [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md) §5b.
-- [ ] **Terminal robustness vs external output (all three HUDs)** — a service,
-      kernel printk, or a spawned child writing to the tty garbles the HUD;
-      fix: never leak child stdout/stderr (`Stdio::null()`), force a full
-      repaint on startup/SIGWINCH/return/slow tick, and a `Ctrl-L` repaint —
-      shared in `wayang-tui`.
-      Design: [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md) §5c.
-- [ ] **Layout consistency: one tab = one full-screen view (all three HUDs)** —
-      remove the per-screen pane arrangements (side-by-side / stacked /
-      full-screen) that make tab switching confusing; a tab owns the whole body,
-      with a single identical DETAIL treatment where needed. Enterprise
-      requirement: predictable, learn-once navigation.
-      Design: [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md) §5d.
-- [ ] **Product API (all three tools)** — `wayang`, `wayang-fw`,
-      `wayang-router` each get an **`api` subcommand** (loopback + bearer token)
-      exposing status/config/plan/commit (and per-tool reads: wan/routes/wg/bgp,
-      policies/drops/logs). Lets wayangi/an orchestrator drive a box **without
-      SSH**. Design + phases: [`docs/PRODUCT-API.md`](PRODUCT-API.md). Shared
-      transport crate `wayang-api`; queued after the UI waves.
-- [ ] **`wayang-tui` shared component library** (repo created) — extract
-      theme/widgets/focus/overlays from fw/router/CLI so the three HUDs are
-      consistent *by construction*; migrate all three to depend on it.
+- [x] **TUI UX revamp** — **done** (wayang-tui + all three HUDs): one navigation
+      grammar, **REVIEW before apply** + commit-confirm, focused-pane highlight
+      (`▸`, colour-free), inline keycap hints + tab rows, deep `/` jump, `?` help
+      + concept map, policy wizard (fw) / WAN wizard (router). Plan/design:
+      [`docs/TUI-UX-REVAMP.md`](TUI-UX-REVAMP.md).
+- [x] **No-flash startup & cross-app handoff** — **done** (`wayang-tui`
+      `v0.2.1`): first frame is a **full-screen framed splash** drawn before
+      sampling, **OSC-11** themed clear (no white flash), and a transition frame
+      on return. Design: §5b.
+- [x] **Terminal robustness vs external output** — **done**: children spawn with
+      `Stdio::null`, self-healing repaint + `Ctrl-L`, and (bugs found on the
+      box) **no nested alternate screen** on handoff + **raw mode restored on
+      exit**. Design: §5c.
+- [x] **Layout consistency: one tab = one full-screen view** — **done** (§5d):
+      no more per-screen side-by-side/stacked panes; a tab owns the body, one
+      shared DETAIL treatment.
+- [~] **Product API (all three tools)** — **P0 read-only implemented on
+      `wayang-router`** (`wayang-router api`, loopback + bearer token; see
+      [`docs/PRODUCT-API-REFERENCE.md`](PRODUCT-API-REFERENCE.md)). Open: **P1**
+      (`config|candidate|check|plan|commit|confirm|rollback|history`), then the
+      same for `wayang-fw` & `wayang` CLI, and the shared `wayang-api` crate.
+      Design: [`docs/PRODUCT-API.md`](PRODUCT-API.md).
+- [x] **`wayang-tui` shared component library** — **done** (repo
+      `dalang-io/wayang-tui` `v0.2.1`): theme/widgets/focus/overlay/term/splash/
+      transition/layout; all three HUDs migrated + adopted; `dcheck` standardized.
+      Dev guide `wayang-tui/docs/ADD-A-SCREEN.md`.
+- [ ] **Follow-ups from the HUD round**: (a) move raw-mode handling into
+      `TermGuard` so no product can forget it; (b) `cargo fmt` consistency for
+      the `wayang-router` / `dcheck` baselines (pre-existing dirty); (c) unify the
+      `collapsible_if` approach (rewrite vs `allow`, currently mixed); (d) **tag
+      `v0.6.1`** so the box's post-`v0.6.0` builds (splash + tty fixes) match a
+      release, and/or an **OS release** to bake the `wayang` CLI + 0.6.x tools.
 
 ## wayangos (this repo)
 

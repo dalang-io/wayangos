@@ -109,11 +109,52 @@ config** (no wayangi agent on the box).
 
 | Repo | HEAD / tag | Notes |
 |---|---|---|
-| `dalang-io/wayangos` (this) | `master` @ 1.0.30, tag `v1.0.30` | block enabled; `wayang reset`; selftest removed; hotplug DHCP; **wayang-router/wayang-fw baked into the rootfs; EDGEROUTER TUI removed; CI self-hosted (~5 m, channel-publish secrets set)** |
-| `dalang-io/wayang-fw` | `master` `7383298`, tag `v0.3.0` | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP fix, monitor; **per-zone DHCP/DNS via dnsmasq** (`[[dhcp]]`/`[[dns]]`, `scripts/build-dnsmasq.sh`, `docs/DHCP-DNS.md`); `allow_from` accepts IPv4 + IPv6 |
-| `dalang-io/wayang-router` | `master` `d68e57d`, tag `v0.3.2` | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor history); **never strand the last uplink** (v0.3.1); **`wan-monitor` → `wan-failover`** (v0.3.2); **bridge port-level VLANs** (`[[interface.port]]`); `engine` hardening; `docs/ROUTING-TECH.md` + `DAEMONS-TECH.md`; **v0.3.3 fixes the `wan_group` table bring-up bug** (rtnetlink multipath + desired-but-absent reinstall + `plan`/`status` drift; `d576fa8`) |
-| `dalang-io/dcheck` | `master` `33dc1af` | health list + Prometheus + undelete/macOS |
-| `dalang-io/wayangi` (dashboard) | `main` `6adc719` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod; **`wos-x86-1` 1-NIC WAN-only model**; **public-SSH `allow_from` default**; **N-hub generator in progress** (`docs/EDGE-N-HUB.md`, `docs/FUTURE-WORKS.md`) |
+| `dalang-io/wayangos` (this) | `master` @ 1.0.30, tag `v1.0.30` | block enabled; `wayang reset`; selftest removed; hotplug DHCP; **wayang-router/wayang-fw baked into the rootfs; EDGEROUTER TUI removed; CI self-hosted (~5 m)**; **tool pins now `wayang-router 0.6.0` / `wayang-fw 0.6.0`** |
+| `dalang-io/wayang-fw` | `master` `4f5ccc0`, tag **`v0.6.0`** | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP, monitor, per-zone DHCP/DNS; **HUD via the shared `wayang-tui`** (nav grammar, REVIEW, policy wizard, FortiOS import review, focused-pane highlight, **one tab = one full-screen view**, splash/`Ctrl-L` repaint, tty-safe children); **Rust 1.98.1 + edition 2024** |
+| `dalang-io/wayang-router` | `master` `834d17e`, tag **`v0.6.0`** | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor); bridge port-level VLANs; **v0.3.3 `wan_group` table bring-up fix** (`d576fa8`); **HUD via `wayang-tui`** (nav grammar, REVIEW + no silent primary, WAN wizard, deep `/` jump, full-screen tabs, splash/repaint); **reading API `wayang-router api` (P0)**; **Rust 1.98.1 + edition 2024** |
+| `dalang-io/dcheck` | `master` `12d4601`, tag **`dcheck-v0.5.1`** | health list + Prometheus + undelete/macOS; **Rust 1.98.1 + edition 2024** (`unsafe extern "C"`, `allow(collapsible_if)`) |
+| `dalang-io/wayang-tui` (new) | `main` `a8c84b5`, tag **`v0.2.1`** | **shared ratatui component library** for the three HUDs: `theme` (palette/modes), `widgets` (`panel`/`panel_focused`/`header`/`footer`/`keycaps`/`badge`/…), `focus`, `overlay`, `term` (OSC-11, alt screen, repaint, tty-safe spawn), `splash`, `transition`, `layout`. `docs/ADD-A-SCREEN.md` |
+| `dalang-io/wayangi` (dashboard) | `main` `7ee3170` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod; `wos-x86-1` 1-NIC WAN-only model; **public-SSH `allow_from` default**; **N-hub generator** (`docs/EDGE-N-HUB.md`), `docs/FUTURE-WORKS.md` |
+
+## HUD & platform round (2026-09-30)
+
+The consoles + toolchain round, newest first:
+
+- **Shared component library `wayang-tui`** (new repo) — the three HUDs render
+  through it, so consistency is *by construction* (not three copies).
+- **UX revamp** ([docs/TUI-UX-REVAMP.md](TUI-UX-REVAMP.md)): one navigation
+  grammar (`↑↓` within, `←→` between tabs, `all` keys shown); **REVIEW before
+  apply** + commit-confirm; focused-pane highlight (colour-free `▸`); **one tab
+  = one full-screen view**; policy wizard (fw) + WAN wizard (router); deep `/`
+  jump; `?` help + migrant concept map; RECENT.
+- **Terminal robustness**: first frame is a **full-screen splash** (framed,
+  scaled logotype — no blank/white flash; OSC-11 themed background);
+  **self-healing repaint** + `Ctrl-L`; children spawned with `Stdio::null`;
+  handing the terminal to a sibling no longer **nests the alternate screen**
+  (fixed the leftover blank lines); **raw mode is restored on exit** (fixed the
+  “staircase” prompt).
+- **Toolchain**: Rust **1.98.1 + edition 2024** across `wayang-tui`, the
+  `wayang` CLI, `wayang-fw`, `wayang-router` and `dcheck` (`rust-toolchain.toml`
+  + `rust-version`).
+- **Released**: `wayang-router v0.6.0` + `wayang-fw v0.6.0` (tags + GitHub +
+  mirror `https://wayang.dalang.io/edge/tools/`; OS pins bumped). The `wayang`
+  CLI ships inside the OS image (no separate tag).
+- **Box `163.128.55.4`** (site 5, `ThinkStation-P320-Tiny`): all four binaries
+  under `/data/bin` (persistent) with `/usr/bin` symlinks — `wayang-router
+  0.6.0`, `wayang-fw 0.6.0`, `wayang 0.1.0 (ux-p1)`, `dcheck 0.5.1`.
+  **The box builds are newer than the `v0.6.0` tag** (wayang-tui `v0.2.1`
+  full-screen splash + the CLI handoff/raw-mode fixes); a `v0.6.1` tag is the
+  clean way to match, and the OS image still bakes `0.6.0`.
+- **Docs**: [docs/README.md](README.md) (index),
+  [HUD-USER-GUIDE.md](HUD-USER-GUIDE.md), [HUD-DEPLOY.md](HUD-DEPLOY.md),
+  [PRODUCT-API.md](PRODUCT-API.md) + [PRODUCT-API-REFERENCE.md](PRODUCT-API-REFERENCE.md),
+  [TUI-UX-REVAMP.md](TUI-UX-REVAMP.md); `wayang-tui/docs/ADD-A-SCREEN.md`.
+- **wayangi**: N-hub generator (`7ee3170`), public-SSH `allow_from` default,
+  hub DB at schema 55; deploy with `scripts/deploy.sh hub`.
+- **Pending**: billing P0 (early renewal), WAF
+  (`wayang-fw/docs/WAF.md`), API P1 (config/plan/commit), move raw-mode handling
+  into `TermGuard`, fmt consistency (router/dcheck baselines), N-hub
+  provisioning automation.
 
 ## Tech references written this round (read these before editing configs)
 

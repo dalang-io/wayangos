@@ -112,6 +112,21 @@ resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus usersp
 - New prod box **site 5** `ThinkStation-P320-Tiny` @ **`163.128.55.4`**
   (WayangOS 1.0.30); a **`163.128.54.4` is a different MikroTik RouterOS**, not us.
 
+**Next (unreleased) = the HUD & platform round** (see
+[docs/TUI-UX-REVAMP.md](docs/TUI-UX-REVAMP.md), [docs/HANDOVER.md](docs/HANDOVER.md)):
+- **Shared component library `wayang-tui`** (new repo `dalang-io/wayang-tui`):
+  the `wayang` CLI, `wayang-fw` and `wayang-router` render through it (theme,
+  panels, focus, overlays, `term`, `splash`, `layout`) — consistency *by
+  construction*. `dcheck` was standardized alongside.
+- **UX**: one navigation grammar; **REVIEW before apply** + commit-confirm;
+  focused-pane highlight (`▸`, colour-free); **one tab = one full-screen view**;
+  policy wizard (fw) / WAN wizard (router); deep `/` jump; `?` help + concept map.
+- **Terminal**: full-screen splash + **OSC-11** (no white flash); self-healing
+  **repaint** + `Ctrl-L`; children spawned `Stdio::null`; **no nested alternate
+  screen** when handing off to a sibling; **raw mode restored on exit**.
+- **Toolchain**: **Rust 1.98.1 + edition 2024** across all five repos.
+- **Released**: `wayang-router v0.6.0` + `wayang-fw v0.6.0`; OS pins 0.6.0.
+
 **Golden rules (learned — do not regress):**
 1. A *monitor* is read-only (`wayang-router monitor`); anything that changes
    routes/networking is a separate, explicitly-named daemon (`wan-failover`) and
@@ -128,7 +143,12 @@ resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus usersp
    applied through **rtnetlink** (BusyBox `ip` cannot parse `nexthop`/multipath),
    reinstalled whenever desired-but-absent, and `plan`/`status` report the drift.
    Deployed on the box (`/data/bin/wayang-router`, so it wins over `/usr/bin`)
-   and the OS pin is bumped to 0.3.3.
+   and the OS pin is bumped.
+5. **A HUD must give the tty back.** `disable_raw_mode()` on exit (otherwise the
+   shell inherits a termios without ONLCR and every prompt "staircases" right),
+   and **never nest the alternate screen** when launching a child tool — leave
+   raw+alt first, run the child, then re-enter (a nested alt-screen corrupts the
+   display once the child exits).
 
 Cross-repo state: [docs/HANDOVER.md](docs/HANDOVER.md); pending work:
 [docs/TODO.md](docs/TODO.md). WayangOS is a wayangi "Edge" unit type in the
