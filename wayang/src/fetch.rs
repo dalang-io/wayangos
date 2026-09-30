@@ -6,7 +6,8 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+
+use wayang_tui::term;
 
 use crate::error::{AppError, Result};
 
@@ -32,7 +33,7 @@ pub fn bundle_url(base: &str, channel: &str, arch: &str, version: &str) -> Strin
 }
 
 fn curl(args: &[&str]) -> Result<std::process::Output> {
-    let out = Command::new("curl").args(args).output().map_err(|e| {
+    let out = term::output_cmd("curl", args).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             AppError::err("curl not found; install curl or use `wayang update --from FILE.wup`")
         } else {
@@ -56,10 +57,8 @@ pub fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
 /// caller can keep the UI indeterminate.
 pub fn download_with_progress<F: FnMut(u64, u64)>(url: &str, dest: &Path, mut on_progress: F) -> Result<()> {
     let total = content_length(url);
-    let mut child = Command::new("curl")
+    let mut child = term::command_capture("curl")
         .args(["-fsSL", "-o", "-", url])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -93,7 +92,7 @@ pub fn download_with_progress<F: FnMut(u64, u64)>(url: &str, dest: &Path, mut on
 
 /// `Content-Length` via a HEAD request; 0 when unknown or unavailable.
 fn content_length(url: &str) -> u64 {
-    let out = match Command::new("curl").args(["-fsSLI", url]).output() {
+    let out = match term::output_cmd("curl", &["-fsSLI", url]) {
         Ok(o) if o.status.success() => o,
         _ => return 0,
     };

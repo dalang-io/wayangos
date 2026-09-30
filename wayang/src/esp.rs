@@ -2,7 +2,8 @@
 //! → `blkid` search for `LABEL="WAYANGBOOT"`.
 
 use std::path::PathBuf;
-use std::process::Command;
+
+use wayang_tui::term;
 
 pub const BY_LABEL: &str = "/dev/disk/by-label/WAYANGBOOT";
 
@@ -42,7 +43,7 @@ pub fn discover() -> Option<PathBuf> {
 }
 
 fn run_blkid() -> String {
-    match Command::new("blkid").output() {
+    match term::output_cmd("blkid", &[]) {
         Ok(o) => String::from_utf8_lossy(&o.stdout).into_owned(),
         Err(_) => String::new(),
     }

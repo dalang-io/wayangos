@@ -5,7 +5,8 @@
 //! already mounted, or mounted read-write at a temp dir and unmounted on drop.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use wayang_tui::term;
 
 use crate::error::{AppError, Result};
 use crate::paths;
@@ -18,7 +19,7 @@ pub struct BootRoot {
 impl BootRoot {
     pub fn unmount(&mut self) {
         if let Some(mp) = self.mounted.take() {
-            let _ = Command::new("umount").arg(&mp).status();
+            let _ = term::command("umount").arg(&mp).status();
         }
     }
 }
@@ -54,7 +55,7 @@ pub fn open_with(root: Option<PathBuf>, esp_override: Option<&str>) -> Result<Bo
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::err(format!("{}: {e}", dir.display())))?;
 
-    let out = Command::new("mount")
+    let out = term::command_capture("mount")
         .arg("-o")
         .arg("rw")
         .arg(&device)

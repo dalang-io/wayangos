@@ -239,6 +239,9 @@ pub struct App {
     pub sub: Option<Sub>,
     /// Companion app to run full-screen next (taken by the runner).
     pub launch: Option<PathBuf>,
+    /// The first (splash) frame has not sampled the system yet, or we have just
+    /// returned from a child tool: draw the loading splash before sampling.
+    pub loading: bool,
     pub tick: usize,
 }
 
@@ -254,22 +257,25 @@ pub enum Action {
 }
 
 impl App {
+    /// Sample the system immediately (tests, snapshots). The interactive HUD
+    /// uses [`App::shell`] + [`App::sample`] instead so the splash frame can be
+    /// drawn before the potentially slow sampling (§5b).
     pub fn new(demo: bool) -> App {
-        let (status, error) = if demo {
-            (demo_status(), None)
-        } else {
-            match status::snapshot(None) {
-                Ok(s) => (s, None),
-                Err(e) => (status::unavailable(), Some(e.to_string())),
-            }
-        };
+        let mut app = App::shell(demo);
+        app.sample();
+        app
+    }
+
+    /// Build the HUD shell **without** sampling: status is the "unavailable"
+    /// placeholder and the deck is empty, so the first frame is only the splash.
+    pub fn shell(demo: bool) -> App {
         App {
             t: hud::detect(),
             demo,
             sel: 0,
-            status,
-            error,
-            deck: if demo { Deck::demo() } else { Deck::probe() },
+            status: status::unavailable(),
+            error: None,
+            deck: Deck::default(),
             message: None,
             job: None,
             armed: false,
@@ -283,8 +289,31 @@ impl App {
             exit: false,
             sub: None,
             launch: None,
+            loading: !demo,
             tick: 0,
         }
+    }
+
+    /// Read the system into the shell (status + deck). Demo builds the sample
+    /// data instead; both clear the loading flag so the next frame is real.
+    pub fn sample(&mut self) {
+        self.loading = false;
+        if self.demo {
+            self.status = demo_status();
+            self.deck = Deck::demo();
+            return;
+        }
+        match status::snapshot(None) {
+            Ok(s) => {
+                self.status = s;
+                self.error = None;
+            }
+            Err(e) => {
+                self.status = status::unavailable();
+                self.error = Some(e.to_string());
+            }
+        }
+        self.deck = Deck::probe();
     }
 
     pub fn module(&self) -> Option<Module> {
@@ -794,6 +823,12 @@ fn demo_status() -> Status {
 // ---- drawing -----------------------------------------------------------
 
 pub fn draw(f: &mut Frame, app: &App, tick: usize) {
+    // §5b: before any sampling the first frame is the splash, never an empty
+    // (light/SSH → white) alternate screen. Same on return from a child tool.
+    if app.loading {
+        wayang_tui::splash::render(f, f.area(), "wayang", Some("OS CONSOLE"), tick as u64, &app.t);
+        return;
+    }
     if let Some(sub) = &app.sub {
         match sub {
             Sub::Net(a) => netui::draw(f, a, tick),
@@ -1295,10 +1330,18 @@ fn draw_jump_hits(f: &mut Frame, body: Rect, jump: &input::Input, t: &Theme) {
 
 /// Run the HUD on the real terminal.
 pub fn run() -> std::io::Result<()> {
+    let app = App::shell(false);
+    let theme = app.t.clone();
     crate::screen::run_with_launch(
-        App::new(false),
+        app,
+        &theme,
         draw,
         |app| {
+            // First pass (and the frame after a child tool) draws the splash
+            // before sampling; then sample and pick up background work.
+            if app.loading {
+                app.sample();
+            }
             app.poll();
             // Keep an open sub-screen's background work moving (net jobs,
             // wifi link refresh) so the HUD never blocks on it.
@@ -1311,9 +1354,20 @@ pub fn run() -> std::io::Result<()> {
         },
         |app, key| app.on_key(key),
         |app| app.exit,
-        |app| app.launch.take().map(std::process::Command::new),
+        |app| {
+            app.launch.take().map(|bin| {
+                // The companion is a full-screen HUD we hand the terminal to:
+                // build it through the shared helper, then inherit the tty.
+                let mut cmd = wayang_tui::term::command(bin);
+                cmd.stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit());
+                cmd.into_command()
+            })
+        },
         |app, res| {
-            app.refresh();
+            // The runner has drawn the `loading …` transition; ask for a fresh
+            // first frame (the splash) and re-sample on the next poll.
+            app.loading = true;
             if let Err(e) = res {
                 app.message = Some((Tone::Bad, format!("could not start: {e}")));
             }
@@ -1510,6 +1564,22 @@ mod tests {
 
     fn key(app: &mut App, c: KeyCode) {
         app.on_key(KeyEvent::from(c));
+    }
+
+    #[test]
+    fn loading_shell_draws_the_splash_before_sampling() {
+        // §5b: the very first frame is the splash, never a blank alt screen.
+        let app = App::shell(false);
+        assert!(app.loading, "a fresh shell has not sampled yet");
+        let text = render(&app, 80, 24).unwrap();
+        assert!(text.contains("loading wayang"), "splash loading line:\n{text}");
+        assert!(text.contains("OS CONSOLE"), "splash subtitle:\n{text}");
+        // Sampling clears the flag and the real deck replaces the splash.
+        let mut app = App::shell(false);
+        app.sample();
+        assert!(!app.loading);
+        let text = render(&app, 120, 36).unwrap();
+        assert!(text.contains("COMMAND DECK"), "real deck after sample:\n{text}");
     }
 
     #[test]

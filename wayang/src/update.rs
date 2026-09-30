@@ -240,7 +240,7 @@ pub fn maybe_reboot(requested: bool) -> Result<()> {
         crate::outln!("Reboot suppressed (test environment).");
         return Ok(());
     }
-    let status = std::process::Command::new("reboot")
+    let status = wayang_tui::term::command("reboot")
         .status()
         .map_err(|e| AppError::err(format!("failed to run reboot: {e}")))?;
     if !status.success() {

@@ -1,15 +1,19 @@
-//! Shared terminal harness for the HUD screens: raw mode, alternate screen,
-//! console-palette reprogramming and a panic hook that restores the terminal.
+//! Shared terminal harness for the HUD screens: raw mode, the crate's
+//! OSC-11-themed alternate screen (`wayang_tui::term::TermGuard`), the
+//! self-healing `Repaint` full-redraw flag, and a panic hook that restores the
+//! terminal even though release builds `panic = "abort"` (so `Drop` never runs).
+//!
+//! Spec: `docs/TUI-UX-REVAMP.md` §5b (no-flash startup & handoff) and §5c
+//! (robustness against external tty output). The clear is theme-coloured, never
+//! a white flash; a repaint is forced at startup, on `SIGWINCH`, on `Ctrl-L`,
+//! after returning from a child tool and on a slow tick.
 
-use std::io::{self, Write};
-use std::time::Duration;
+use std::io;
+use std::time::{Duration, Instant};
 
 use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::event::{self, Event, KeyEvent, KeyEventKind};
-use ratatui::crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
-use ratatui::crossterm::{cursor, execute};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::{Frame, Terminal};
 
 use std::fmt::Write as _;
@@ -17,39 +21,49 @@ use std::fmt::Write as _;
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 
+use wayang_tui::term::{self, Repaint, TermGuard};
+
 use crate::hud::Theme;
 
-/// Restore the terminal. The Linux console is no longer re-programmed: the CLI
-/// uses the same ANSI palette as wayang-fw / wayang-router (the crate's
-/// canonical handling), so there is no OSC reset to emit.
-fn restore() {
-    let mut out = io::stdout();
+/// How often external tty output (kernel chatter, a straggler child) is
+/// overwritten even with no input: §5c's slow self-healing tick.
+const SLOW_TICK: Duration = Duration::from_secs(3);
+
+/// Restore the terminal after a panic. Release builds are `panic = "abort"`, so
+/// `TermGuard`'s `Drop` does not run — this hook calls [`term::leave`] itself.
+fn restore(palette: &wayang_tui::theme::Palette) {
     let _ = disable_raw_mode();
-    let _ = execute!(out, LeaveAlternateScreen, cursor::Show);
-    let _ = out.flush();
+    let _ = term::leave(&mut io::stdout(), palette);
 }
 
 /// Run `app` on the real terminal until `exited` returns true.
 ///
-/// `draw` receives the frame and a tick counter (for blinking cursors);
-/// `poll` runs once per loop so the app can pick up background work; `on_key`
-/// handles press events only.
+/// `theme` supplies the OSC-11 page background; `draw` receives the frame and a
+/// tick counter (for blinking cursors); `poll` runs once per loop before the
+/// frame so the app can pick up background work (including the first sample,
+/// which draws the splash frame first); `on_key` handles press events only.
 pub fn run<A>(
     app: A,
+    theme: &Theme,
     draw: impl Fn(&mut Frame, &A, usize),
     poll: impl Fn(&mut A),
     on_key: impl Fn(&mut A, KeyEvent),
     exited: impl Fn(&A) -> bool,
 ) -> io::Result<()> {
-    run_with_launch(app, draw, poll, on_key, exited, |_| None, |_, _| {})
+    run_with_launch(app, theme, draw, poll, on_key, exited, |_| None, |_, _| {})
 }
 
 /// [`run`], plus handing the terminal to another full-screen program:
-/// `take_launch` may return a command after a key press; the HUD leaves the
-/// alternate screen, runs it in the foreground, then comes back and reports
-/// the outcome through `launched`.
+/// `take_launch` may return a command after a key press; the HUD keeps the
+/// alternate screen, draws the `▸ launching …` transition, runs it in the
+/// foreground, then draws `loading …` and reports the outcome through
+/// `launched` (which requests a fresh first frame).
+// Eight arguments are the price of keeping the runner generic over the app
+// without a boxed-callback struct; the call sites stay readable.
+#[allow(clippy::too_many_arguments)]
 pub fn run_with_launch<A>(
     mut app: A,
+    theme: &Theme,
     draw: impl Fn(&mut Frame, &A, usize),
     poll: impl Fn(&mut A),
     on_key: impl Fn(&mut A, KeyEvent),
@@ -57,44 +71,79 @@ pub fn run_with_launch<A>(
     take_launch: impl Fn(&mut A) -> Option<std::process::Command>,
     launched: impl Fn(&mut A, io::Result<std::process::ExitStatus>),
 ) -> io::Result<()> {
+    let palette = theme.palette.clone();
     let hook = std::panic::take_hook();
+    let hook_palette = palette.clone();
     std::panic::set_hook(Box::new(move |info| {
-        restore();
+        restore(&hook_palette);
         hook(info);
     }));
 
-    let mut out = io::stdout();
     enable_raw_mode()?;
-    execute!(out, EnterAlternateScreen, cursor::Hide)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(out))?;
-    terminal.clear()?;
+    // TermGuard themes the background (OSC 11), enters the alternate screen and
+    // hides the cursor; its Drop restores them on normal exit.
+    let mut guard = TermGuard::enter(io::stdout(), &palette)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
+    let mut repaint = Repaint::new();
+    repaint.request(); // startup: first frame is a full redraw
     let mut tick: usize = 0;
+    let mut last_slow_tick = Instant::now();
     let result = loop {
-        poll(&mut app);
-        terminal.draw(|f| draw(f, &app, tick))?;
+        // Draw before sampling so the very first frame is the app's splash,
+        // never a blank alternate screen (§5b).
+        repaint.draw(&mut terminal, |f| draw(f, &app, tick))?;
         if exited(&app) {
             break Ok(());
         }
+        poll(&mut app);
         if event::poll(Duration::from_millis(200))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    on_key(&mut app, key);
+            loop {
+                match event::read()? {
+                    Event::Resize(_, _) => repaint.request(), // SIGWINCH
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        if key.code == KeyCode::Char('l')
+                            && key.modifiers.contains(KeyModifiers::CONTROL)
+                        {
+                            // Manual repaint: Ctrl-L, never passed to the app.
+                            repaint.request();
+                        } else {
+                            on_key(&mut app, key);
+                        }
+                        if let Some(mut cmd) = take_launch(&mut app) {
+                            let target = cmd.get_program().to_string_lossy().into_owned();
+                            let _ = terminal.draw(|f| {
+                                wayang_tui::transition::render(f, f.area(), "launching", &target, theme)
+                            });
+                            // Keep the alternate screen while the child runs so
+                            // there is no flashblank between the two HUDs.
+                            let res = cmd.status();
+                            // A child TUI disables raw mode / leaves the alt
+                            // screen on its own way out; reclaim both.
+                            enable_raw_mode()?;
+                            let _ = term::enter(&mut io::stdout(), &palette);
+                            let _ = terminal.draw(|f| {
+                                wayang_tui::transition::render(f, f.area(), "loading", &target, theme)
+                            });
+                            launched(&mut app, res);
+                            // Return frame is a fresh first frame (§5b).
+                            repaint.request();
+                        }
+                    }
+                    _ => {}
                 }
-                if let Some(mut cmd) = take_launch(&mut app) {
-                    restore();
-                    let res = cmd.status();
-                    enable_raw_mode()?;
-                    let mut out = io::stdout();
-                    execute!(out, EnterAlternateScreen, cursor::Hide)?;
-                    terminal.clear()?;
-                    launched(&mut app, res);
+                if !event::poll(Duration::ZERO)? {
+                    break;
                 }
             }
         }
+        if last_slow_tick.elapsed() >= SLOW_TICK {
+            repaint.request();
+            last_slow_tick = Instant::now();
+        }
         tick = tick.wrapping_add(1);
     };
-    restore();
+    let _ = guard.leave();
     result
 }
 

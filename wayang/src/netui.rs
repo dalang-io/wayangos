@@ -920,8 +920,11 @@ fn draw_result(f: &mut Frame, area: Rect, app: &App, tick: usize) {
 
 /// Run the screen on the real terminal.
 pub fn run() -> std::io::Result<()> {
+    let app = App::new(false);
+    let theme = app.t.clone();
     crate::screen::run(
-        App::new(false),
+        app,
+        &theme,
         draw,
         |app| app.poll_job(),
         |app, key| app.on_key(key),

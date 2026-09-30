@@ -13,7 +13,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use flate2::read::GzDecoder;
@@ -593,7 +593,9 @@ fn run_agent(
     let log = std::env::temp_dir().join(format!("wayang-edgerouter-{}.log", std::process::id()));
     let out = fs::File::create(&log).map_err(|e| format!("{}: {e}", log.display()))?;
     let err = out.try_clone().map_err(|e| format!("{}: {e}", log.display()))?;
-    let mut cmd = Command::new(bin);
+    // Built through the shared helper (its default stream policy is then
+    // overridden to the daemon log file, per §5c).
+    let mut cmd = wayang_tui::term::command(bin);
     cmd.args(args).stdin(Stdio::null()).stdout(out).stderr(err);
     if let Some(t) = token {
         cmd.env("WAYANGI_TOKEN", t);

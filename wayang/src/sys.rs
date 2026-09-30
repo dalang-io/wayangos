@@ -6,7 +6,9 @@
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
+
+use wayang_tui::term;
 
 /// Run a command; stdout on success, `cmd args failed: stderr` on failure.
 pub fn run(prog: &str, args: &[&str]) -> Result<String, String> {
@@ -15,11 +17,9 @@ pub fn run(prog: &str, args: &[&str]) -> Result<String, String> {
 
 /// Like [`run`], feeding `input` to stdin (used for `wpa_passphrase`-free PSKs).
 pub fn run_input(prog: &str, args: &[&str], input: Option<&str>) -> Result<String, String> {
-    let mut child = Command::new(prog)
+    let mut child = term::command_capture(prog)
         .args(args)
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("{prog}: {e}"))?;
     if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
@@ -42,12 +42,7 @@ pub fn run_input(prog: &str, args: &[&str], input: Option<&str>) -> Result<Strin
 /// Spawn a background daemon without waiting (e.g. renewing `udhcpc`,
 /// `wpa_supplicant -B` is handled by `-B` itself).
 pub fn spawn(prog: &str, args: &[&str]) -> Result<(), String> {
-    Command::new(prog)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+    term::spawn_cmd(prog, args)
         .map(|_| ())
         .map_err(|e| format!("{prog}: {e}"))
 }
