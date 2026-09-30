@@ -96,9 +96,6 @@ pub fn brand(t: &Theme) -> &'static str {
     }
 }
 
-/// Section caption — re-exported from the crate; kept as a named helper so the
-/// call sites read identically.
-///
 /// The one-row header bar. The shared [`header`] renderer draws it, but the CLI
 /// keeps its revision label on the *left*, next to the section
 /// (` ◢◤ WAYANG OS // DECK ▸ SYSTEM  v1.4.1`), where the other HUDs place it on
