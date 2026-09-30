@@ -274,8 +274,8 @@ BGP/OSPF, SD-WAN, shaping) — built in `wayang-router`. The only leftover is HA
 
 | Repo | HEAD / tag | Notes |
 |---|---|---|
-| `dalang-io/wayangos` (this) | `master` `b5345c1`, tag **`v1.0.30`** (2 commits past) | block enabled; `wayang reset`; selftest removed; hotplug DHCP; **wayang-router/wayang-fw baked into the rootfs; EDGEROUTER TUI removed; CI self-hosted (~5 m)**; tool pins `wayang-router 0.6.0` / `wayang-fw 0.6.0`; **dnsmasq 2.93 bundled**; **monitor pid tracking fixed** in `init.d/{fw,router}` — **untagged, needs a build** |
-| `dalang-io/wayang-fw` | `master` `d2388b3`, tag **`v0.6.0`** (5 commits past) | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP, monitor, per-zone DHCP/DNS; **HUD via the shared `wayang-tui`**; Rust 1.98.1 + edition 2024; **three commit-confirm bugs fixed** (`a516443`) + docs refresh |
+| `dalang-io/wayangos` (this) | `master` `b5345c1`, tag **`v1.0.30`** (2 commits past) | block enabled; `wayang reset`; selftest removed; hotplug DHCP; **wayang-router/wayang-fw baked into the rootfs; EDGEROUTER TUI removed; CI self-hosted (~5 m)**; tool pins `wayang-router 0.6.0` / **`wayang-fw 0.6.1`**; **dnsmasq 2.93 bundled**; **monitor pid tracking fixed** in `init.d/{fw,router}` — **untagged, needs a build** |
+| `dalang-io/wayang-fw` | `master` `237b399`, tag **`v0.6.1`** (+3 unreleased: WAF P0a/P0b) | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP, monitor, per-zone DHCP/DNS; **HUD via the shared `wayang-tui`**; Rust 1.98.1 + edition 2024; **read-only HTTP JSON API** (`wayang-fw api`, hardened request limits); **output-chain policies** (`from = "self"`) + **address-group `exclude_member`**; CI now pins the toolchain and runs **`nft -c` over the rendered rulesets**; **WAF P0a/P0b on master** (`[waf]` config + validation + lifecycle behind a stub binary — no real `wayang-waf` yet) |
 | `dalang-io/wayang-router` | `master` `6776e58` + 2, tag **`v0.6.0`** | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor); bridge port-level VLANs; **v0.3.3 `wan_group` table bring-up fix** (`d576fa8`); **HUD via `wayang-tui`** (nav grammar, REVIEW + no silent primary, WAN wizard, deep `/` jump, full-screen tabs, splash/repaint); **reading API `wayang-router api` (P0)**; **Rust 1.98.1 + edition 2024** |
 | `dalang-io/dcheck` | `master` `f4e3e3e`, tag **`dcheck-v0.5.1`** | health list + Prometheus + undelete/macOS; **Rust 1.98.1 + edition 2024** (`unsafe extern "C"`, `allow(collapsible_if)`) |
 | `dalang-io/wayang-tui` (new) | `main` `a8c84b5`, tag **`v0.2.1`** | **shared ratatui component library** for the three HUDs: `theme` (palette/modes), `widgets` (`panel`/`panel_focused`/`header`/`footer`/`keycaps`/`badge`/…), `focus`, `overlay`, `term` (OSC-11, alt screen, repaint, tty-safe spawn), `splash`, `transition`, `layout`. `docs/ADD-A-SCREEN.md` |
@@ -301,15 +301,18 @@ The consoles + toolchain round, newest first:
 - **Toolchain**: Rust **1.98.1 + edition 2024** across `wayang-tui`, the
   `wayang` CLI, `wayang-fw`, `wayang-router` and `dcheck` (`rust-toolchain.toml`
   + `rust-version`).
-- **Released**: `wayang-router v0.6.0` + `wayang-fw v0.6.0` (tags + GitHub +
-  mirror `https://wayang.dalang.io/edge/tools/`; OS pins bumped). The `wayang`
-  CLI ships inside the OS image (no separate tag).
+- **Released**: `wayang-router v0.6.0` + **`wayang-fw v0.6.1`** (tags + mirror
+  `https://wayang.dalang.io/edge/tools/`; OS pins bumped — wayang-fw's to `0.6.1`
+  with sha256 `42110e67…`, which `scripts/build-wayang-fw.sh` fetches and
+  verifies). The `wayang` CLI ships inside the OS image (no separate tag).
 - **Box `163.128.55.4`** (site 5, `ThinkStation-P320-Tiny`): all four binaries
   under `/data/bin` (persistent) with `/usr/bin` symlinks — `wayang-router
   0.6.0`, `wayang-fw 0.6.0`, `wayang 0.1.0 (ux-p1)`, `dcheck 0.5.1`.
   **The box builds are newer than the `v0.6.0` tag** (wayang-tui `v0.2.1`
-  full-screen splash + the CLI handoff/raw-mode fixes); a `v0.6.1` tag is the
-  clean way to match, and the OS image still bakes `0.6.0`.
+  full-screen splash + the CLI handoff/raw-mode fixes); `v0.6.1` is now the tag
+  that matches, the **OS image bakes `wayang-fw 0.6.1`** (pin bumped, binary
+  published and verified), and the box's `/data/bin/wayang-fw` copy is still the
+  older build until it is deployed there by hand.
 - **Docs**: [docs/README.md](README.md) (index),
   [HUD-USER-GUIDE.md](HUD-USER-GUIDE.md), [HUD-DEPLOY.md](HUD-DEPLOY.md),
   [PRODUCT-API.md](PRODUCT-API.md) + [PRODUCT-API-REFERENCE.md](PRODUCT-API-REFERENCE.md),
