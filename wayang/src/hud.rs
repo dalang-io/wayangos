@@ -251,6 +251,19 @@ mod tests {
         Theme::from_env(WAYANG_OS, Flags::default(), true, None, None)
     }
 
+    fn plain() -> Theme {
+        Theme::from_env(
+            WAYANG_OS,
+            Flags {
+                plain: true,
+                ..Flags::default()
+            },
+            false,
+            Some("ansi"),
+            None,
+        )
+    }
+
     #[test]
     fn tone_maps_to_severity() {
         assert_eq!(Tone::Ok.sev(), 0);
@@ -313,7 +326,8 @@ mod tests {
 
     #[test]
     fn focus_is_a_glyph_not_colour() {
-        // Fancy: `▸ TITLE`; NO_COLOR: a plain `>`, so focus survives.
+        // Fancy and mono both mark focus with `▸`; only `--plain` uses a plain
+        // `>`, so focus never survives on colour alone.
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 3)).unwrap();
         term.draw(|f| {
             panel_focused(f, f.area(), "TARGET", None, &ansi());
@@ -334,7 +348,18 @@ mod tests {
         let text: String = (0..3)
             .flat_map(|y| (0..30).map(move |x| buf[(x, y)].symbol().to_string()))
             .collect();
-        assert!(text.contains("> TARGET"), "{text}");
+        assert!(text.contains("▸ TARGET"), "mono keeps `▸`: {text}");
+
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 3)).unwrap();
+        term.draw(|f| {
+            panel_focused(f, f.area(), "TARGET", None, &plain());
+        })
+        .unwrap();
+        let buf = term.backend().buffer();
+        let text: String = (0..3)
+            .flat_map(|y| (0..30).map(move |x| buf[(x, y)].symbol().to_string()))
+            .collect();
+        assert!(text.contains("[ > TARGET ]"), "--plain uses `>`: {text}");
     }
 
     #[test]
@@ -349,7 +374,7 @@ mod tests {
     #[test]
     fn tab_row_marks_the_active_tab_with_a_glyph() {
         let line = tab_row_line(&["A", "B"], 0, &mono()).to_string();
-        assert!(line.contains("> A"), "{line:?}");
+        assert!(line.contains("▸ A"), "mono keeps `▸`: {line:?}");
         assert!(line.contains("←→"), "{line:?}");
     }
 }

@@ -1599,8 +1599,8 @@ mod tests {
         let mut app = App::new(true);
         app.t = Theme::from_env(hud::WAYANG_OS, hud::Flags::default(), true, None, None);
         let text = render(&app, 120, 36).unwrap();
-        assert!(text.contains("◢ > MODULES ◣"), "mono marks focus with `>`:\n{text}");
-        assert!(!text.contains("◢ > SYSTEM ◣"), "the card stays unfocused:\n{text}");
+        assert!(text.contains("◢ ▸ MODULES ◣"), "mono keeps `▸` (colour-free):\n{text}");
+        assert!(!text.contains("◢ ▸ SYSTEM ◣"), "the card stays unfocused:\n{text}");
     }
 
     #[test]

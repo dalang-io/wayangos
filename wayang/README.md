@@ -9,7 +9,7 @@ subcommands and exit codes.
 ## Chrome (canonical — see `../docs/TUI-UX-REVAMP.md`)
 
 The CLI, `wayang-fw` and `wayang-router` share one look, implemented once in the
-**`wayang-tui`** crate (private git dependency, tag `v0.1.0`). `src/hud.rs` is
+**`wayang-tui`** crate (private git dependency, tag `v0.1.1`). `src/hud.rs` is
 now a thin CLI adapter: it re-exports the crate's theme/widgets and keeps only
 the CLI-specific pieces (the `Tone` severity model, the status row, the ASCII
 spinner, the indeterminate progress bar, the tab-row grammar, the inline hint
@@ -21,8 +21,8 @@ row and the `▰` slot marker), so the three HUDs match **by construction**.
   and the OSC palette rewrite are gone — the crate's console/ansi handling is
   canonical.
 * **Panel**: `wayang_tui::widgets::panel` / `panel_focused` — thin `border`,
-  heavy corners `┏ ┓ ┗ ┛`, title `◢ TITLE ◣` (title `accent` + bold, chevrons
-  `accent2`).
+  heavy corners `┏ ┓ ┗ ┛` (always `accent`), title `◢ TITLE ◣` (title
+  `accent` + bold, chevrons always `accent2`).
 * **Caption**: `wayang_tui::widgets::caption` — `── TEXT ─────` (`border`
   lead/fill, `accent` text).
 * **Keycaps / footer**: `wayang_tui::widgets::keycaps` (+ `hud::footer`, the
@@ -38,8 +38,9 @@ row and the `▰` slot marker), so the three HUDs match **by construction**.
 
 Exactly one pane owns the keyboard. `wayang_tui::widgets::panel(f, area, title,
 None, focused, t)` draws the focused pane's border and title in `accent` and
-prefixes the title with `▸ ` (`>` with `NO_COLOR`); unfocused panes keep the
-`border`/dim title. The deck focuses the MODULES list (the preview card is dim);
+prefixes the title with `▸ ` (`>` only with `--plain`); unfocused panes keep the
+`border`/dim title (their corners are still `accent`, their chevrons `accent2`).
+The deck focuses the MODULES list (the preview card is dim);
 each module's split focuses the list or the active tab's pane; a modal (help,
 REVIEW, input, picker, jump) takes focus while it is open — REVIEW and the input
 /picker modals use the crate's shared `wayang_tui::overlay::Overlay` frame.
