@@ -7,15 +7,20 @@ cut a proper release. Cross-repo; see `AGENTS.md` for the OS rules.
 ## 0. TL;DR
 
 ```sh
-# build on the build box (macOS musl link fails locally)
-rsync -az --exclude .git --exclude target <repo>/ root@10.0.0.251:/tmp/hud/<name>/
-ssh root@10.0.0.251 'cd /tmp/hud/<name> && PATH=$HOME/.cargo/bin:$PATH \
-  cargo build --release --target x86_64-unknown-linux-musl'
+# build on the build box FROM A PERSISTENT CHECKOUT (never a throwaway /tmp copy)
+ssh root@10.0.0.251 'mkdir -p /root/hud && cd /root/hud \
+  && [ -d wayang-router/.git ] || git clone -q --depth 1 https://github.com/dalang-io/wayang-router.git'
+ssh root@10.0.0.251 'cd /root/hud/wayang-router && git pull -q \
+  && PATH=$HOME/.cargo/bin:$PATH cargo build --release --target x86_64-unknown-linux-musl'
 
 # install on the box (persistent /data/bin wins over the baked /usr/bin)
 cat <bin> | ssh root@<box> 'cat > /data/bin/.new && chmod 0755 /data/bin/.new \
   && mv -f /data/bin/.new /data/bin/<tool> && ln -sf /data/bin/<tool> /usr/bin/<tool>'
 ```
+
+> Repo checkouts live at **`/root/hud/<repo>`** on the build box (git clone once, then
+> `git pull` + build in place). Do **not** rsync throwaway copies into `/tmp` —
+> `/tmp` is only for kernel-tree experiments (AGENTS.md).
 
 ## 1. What persists where
 
@@ -33,7 +38,9 @@ symlink is lost on reboot (re-create it, or ship via an OS release — §5).
 ## 2. Build
 
 * Build on **`root@10.0.0.251`** (has cargo + the `x86_64-unknown-linux-musl`
-  target). Cross-building from macOS fails to link (no musl linker).
+  target), **from the persistent git checkout at `/root/hud/<repo>`**
+  (`git pull` then build). Cross-building from macOS fails to link (no musl
+  linker). Do not rsync throwaway copies into `/tmp`.
 * The products depend on the private crate `wayang-tui` via a **git tag**
   (`wayang-tui = { git = "https://github.com/dalang-io/wayang-tui", tag = "vX" }`);
   the build box can fetch it (SSH + HTTPS). Never vendor it.
