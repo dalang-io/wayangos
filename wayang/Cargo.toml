@@ -29,7 +29,7 @@ flate2 = "1"
 hex = "0.4"
 ratatui = "0.29.0"
 # Shared HUD theme/widgets with wayang-fw and wayang-router (private repo).
-wayang-tui = { git = "https://github.com/dalang-io/wayang-tui", tag = "v0.2.0" }
+wayang-tui = { git = "https://github.com/dalang-io/wayang-tui", tag = "v0.2.1" }
 # Reset SIGPIPE to SIG_DFL for the CLI subcommands so `wayang status | head`
 # terminates cleanly instead of aborting on a broken pipe.
 libc = "0.2"
