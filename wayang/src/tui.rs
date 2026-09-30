@@ -1656,11 +1656,11 @@ mod tests {
         app.sub = Some(Sub::Net(netui::App::new(true)));
         let text = render(&app, 110, 34).unwrap();
         assert!(text.contains("◢ ▸ INTERFACES ◣"), "{text}");
-        assert!(!text.contains("◢ ▸ MODE"), "the config pane is unfocused:\n{text}");
-        // → moves the keyboard to CONFIG; the mode/address pane lights up.
+        assert!(!text.contains("◢ ▸ CONFIG"), "the CONFIG tab is not shown yet:\n{text}");
+        // → gives the CONFIG tab the whole body, and it owns the keyboard.
         app.on_key(KeyEvent::from(KeyCode::Right));
         let text = render(&app, 110, 34).unwrap();
-        assert!(text.contains("◢ ▸ MODE — EDIT: form ◣"), "{text}");
+        assert!(text.contains("◢ ▸ CONFIG — EDIT: form ◣"), "{text}");
         assert!(!text.contains("◢ ▸ INTERFACES ◣"), "{text}");
     }
 
@@ -1808,6 +1808,46 @@ mod tests {
             let on_disk = std::fs::read_to_string(&path).unwrap();
             assert_eq!(text, on_disk, "screens/{name}.txt is stale; regenerate with `--screens screens`");
         }
+    }
+
+    #[test]
+    fn one_tab_is_one_full_screen_view_with_a_shared_detail_strip() {
+        // §5d: each tab owns the whole body; list tabs share one DETAIL strip.
+        let mut app = App::new(true);
+        app.sub = Some(Sub::Net(netui::App::new(true)));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ INTERFACES ◣"), "{text}");
+        assert!(text.contains("◢ DETAIL ◣"), "the shared DETAIL strip:\n{text}");
+        assert!(!text.contains("◢ ▸ CONFIG — EDIT: form ◣"), "no side-by-side form:\n{text}");
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ CONFIG — EDIT: form ◣"), "{text}");
+        assert!(!text.contains("◢ ▸ INTERFACES ◣"), "the list tab is gone:\n{text}");
+        assert!(!text.contains("◢ DETAIL ◣"), "CONFIG needs no detail:\n{text}");
+
+        let mut app = App::new(true);
+        app.sub = Some(Sub::Wifi(wifiui::App::new(true)));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ ACCESS POINTS ◣"), "{text}");
+        assert!(text.contains("◢ DETAIL ◣"), "{text}");
+        assert!(!text.contains("◢ ▸ WIRELESS IFACE ◣"), "{text}");
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ WIRELESS IFACE ◣"), "{text}");
+        assert!(!text.contains("◢ ▸ ACCESS POINTS ◣"), "{text}");
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ DETAILS ◣"), "{text}");
+        assert!(!text.contains("◢ DETAIL ◣"), "DETAILS is the full-screen detail:\n{text}");
+
+        let mut app = App::new(true);
+        app.sub = Some(Sub::Ssh(sshkeysui::App::new(true)));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ AUTHORIZED KEYS ◣"), "{text}");
+        assert!(text.contains("◢ DETAIL ◣"), "{text}");
+        app.on_key(KeyEvent::from(KeyCode::Right));
+        let text = render(&app, 110, 34).unwrap();
+        assert!(text.contains("◢ ▸ DETAILS ◣"), "{text}");
     }
 
     #[test]

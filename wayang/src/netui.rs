@@ -680,6 +680,8 @@ pub fn demo_static() -> App {
         ipv6_dns: "2001:4860:4860::8888".into(),
     };
     app.message = Some((Tone::Ok, "Ready to apply.".into()));
+    // §5d: the form is its own full-screen tab.
+    app.pane = 1;
     app
 }
 
@@ -694,7 +696,6 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Min(8),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -702,19 +703,20 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .split(area);
 
     draw_header(f, rows[0], app);
-    hud::tab_row(f, rows[1], &TABS, app.pane, t);
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(56), Constraint::Percentage(44)])
-        .split(rows[2]);
-    draw_ifaces(f, cols[0], app);
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(9), Constraint::Min(6)])
-        .split(cols[1]);
-    draw_mode(f, right[0], app);
-    draw_fields(f, right[1], app);
-    draw_result(f, rows[3], app, tick);
+    // §5d: one tab = one full-screen view. INTERFACES is a list + fixed bottom
+    // DETAIL strip; CONFIG is the full-screen form (no detail needed).
+    let detail = app.pane == 0;
+    let body = wayang_tui::layout::body(rows[1], detail);
+    hud::tab_row(f, body.tab_row, &TABS, app.pane, t);
+    if app.pane == 0 {
+        draw_ifaces(f, body.content, app);
+        if let Some(d) = body.detail {
+            hud::detail(f, d, iface_detail_lines(app, t), "no interface selected", t);
+        }
+    } else {
+        draw_config(f, body.content, app);
+    }
+    draw_result(f, rows[2], app, tick);
 
     // Context footer: at most six, most relevant first.
     let keys: Vec<(&str, &str)> = if app.pane == 0 {
@@ -722,7 +724,7 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
     } else {
         vec![("↑↓", "field"), ("/", "find"), ("enter", "edit"), ("space", "toggle"), ("a", "apply"), ("q", "back")]
     };
-    hud::footer(f, rows[4], &keys, t);
+    hud::footer(f, rows[3], &keys, t);
 
     if let Some((_, input)) = &app.input {
         input::draw(f, area, t, input, tick);
@@ -817,14 +819,30 @@ fn net_row_focus(app: &App, row: Row) -> bool {
     app.pane == 1 && app.rows().get(app.field_sel).copied() == Some(row)
 }
 
-fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
+/// The dedicated DETAIL strip fields for the selected interface (three rows,
+/// so they fit the fixed 6-row §5d strip without scrolling).
+fn iface_detail_lines(app: &App, t: &Theme) -> Vec<Line<'static>> {
+    let Some(i) = app.ifaces.get(app.sel) else {
+        return Vec::new();
+    };
+    let kind = if i.wireless { "wireless" } else { "wired" };
+    let role = if i.primary { " · primary" } else if net::is_also(&app.also, &i.name) { " · also lease" } else { "" };
+    let ip = i.ipv4.first().cloned().unwrap_or_else(|| "-".into());
+    vec![
+        hud::field("IFACE", 8, vec![Span::styled(format!("{}  {kind}{role}", i.name), t.palette.bold(t.palette.fg))], t),
+        hud::field("ADDRESS", 8, vec![Span::styled(ip, t.palette.fg(t.palette.fg))], t),
+        hud::field("MAC", 8, vec![Span::styled(format!("{}  {}", i.mac, i.driver), t.palette.fg(t.palette.dim))], t),
+    ]
+}
+
+/// The CONFIG tab: one full-screen form (mode + family + address fields), so
+/// the whole body belongs to the tab (§5d — no side-by-side panes).
+fn draw_config(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    // On the CONFIG tab the MODE panel is focused while a mode/family row is
-    // selected; a field row focuses the ADDRESS panel instead.
-    let focused = matches!(app.rows().get(app.field_sel), Some(Row::Mode | Row::Family));
-    let inner = hud::panel(f, area, "MODE — EDIT: form", None, app.pane == 1 && focused, t);
-    let mut lines = Vec::new();
+    // The tab owns the keyboard whenever it is showing, so the form is focused.
+    let inner = hud::panel_focused(f, area, "CONFIG — EDIT: form", None, t);
     let row_w = inner.width.saturating_sub(1) as usize;
+    let mut lines = Vec::new();
     for m in [Mode::Dhcp, Mode::Static] {
         let sel = app.choice.mode == m;
         let note = match m {
@@ -846,7 +864,6 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
         ));
     }
     if app.choice.mode == Mode::Static {
-        lines.push(Line::raw(""));
         let focused = net_row_focus(app, Row::Family);
         let cur = if focused { t.selection_mark() } else { "  " };
         let mut fam = vec![
@@ -863,21 +880,10 @@ fn draw_mode(f: &mut Frame, area: Rect, app: &App) {
         lines.push(hud::line_with_hint(fam, if focused { "space cycle" } else { "" }, row_w, t));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("↑↓ field · space toggle · a apply", t.palette.fg(t.palette.dim))));
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
-}
-
-fn draw_fields(f: &mut Frame, area: Rect, app: &App) {
-    let t = &app.t;
-    let focused = matches!(app.rows().get(app.field_sel), Some(Row::Field(_)));
-    let inner = hud::panel(f, area, "ADDRESS — EDIT: form", None, app.pane == 1 && focused, t);
-    let mut lines = Vec::new();
-    let row_w = inner.width.saturating_sub(1) as usize;
+    lines.push(hud::caption("ADDRESS — EDIT: form", inner.width, t));
     if app.choice.mode == Mode::Dhcp {
-        lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(format!("{} DHCP needs no fields", t.ui.sym(0)), t.palette.bold(t.palette.ok))));
-        lines.push(Line::from(Span::styled("the interface gets address, route and DNS", t.palette.fg(t.palette.dim))));
-        lines.push(Line::from(Span::styled("from the network automatically.", t.palette.fg(t.palette.dim))));
+        lines.push(Line::from(Span::styled("the interface gets address, route and DNS from the network automatically.", t.palette.fg(t.palette.dim))));
     } else {
         if app.choice.family.has_v4() {
             lines.push(net_field(t, "1", "ADDRESS", &app.choice.ipv4_address, "192.168.1.50/24", net_row_focus(app, Row::Field(Field::V4Addr)), row_w));
@@ -895,6 +901,8 @@ fn draw_fields(f: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled("gateway and DNS are optional", t.palette.fg(t.palette.dim))));
     }
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled("↑↓ field · space toggle · a apply", t.palette.fg(t.palette.dim))));
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
@@ -938,12 +946,16 @@ mod tests {
 
     #[test]
     fn demo_renders_interfaces_and_fields() {
-        let app = demo_static();
-        let text = crate::screen::render_text(&app, 100, 32, draw).unwrap();
+        // §5d: each tab is its own full-screen view.
+        let list = App::new(true);
+        let text = crate::screen::render_text(&list, 100, 32, draw).unwrap();
         assert!(text.contains("NETWORK"));
         assert!(text.contains("INTERFACES"));
         assert!(text.contains("eth0"));
         assert!(text.contains("wlan0"));
+        let form = demo_static();
+        let text = crate::screen::render_text(&form, 100, 32, draw).unwrap();
+        assert!(text.contains("CONFIG"));
         assert!(text.contains("192.168.1.50/24"));
         assert!(text.contains("BOTH"));
     }

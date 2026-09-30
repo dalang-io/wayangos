@@ -465,7 +465,6 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Min(6),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -473,20 +472,25 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .split(area);
 
     draw_header(f, rows[0], app);
-    hud::tab_row(f, rows[1], &TABS, app.pane, t);
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-        .split(rows[2]);
-    draw_keys(f, cols[0], app);
-    draw_details(f, cols[1], app);
+    // §5d: one tab = one full-screen view. KEYS is the list + fixed bottom
+    // DETAIL strip; DETAILS is the full-screen detail view.
+    let body = wayang_tui::layout::body(rows[1], app.pane == 0);
+    hud::tab_row(f, body.tab_row, &TABS, app.pane, t);
+    if app.pane == 0 {
+        draw_keys(f, body.content, app);
+        if let Some(d) = body.detail {
+            hud::detail(f, d, key_detail_lines(app, t), "no key selected", t);
+        }
+    } else {
+        draw_details(f, body.content, app);
+    }
     let busy = app.job.as_ref().map(|_| hud::spinner(tick));
     let msg = app.message.as_ref().map(|(tone, m)| (*tone, m.as_str()));
-    hud::status_row(f, rows[3], msg, busy, "a adds a key, d removes one.", t);
+    hud::status_row(f, rows[2], msg, busy, "a adds a key, d removes one.", t);
 
     hud::footer(
         f,
-        rows[4],
+        rows[3],
         &[
             ("↑↓", "pick"),
             ("/", "find"),
@@ -562,9 +566,23 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
+/// The fixed DETAIL strip fields for the selected key (three rows).
+fn key_detail_lines(app: &App, t: &Theme) -> Vec<Line<'static>> {
+    let Some(k) = app.keys.get(app.sel) else {
+        return Vec::new();
+    };
+    let comment = if k.comment.is_empty() { "-".to_string() } else { k.comment.clone() };
+    vec![
+        hud::field("TYPE", 8, vec![Span::styled(k.kind().to_string(), t.palette.bold(t.palette.fg))], t),
+        hud::field("SHA256", 8, vec![Span::styled(t.clip(&k.fingerprint(), 60), t.palette.fg(t.palette.accent))], t),
+        hud::field("COMMENT", 8, vec![Span::styled(comment, t.palette.fg(t.palette.fg))], t),
+    ]
+}
+
 fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "DETAILS — EDIT: form", None, app.pane == 1, t);
+    // The tab owns the body, so the full-screen DETAILS view is focused.
+    let inner = hud::panel_focused(f, area, "DETAILS", None, t);
     let mut lines = Vec::new();
     match app.keys.get(app.sel) {
         Some(k) => {

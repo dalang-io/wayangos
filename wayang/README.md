@@ -9,7 +9,7 @@ subcommands and exit codes.
 ## Chrome (canonical — see `../docs/TUI-UX-REVAMP.md`)
 
 The CLI, `wayang-fw` and `wayang-router` share one look, implemented once in the
-**`wayang-tui`** crate (private git dependency, tag `v0.1.1`). `src/hud.rs` is
+**`wayang-tui`** crate (private git dependency, tag `v0.2.0`). `src/hud.rs` is
 now a thin CLI adapter: it re-exports the crate's theme/widgets and keeps only
 the CLI-specific pieces (the `Tone` severity model, the status row, the ASCII
 spinner, the indeterminate progress bar, the tab-row grammar, the inline hint
@@ -41,10 +41,54 @@ None, focused, t)` draws the focused pane's border and title in `accent` and
 prefixes the title with `▸ ` (`>` only with `--plain`); unfocused panes keep the
 `border`/dim title (their corners are still `accent`, their chevrons `accent2`).
 The deck focuses the MODULES list (the preview card is dim);
-each module's split focuses the list or the active tab's pane; a modal (help,
-REVIEW, input, picker, jump) takes focus while it is open — REVIEW and the input
-/picker modals use the crate's shared `wayang_tui::overlay::Overlay` frame.
-Border colour is never the only signal.
+each module gives the whole body to the **selected tab**, which then owns the
+keyboard (the fixed DETAIL strip never does); a modal (help, REVIEW, input,
+picker, jump) takes focus while it is open — REVIEW and the input /picker modals
+use the crate's shared `wayang_tui::overlay::Overlay` frame. Border colour is
+never the only signal.
+
+## Layout — one tab = one full-screen view (§5d)
+
+Every screen with a tab row uses the crate's `wayang_tui::layout::body(area,
+has_detail)`: the tab row in `tab_row`, the **selected tab full-width** in
+`content`, and — only where a master–detail is genuinely useful — the shared
+fixed bottom **DETAIL** strip (`hud::detail`, rendered unfocused) in `detail`.
+There are no per-screen side-by-side or stacked panes any more:
+
+* NETWORK `INTERFACES│CONFIG` — the interface list + DETAIL strip, or the
+  full-screen `CONFIG` form (no strip);
+* WIFI `ACCESS POINTS│WIRELESS IFACE│DETAILS` — each list tab + DETAIL strip, or
+  the full-screen `DETAILS` view;
+* SSH `AUTHORIZED KEYS│DETAILS` — the key list + DETAIL strip, or the
+  full-screen `DETAILS` view.
+
+The tab row, breadcrumb and footer are the only navigation chrome; `←→` moves
+the tab and never leaves the module.
+
+## Terminal robustness (§5b/§5c)
+
+`src/screen.rs` drives every HUD through the crate's terminal helpers:
+
+* **Lifecycle** — `wayang_tui::term::TermGuard::enter(std::io::stdout(),
+  &theme.palette)` themes the page background with **OSC 11** before entering
+  the alternate screen (no light/SSH white flash) and `term::leave` restores it.
+  Release builds use `panic = "abort"`, so a **panic hook** calls `term::leave`
+  too (Drop never runs).
+* **First frame is the splash** — the deck builds an un-sampled `App::shell`,
+  the runner draws `wayang_tui::splash::render(.., "wayang", Some("OS CONSOLE"),
+  ..)` before the first `poll` samples status/deck. Returning from a child
+  (`wayang-fw`/`wayang-router`/`dcheck`) draws `wayang_tui::transition::render`
+  and keeps the alternate screen until the child's own splash, then splashes
+  again — no flashblank.
+* **Self-healing repaint** — a `TermGuard`-scoped `wayang_tui::term::Repaint`
+  forces a full redraw (clear only when requested, no flicker) at startup, on
+  `SIGWINCH` (`Event::Resize`), on **`Ctrl-L`**, on child return and on a ~3 s
+  slow tick — so external tty output (kernel chatter, a stray child) is
+  overwritten on its own.
+* **No child leaks** — every `Command` the HUD spawns goes through
+  `wayang_tui::term` (`command` / `command_capture` / `spawn_cmd` /
+  `output_cmd`), so stdout/stderr default to null (or piped when captured); the
+  full-screen companion is built via `term::command` and then inherits the tty.
 
 ## Version
 

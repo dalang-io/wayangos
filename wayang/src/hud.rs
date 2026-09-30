@@ -125,6 +125,25 @@ pub fn header_bar(
     header(f, area, &hdr, t);
 }
 
+/// The §5d fixed-bottom **DETAIL** strip: one shared treatment on every
+/// screen. `lines` are the selected item's fields; an empty list shows a dim
+/// `empty` hint instead. The strip never owns the keyboard, so it is rendered
+/// unfocused (no `▸`).
+pub fn detail(f: &mut Frame, area: Rect, lines: Vec<Line<'static>>, empty: &str, t: &Theme) {
+    let inner = panel(f, area, "DETAIL", None, false, t);
+    // A blank keeps the fields off the top border when there is room.
+    let mut all = vec![Line::raw("")];
+    if lines.is_empty() {
+        all.push(Line::from(Span::styled(
+            empty.to_string(),
+            t.palette.fg(t.palette.dim),
+        )));
+    } else {
+        all.extend(lines);
+    }
+    f.render_widget(Paragraph::new(all), inner);
+}
+
 /// One-row footer: the shared [`keycaps`] with the CLI's leading gutter.
 pub fn footer(f: &mut Frame, area: Rect, keys: &[(&str, &str)], t: &Theme) {
     let mut line = keycaps(keys, t);
@@ -360,6 +379,41 @@ mod tests {
             .flat_map(|y| (0..30).map(move |x| buf[(x, y)].symbol().to_string()))
             .collect();
         assert!(text.contains("[ > TARGET ]"), "--plain uses `>`: {text}");
+    }
+
+    #[test]
+    fn detail_is_a_shared_unfocused_strip() {
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 6)).unwrap();
+        term.draw(|f| {
+            let area = f.area();
+            detail(
+                f,
+                area,
+                vec![Line::from(Span::raw("FIELD value"))],
+                "nothing selected",
+                &ansi(),
+            );
+        })
+        .unwrap();
+        let buf = term.backend().buffer();
+        let text: String = (0..6)
+            .flat_map(|y| (0..30).map(move |x| buf[(x, y)].symbol().to_string()))
+            .collect();
+        assert!(text.contains("◢ DETAIL ◣"), "{text}");
+        assert!(!text.contains("◢ ▸ DETAIL ◣"), "the strip never owns focus: {text}");
+        assert!(text.contains("FIELD value"), "{text}");
+        // Empty: the hint replaces the fields.
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 6)).unwrap();
+        term.draw(|f| {
+            let area = f.area();
+            detail(f, area, Vec::new(), "nothing selected", &ansi());
+        })
+        .unwrap();
+        let buf = term.backend().buffer();
+        let text: String = (0..6)
+            .flat_map(|y| (0..30).map(move |x| buf[(x, y)].symbol().to_string()))
+            .collect();
+        assert!(text.contains("nothing selected"), "{text}");
     }
 
     #[test]

@@ -470,7 +470,6 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Min(8),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -478,26 +477,34 @@ pub fn draw(f: &mut Frame, app: &App, tick: usize) {
         .split(area);
 
     draw_header(f, rows[0], app);
-    hud::tab_row(f, rows[1], &TABS, app.pane, t);
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(52), Constraint::Percentage(48)])
-        .split(rows[2]);
-    draw_bss(f, cols[0], app);
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(6)])
-        .split(cols[1]);
-    draw_ifaces(f, right[0], app);
-    draw_details(f, right[1], app);
-    draw_result(f, rows[3], app);
+    // §5d: one tab = one full-screen view. The two list tabs share the fixed
+    // bottom DETAIL strip; the DETAILS tab is the full-screen detail view.
+    let has_detail = app.pane != 2;
+    let body = wayang_tui::layout::body(rows[1], has_detail);
+    hud::tab_row(f, body.tab_row, &TABS, app.pane, t);
+    match app.pane {
+        0 => {
+            draw_bss(f, body.content, app);
+            if let Some(d) = body.detail {
+                hud::detail(f, d, ap_detail_lines(app, t), "no network selected", t);
+            }
+        }
+        1 => {
+            draw_ifaces(f, body.content, app);
+            if let Some(d) = body.detail {
+                hud::detail(f, d, iface_detail_lines(app, t), "no interface selected", t);
+            }
+        }
+        _ => draw_details(f, body.content, app),
+    }
+    draw_result(f, rows[2], app);
 
     let keys: Vec<(&str, &str)> = match app.pane {
         0 => vec![("↑↓", "pick"), ("/", "find"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
         1 => vec![("↑↓", "pick"), ("/", "find"), ("enter", "switch"), ("s", "scan"), ("?", "help"), ("b", "back")],
         _ => vec![("c", "country"), ("/", "find"), ("enter", "connect"), ("s", "scan"), ("?", "help"), ("b", "back")],
     };
-    hud::footer(f, rows[4], &keys, t);
+    hud::footer(f, rows[3], &keys, t);
 
     if let Some(input) = &app.input {
         input::draw(f, area, t, input, tick);
@@ -640,9 +647,47 @@ fn draw_ifaces(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
+/// The fixed DETAIL strip fields for the selected access point (three rows).
+fn ap_detail_lines(app: &App, t: &Theme) -> Vec<Line<'static>> {
+    let Some(b) = app.bss.get(app.bss_sel) else {
+        return Vec::new();
+    };
+    let ssid = if b.ssid.is_empty() { "<hidden>".to_string() } else { b.ssid.clone() };
+    let sig = b.signal.map(|s| format!("{s} dBm")).unwrap_or_else(|| "?".into());
+    vec![
+        hud::field("SSID", 8, vec![Span::styled(ssid, t.palette.bold(t.palette.fg))], t),
+        hud::field("BSSID", 8, vec![Span::styled(b.bssid.clone(), t.palette.fg(t.palette.dim))], t),
+        hud::field("SIGNAL", 8, vec![
+            Span::styled(format!("{sig}  "), t.palette.fg(t.palette.accent)),
+            Span::styled(b.security.clone(), t.palette.fg(if b.security == "OPEN" { t.palette.warn } else { t.palette.ok })),
+        ], t),
+    ]
+}
+
+/// The fixed DETAIL strip fields for the selected wireless interface.
+fn iface_detail_lines(app: &App, t: &Theme) -> Vec<Line<'static>> {
+    let Some(i) = app.ifaces.get(app.iface_sel) else {
+        return Vec::new();
+    };
+    let st = app.links.get(app.iface_sel).cloned().unwrap_or_default();
+    let state = if st.connected {
+        format!("connected: {}", if st.ssid.is_empty() { "<hidden>" } else { &st.ssid })
+    } else if !st.ssid.is_empty() {
+        format!("saved: {}", st.ssid)
+    } else {
+        "not connected".to_string()
+    };
+    vec![
+        hud::field("IFACE", 8, vec![Span::styled(format!("{}  {}", i.name, i.driver), t.palette.bold(t.palette.fg))], t),
+        hud::field("MAC", 8, vec![Span::styled(i.mac.clone(), t.palette.fg(t.palette.dim))], t),
+        hud::field("STATE", 8, vec![Span::styled(state, t.palette.fg(t.palette.fg))], t),
+    ]
+}
+
 fn draw_details(f: &mut Frame, area: Rect, app: &App) {
     let t = &app.t;
-    let inner = hud::panel(f, area, "DETAILS — EDIT: form", None, app.pane == 2, t);
+    // The tab owns the body, so the full-screen DETAILS view is focused.
+    let inner = hud::panel_focused(f, area, "DETAILS", None, t);
     let mut lines = Vec::new();
     match app.bss.get(app.bss_sel) {
         Some(b) => {

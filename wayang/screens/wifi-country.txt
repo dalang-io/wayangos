@@ -1,20 +1,20 @@
  ◢◤ WAYANG OS // WIFI ▸┏◢ ▸ COUNTRY ◣─────────────────────────────────────────────────┓  wlan0 not connected
   ▸ ACCESS POINTS │  WI│Regulatory domain for the wireless radio:                     │
 ┏◢ ▸ ACCESS POINTS ◣───│                                                              │──────────────────────┓
-│  SSID                │▶ (not set)                                                   │:68:01:23             │
-│▶ CoffeeShop          │  AD  Andorra                                                 │an)                   │
+│  SSID                │▶ (not set)                                                   │                      │
+│▶ CoffeeShop          │  AD  Andorra                                                 │        enter connect │
 │  OldRouter           │  AE  United Arab Emirates                                    │                      │
 │  OpenCafe            │  AF  Afghanistan                                             │                      │
 │                      │  AG  Antigua and Barbuda                                     │                      │
-│                      │  AI  Anguilla                                                │──────────────────────┛
-│                      │  AL  Albania                                                 │──────────────────────┓
+│                      │  AI  Anguilla                                                │                      │
+│                      │  AL  Albania                                                 │                      │
 │                      │  AM  Armenia                                                 │                      │
 │                      │  AO  Angola                                                  │                      │
 │                      │  AQ  Antarctica                                              │                      │
 │                      │  AR  Argentina                                               │                      │
 │                      │  AS  American Samoa                                          │                      │
 │                      │  AT  Austria                                                 │                      │
-│                      │  AU  Australia                                               │ the passphrase       │
+│                      │  AU  Australia                                               │                      │
 │                      │  AW  Aruba                                                   │                      │
 │                      │  AX  Åland Islands                                           │                      │
 │                      │  AZ  Azerbaijan                                              │                      │
@@ -23,12 +23,12 @@
 │                      │  BD  Bangladesh                                              │                      │
 │                      │  BE  Belgium                                                 │                      │
 │                      │  BF  Burkina Faso                                            │                      │
-│                      │  BG  Bulgaria                                                │                      │
-│                      │  BH  Bahrain                                                 │                      │
+┗──────────────────────│  BG  Bulgaria                                                │──────────────────────┛
+┏◢ DETAIL ◣────────────│  BH  Bahrain                                                 │──────────────────────┓
 │                      │  BI  Burundi                                                 │                      │
-│                      │  BJ  Benin                                                   │                      │
-│                      │  BL  Saint Barthélemy                                        │                      │
-│                      │  BM  Bermuda                                                 │                      │
+│SSID    CoffeeShop    │  BJ  Benin                                                   │                      │
+│BSSID   00:11:22:33:44│  BL  Saint Barthélemy                                        │                      │
+│SIGNAL  -45 dBm  WPA2 │  BM  Bermuda                                                 │                      │
 ┗──────────────────────│                                                              │──────────────────────┛
   ✔ OK  Scan: 3 network│1 / 250   ↑↓ move   enter choose   esc cancel                 │
  [↑↓] pick  [/] find  [┗──────────────────────────────────────────────────────────────┛
