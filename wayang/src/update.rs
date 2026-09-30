@@ -255,9 +255,12 @@ mod tests {
 
     #[test]
     fn reboot_not_called_in_test_env() {
-        std::env::set_var("WAYANG_ROOT", "/tmp/wayang-reboot-test");
+        // SAFETY: single-threaded test; the process environment is restored
+        // before returning.
+        unsafe { std::env::set_var("WAYANG_ROOT", "/tmp/wayang-reboot-test") };
         assert!(maybe_reboot(true).is_ok());
-        std::env::remove_var("WAYANG_ROOT");
+        // SAFETY: see set_var above.
+        unsafe { std::env::remove_var("WAYANG_ROOT") };
     }
 
     #[test]

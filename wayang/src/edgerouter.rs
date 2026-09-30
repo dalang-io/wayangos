@@ -1238,7 +1238,9 @@ mod tests {
     #[test]
     fn enroll_uses_wayang_root() {
         let dir = tmp();
-        std::env::set_var("WAYANG_ROOT", &dir);
+        // SAFETY: single-threaded test; this test is the only mutator of the
+        // process environment here and restores it before returning.
+        unsafe { std::env::set_var("WAYANG_ROOT", &dir) };
         assert_eq!(paths::wayangi_dir(), dir.join("data/etc/wayangi"));
         let hex = "0123456789abcdef0123456789abcdef";
         enroll(hex).unwrap();
@@ -1247,7 +1249,8 @@ mod tests {
         assert_eq!(read_token_at(&paths::wayangi_dir()).as_deref(), Some(hex));
         assert!(clear().unwrap());
         assert!(read_token_at(&paths::wayangi_dir()).is_none());
-        std::env::remove_var("WAYANG_ROOT");
+        // SAFETY: see set_var above.
+        unsafe { std::env::remove_var("WAYANG_ROOT") };
         let _ = fs::remove_dir_all(&dir);
     }
 
