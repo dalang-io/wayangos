@@ -60,3 +60,4 @@ Thumbs.db
 # SQLite amalgamation (large, download separately)
 sqlite3.c
 sqlite3.h
+dcheck/
