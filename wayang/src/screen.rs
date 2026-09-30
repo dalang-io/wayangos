@@ -112,20 +112,18 @@ pub fn run_with_launch<A>(
                         }
                         if let Some(mut cmd) = take_launch(&mut app) {
                             let target = cmd.get_program().to_string_lossy().into_owned();
-                            let _ = terminal.draw(|f| {
-                                wayang_tui::transition::render(
-                                    f,
-                                    f.area(),
-                                    "launching",
-                                    &target,
-                                    theme,
-                                )
-                            });
-                            // Keep the alternate screen while the child runs so
-                            // there is no flashblank between the two HUDs.
+                            // Hand the terminal to the child cleanly: give up raw
+                            // mode AND the alternate screen first. Entering a
+                            // second alt-screen (the child does its own) while we
+                            // hold ours corrupts the display: the child's exit
+                            // pops back to the *main* screen, the parent keeps
+                            // painting there, and those lines linger after the
+                            // HUD exits (the "white space" bug).
+                            let _ = disable_raw_mode();
+                            let _ = term::leave(&mut io::stdout(), &palette);
                             let res = cmd.status();
-                            // A child TUI disables raw mode / leaves the alt
-                            // screen on its own way out; reclaim both.
+                            // Reclaim the terminal: raw mode, themed alternate
+                            // screen, then a fresh loading frame + full repaint.
                             enable_raw_mode()?;
                             let _ = term::enter(&mut io::stdout(), &palette);
                             let _ = terminal.draw(|f| {
