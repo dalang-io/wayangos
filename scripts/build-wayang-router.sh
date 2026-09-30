@@ -17,8 +17,8 @@
 set -euo pipefail
 BUILD="${BUILD_DIR:-$HOME/wayangos-build}"
 # Pinned: bump version + sha256 together (sha256 of the published binary).
-WAYANG_ROUTER_VERSION="${WAYANG_ROUTER_VERSION:-0.4.3}"
-WAYANG_ROUTER_SHA256="${WAYANG_ROUTER_SHA256:-fe8d02b62b2b8ce18a1bc0756e3af65e39eceb43c93a9169a2707b07ec0b6e4e}"
+WAYANG_ROUTER_VERSION="${WAYANG_ROUTER_VERSION:-0.5.0}"
+WAYANG_ROUTER_SHA256="${WAYANG_ROUTER_SHA256:-0deb696cae8aef5079834828f224b13a9d8772159fe9060fcf75b0b16e3fcf6e}"
 BASE_URL="${WAYANG_ROUTER_BASE_URL:-https://wayang.dalang.io/edge/tools}"
 ASSET="wayang-router-v$WAYANG_ROUTER_VERSION-x86_64-unknown-linux-musl"
 OUTDIR="$BUILD/wayang-router"
