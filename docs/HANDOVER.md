@@ -274,12 +274,12 @@ BGP/OSPF, SD-WAN, shaping) — built in `wayang-router`. The only leftover is HA
 
 | Repo | HEAD / tag | Notes |
 |---|---|---|
-| `dalang-io/wayangos` (this) | `master` `e5746e1`, tag **`v1.0.30`** (HEAD is 1 commit past it) | block enabled; `wayang reset`; selftest removed; hotplug DHCP; **wayang-router/wayang-fw baked into the rootfs; EDGEROUTER TUI removed; CI self-hosted (~5 m)**; tool pins `wayang-router 0.6.0` / `wayang-fw 0.6.0`; **dnsmasq 2.93 bundled**; **monitor pid tracking fixed** in `init.d/{fw,router}` — **untagged, needs a build** |
-| `dalang-io/wayang-fw` | `master` `8885c58`, tag **`v0.6.0`** (HEAD is 3 commits past it) | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP, monitor, per-zone DHCP/DNS; **HUD via the shared `wayang-tui`**; Rust 1.98.1 + edition 2024; **three commit-confirm bugs fixed** (`a516443`) + docs refresh |
-| `dalang-io/wayang-router` | `master` `834d17e`, tag **`v0.6.0`** | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor); bridge port-level VLANs; **v0.3.3 `wan_group` table bring-up fix** (`d576fa8`); **HUD via `wayang-tui`** (nav grammar, REVIEW + no silent primary, WAN wizard, deep `/` jump, full-screen tabs, splash/repaint); **reading API `wayang-router api` (P0)**; **Rust 1.98.1 + edition 2024** |
-| `dalang-io/dcheck` | `master` `12d4601`, tag **`dcheck-v0.5.1`** | health list + Prometheus + undelete/macOS; **Rust 1.98.1 + edition 2024** (`unsafe extern "C"`, `allow(collapsible_if)`) |
+| `dalang-io/wayangos` (this) | `master` `b5345c1`, tag **`v1.0.30`** (2 commits past) | block enabled; `wayang reset`; selftest removed; hotplug DHCP; **wayang-router/wayang-fw baked into the rootfs; EDGEROUTER TUI removed; CI self-hosted (~5 m)**; tool pins `wayang-router 0.6.0` / `wayang-fw 0.6.0`; **dnsmasq 2.93 bundled**; **monitor pid tracking fixed** in `init.d/{fw,router}` — **untagged, needs a build** |
+| `dalang-io/wayang-fw` | `master` `d2388b3`, tag **`v0.6.0`** (5 commits past) | DROPS, schedules, hairpin, FortiOS import, NAT66, VIP, monitor, per-zone DHCP/DNS; **HUD via the shared `wayang-tui`**; Rust 1.98.1 + edition 2024; **three commit-confirm bugs fixed** (`a516443`) + docs refresh |
+| `dalang-io/wayang-router` | `master` `6776e58` + 2, tag **`v0.6.0`** | EdgeRouter role (public `/32` routed_prefixes+proxy_arp, delegated IPv6 + SLAAC/radvd, v6 policy routing, weighted-ECMP + failover, VRF, multi-WAN, monitor); bridge port-level VLANs; **v0.3.3 `wan_group` table bring-up fix** (`d576fa8`); **HUD via `wayang-tui`** (nav grammar, REVIEW + no silent primary, WAN wizard, deep `/` jump, full-screen tabs, splash/repaint); **reading API `wayang-router api` (P0)**; **Rust 1.98.1 + edition 2024** |
+| `dalang-io/dcheck` | `master` `f4e3e3e`, tag **`dcheck-v0.5.1`** | health list + Prometheus + undelete/macOS; **Rust 1.98.1 + edition 2024** (`unsafe extern "C"`, `allow(collapsible_if)`) |
 | `dalang-io/wayang-tui` (new) | `main` `a8c84b5`, tag **`v0.2.1`** | **shared ratatui component library** for the three HUDs: `theme` (palette/modes), `widgets` (`panel`/`panel_focused`/`header`/`footer`/`keycaps`/`badge`/…), `focus`, `overlay`, `term` (OSC-11, alt screen, repaint, tty-safe spawn), `splash`, `transition`, `layout`. `docs/ADD-A-SCREEN.md` |
-| `dalang-io/wayangi` (dashboard) | `main` `7ee3170` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod; `wos-x86-1` 1-NIC WAN-only model; **public-SSH `allow_from` default**; **N-hub generator** (`docs/EDGE-N-HUB.md`), `docs/FUTURE-WORKS.md` |
+| `dalang-io/wayangi` (dashboard) | `main` `0e477e7` | WayangOS unit type + self-managed WG + `docs/EDGE-PARITY.md`, deployed to prod; `wos-x86-1` 1-NIC WAN-only model; **public-SSH `allow_from` default**; **N-hub generator** (`docs/EDGE-N-HUB.md`), `docs/FUTURE-WORKS.md` |
 
 ## HUD & platform round (2026-09-30)
 
@@ -361,9 +361,24 @@ in both repos, so no device has any of it.
 | | Where it is | Ships when |
 |---|---|---|
 | wayang-fw: 3 commit-confirm fixes | `8885c58` (`a516443` is the fix) | next `wayang-fw` tag — **and see the box note below** |
-| wayang-fw: docs/ROADMAP/TODO refresh | `8561c27`, `8885c58` | with the next tag |
+| wayang-fw: address negation (FortiOS `set invert`) + a literal-mix bug it did not catch | `704f89f`, `3e99645` | with the next tag |
+| wayang-fw: read-only HTTP API (`wayang-fw api`, 7 routes) | `9ab4563` | with the next tag |
+| wayang-fw: docs — WAF.md kernel facts corrected | `d2388b3` | with the next tag |
 | wayangos: dnsmasq + monitor pid fix | `e5746e1` | next `v1.0.31` **or** a `workflow_dispatch` build |
+| wayangos: WAF mode-B kernel fragment, **in no pipeline** | `b5345c1` | deliberately not yet — needs bisect + boot soaks |
+| wayang-router: commit path crash-safe (record + watchdog armed before the first step) | `6776e58` | next `wayang-router` tag |
+| wayang-router: VRRP (RFC 5798 subset) + macOS portability + the `snapshot --live` panic | `39fbe8c`, `7eb0b96` | with the next tag |
+| dcheck: renders through `wayang-tui` (−528 lines) | `f4e3e3e` | next `dcheck` tag |
+| wayangi: first CI (4 jobs, 293 tests now run automatically) + billing P0 | `0e477e7`, `43b4045` | already live on `main` |
 | `dnsmasq` on `163.128.55.4` | `/data/bin/dnsmasq`, installed by hand | already there; **delete it once an image with dnsmasq is on the box** |
+
+Lab status at the time of writing (all on the build box): `wayang-fw` 25/25,
+`wayang-router` `lab_vrrp` 37/37 and `lab_vpn_bgp` 28/28, with
+`lab.py` 19/22 and `edge_multiwans` 28/29 — those two shortfalls are
+**pre-existing at `v0.6.0`** and are a reboot-path problem in
+`/etc/init.d/network` handing the interfaces to `/etc/init.d/router`, not
+anything in the commits above. Details and the next step are in
+`wayang-router/HANDOVER.md`.
 
 Before tagging: **boot-test.** 1.0.13 and 1.0.20 both froze the device, and the
 `install_tool`/init-script changes in `e5746e1` touch the boot path
