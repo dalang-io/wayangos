@@ -153,6 +153,10 @@ pub fn run_with_launch<A>(
         }
         tick = tick.wrapping_add(1);
     };
+    // Restore the tty modes too: leaving raw mode on means the shell inherits a
+    // termios without ONLCR, so its newlines stop returning the cursor to
+    // column 0 and every prompt drifts further right (the "staircase" bug).
+    let _ = disable_raw_mode();
     let _ = guard.leave();
     result
 }
