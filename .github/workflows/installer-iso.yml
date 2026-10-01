@@ -246,7 +246,7 @@ jobs:
           job wg         1 ./scripts/build-wg.sh       &
           job iproute2   1 ./scripts/build-iproute2.sh &
           job bird       1 ./scripts/build-bird.sh     &
-          job wayang     1 ./scripts/build-wayang.sh   &
+          job wayang    1 env TARGET=x86_64-unknown-linux-musl ./scripts/build-wayang.sh &
           job installer  1 ./scripts/build-installer.sh &
           job wifi-tools 0 ./scripts/build-wifi-tools.sh &
           job firmware   0 env FIRMWARE_DIR="$( [ -d /home/wosrunner/firmware-src ] && echo /home/wosrunner/firmware-src || echo /lib/firmware )" ./scripts/stage-firmware.sh &
