@@ -25,10 +25,10 @@ BUILD_DIR=/path/to/build ./scripts/build-kernel.sh defconfig-qemu bzImage-qemu
 
 ## Router tool binaries
 
-`build-rootfs.sh` installs optional static `nft`, `wg`, `tc`, `bird`, `radvd`
-and `wayangi` binaries from `$BUILD_DIR`. Each `scripts/build-*.sh` downloads
-its upstream tarball and **verifies a pinned sha256 before extracting** (checked
-on every run, including cached tarballs):
+`build-rootfs.sh` installs optional static `nft`, `wg`, `tc`, `bird`, `radvd`,
+`conntrackd` and `wayangi` binaries from `$BUILD_DIR`. Each `scripts/build-*.sh`
+downloads its upstream tarball and **verifies a pinned sha256 before
+extracting** (checked on every run, including cached tarballs):
 
 | Script | Tool | Pinned version |
 |--------|------|----------------|
@@ -37,6 +37,7 @@ on every run, including cached tarballs):
 | `scripts/build-iproute2.sh` | iproute2 `tc` (+ libmnl) | 7.2.0 (libmnl 1.0.5) |
 | `scripts/build-bird.sh` | BIRD | 2.19.2 |
 | `scripts/build-radvd.sh` | radvd | 2.21 |
+| `scripts/build-conntrackd.sh` | conntrack-tools `conntrackd` (+ libmnl / libnfnetlink / libnetfilter_conntrack) | 1.4.9 (1.0.5 / 1.0.2 / 1.1.1) |
 | `scripts/build-wayangi.sh` | wayangi (channel release) | `WAYANGI_VERSION` / channel manifest |
 
 Bump a version and its `*_SHA256` together. Set `ALLOW_UNVERIFIED=1` to skip

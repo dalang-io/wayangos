@@ -1424,6 +1424,14 @@ install_tool radvd/radvd /usr/sbin/radvd build-radvd.sh
 # warns and no-ops when the binary is absent, so the firewall is never
 # affected. Without it that feature stays dormant on a real device.
 install_tool dnsmasq/dnsmasq /usr/sbin/dnsmasq build-dnsmasq.sh
+# conntrackd — conntrack-tools' state-sync daemon for a wayang-fw HA pair
+# (static; scripts/build-conntrackd.sh). Optional like dnsmasq: with an
+# `[ha] state_sync = "conntrackd"` block wayang-fw renders
+# /data/etc/fw/conntrackd.conf and runs this daemon itself (no init script —
+# see wayang-fw/docs/HA.md), but warns and no-ops when the binary is absent, so
+# the firewall is never affected. Without it connection-state replication stays
+# dormant on a real device.
+install_tool conntrackd/conntrackd /usr/sbin/conntrackd build-conntrackd.sh
 # wayang-router / wayang-fw are baked into the image (docs/ROUTER-TODO.md): a
 # fresh WayangOS already has the router + firewall CLIs, so an Edge config can
 # be applied without a separate /data/bin deploy. A /data/bin copy still wins at

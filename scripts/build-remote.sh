@@ -38,12 +38,12 @@ if [ "${SKIP_DEPS:-}" != 1 ]; then
 set -e
 export DEBIAN_FRONTEND=noninteractive
 need=""
-for t in gcc make flex bison bc cpio xz unzip grub-mkrescue grub-mkstandalone xorriso mtools curl wget git; do
+for t in gcc make flex bison pkg-config bc cpio xz unzip grub-mkrescue grub-mkstandalone xorriso mtools curl wget git; do
     command -v "$t" >/dev/null 2>&1 || need="$need $t"
 done
 if [ -n "$need" ]; then
     apt-get update -qq
-    apt-get install -y -qq build-essential flex bison bc libelf-dev libssl-dev \
+    apt-get install -y -qq build-essential flex bison pkg-config bc libelf-dev libssl-dev \
         libnl-3-dev libnl-genl-3-dev libnl-route-3-dev \
         cpio xz-utils unzip grub-pc-bin grub-efi-amd64-bin xorriso mtools curl wget git >/dev/null
 fi

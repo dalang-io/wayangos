@@ -37,7 +37,8 @@ The rootfs is built around BusyBox, `dropbearmulti` and curl, plus a few
 static tools bundled when their build script has staged them: `nft`
 (`scripts/build-nft.sh`), `wg` (`build-wg.sh`), `tc` from iproute2
 (`build-iproute2.sh`), `bird` (BIRD 2, `build-bird.sh`), `radvd`
-(`build-radvd.sh`, IPv6 RA), `dnsmasq` (`build-dnsmasq.sh`), the firewall and
+(`build-radvd.sh`, IPv6 RA), `dnsmasq` (`build-dnsmasq.sh`), `conntrackd`
+(conntrack-tools, `build-conntrackd.sh`, HA state sync), the firewall and
 router CLIs (`build-wayang-fw.sh`, `build-wayang-router.sh`), the WAF
 (`build-wayang-waf.sh`) and `dcheck` (`fetch-dcheck.sh`). Everything else
 is deployed as a static binary via `scp` — there is no package manager.

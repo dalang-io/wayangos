@@ -44,6 +44,10 @@ fi
 ./scripts/build-bird.sh
 ./scripts/build-radvd.sh || true
 ./scripts/build-dnsmasq.sh || true
+# conntrackd is not best-effort-wrapped: the script itself skips (exit 0) only
+# when no static compiler exists and hard-fails on any other missing
+# prerequisite or a checksum mismatch.
+./scripts/build-conntrackd.sh
 ./scripts/build-wayang-router.sh
 ./scripts/build-wayang-fw.sh
 ./scripts/build-wayang-waf.sh || true
