@@ -86,7 +86,7 @@ bundled; UI reference for all TUIs).
 
 ## Current state
 
-**Released: 1.0.30** (tag + channel + GitHub release; channel serves 1.0.30).
+**Released: 1.0.31** (tag + channel + GitHub release; channel serves 1.0.31).
 1.0.27 = the **full router block enabled** (`configs/defconfig-intel`:
 WireGuard/VRF/veth/macvlan/tun/ipsec/dummy/bonding/gre-ipip/QoS/bridge; M7
 resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus userspace:
