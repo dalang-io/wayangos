@@ -71,7 +71,7 @@ command line. The firewall lab lives in `dalang-io/wayang-fw/tests/lab/lab.py`.
 
 ## Devices
 
-- Test device `root@163.128.55.3` (i3-7100; uplink eth1 = **USB** Ethernet
+- Test device `root@163.128.55.4` (moved from `.3` on 2026-10-03; the hardware/slot details after this were recorded at `.3` and not re-verified) (i3-7100; uplink eth1 = **USB** Ethernet
   sr9700 with the public IP, onboard e1000e eth0; i915 1440×900, USB keyboard
   only; WayangOS 1.0.12 in slot A). No sftp-server: copy files with
   `ssh host 'cat > FILE' < FILE`. Reinstalled 2026-09-26: `/data/bin` has

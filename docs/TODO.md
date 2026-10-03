@@ -43,12 +43,15 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       recomputed from `now`, not from `current_period_end`), so the customer is
       cut off on the anchor despite paying. Details + fix in wayangi
       `docs/FUTURE-WORKS.md`.
-- [ ] **WAF / L7 (self-hosted, sovereign)** — static Go WAF (Coraza + OWASP
-      CRS) exposed as `wayang-waf`, to replace foreign WAF products. Design +
-      PoC plan: wayang-fw `docs/WAF.md`. **Platform note:** mode **A**
-      (reverse-proxy) needs **no kernel change**; mode **B** (transparent
-      inline) needs **TPROXY/NFQUEUE** added to `configs/defconfig-intel`
-      (absent today) + a boot soak. Roadmap: wayang-fw `docs/ROADMAP.md` §v0.6.
+- [~] **WAF / L7 (self-hosted, sovereign)** — static Go WAF (Coraza + OWASP
+      CRS) exposed as `wayang-waf`. **Mode A (reverse-proxy) is done and
+      shipped:** `wayang-waf 0.1.1` is bundled and pinned (`1dd72b4`, `629063c`),
+      with HUD, `waf status` and `GET /v1/waf` in wayang-fw `0.6.2+`. **Open:**
+      mode **B** (transparent inline) needs TPROXY/NFQUEUE in
+      `configs/defconfig-intel` — staged as `configs/defconfig-waf-inline`
+      (`b5345c1`), **not in any build pipeline**, and must get the router
+      block's treatment (per-option bisect + cold-boot soak) first. Design:
+      wayang-fw `docs/WAF.md`; roadmap §v0.6.
 - [x] **TUI UX revamp** — **done** (wayang-tui + all three HUDs): one navigation
       grammar, **REVIEW before apply** + commit-confirm, focused-pane highlight
       (`▸`, colour-free), inline keycap hints + tab rows, deep `/` jump, `?` help
@@ -78,9 +81,10 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
 - [ ] **Follow-ups from the HUD round**: (a) move raw-mode handling into
       `TermGuard` so no product can forget it; (b) `cargo fmt` consistency for
       the `wayang-router` / `dcheck` baselines (pre-existing dirty); (c) unify the
-      `collapsible_if` approach (rewrite vs `allow`, currently mixed); (d) **tag
-      `v0.6.1`** so the box's post-`v0.6.0` builds (splash + tty fixes) match a
-      release, and/or an **OS release** to bake the `wayang` CLI + 0.6.x tools.
+      `collapsible_if` approach (rewrite vs `allow`, currently mixed); (d) ~~tag
+      `v0.6.1`~~ **done** (router `v0.6.1`, fw `v0.6.3`; WayangOS **1.0.31**
+      bakes the CLI + the 0.6.x tools — the shipped images carry router
+      `0.6.0`, the next build takes `0.6.1`).
 
 ## wayangos (this repo)
 
@@ -191,7 +195,7 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
 See `docs/ROADMAP.md` (v0.2+). Remaining:
 
 - [x] per-zone DHCP/DNS via **dnsmasq** (`7383298`): `[[dhcp]]`/`[[dns]]` per zone → one rendered dnsmasq config; engine start/SIGHUP/stop;
-      `scripts/build-dnsmasq.sh` (static dnsmasq 2.93, pinned); `docs/DHCP-DNS.md`. *Not yet wired into the WayangOS image.*
+      `scripts/build-dnsmasq.sh` (static dnsmasq 2.93, pinned); `docs/DHCP-DNS.md`. **Bundled in the image since `e5746e1` (2026-09-30), `dnsmasq 2.93`.**
 - [ ] interface config from the HUD.
 - [ ] Firewall enforcement is **QEMU-tested only** — run the lab
       `tests/lab/lab.py` and then validate on real hardware.
@@ -218,6 +222,10 @@ static v4/v6, DHCP client, forwarding, static routes):
       SLAAC router advertisements** (radvd; warn-and-noop when absent).
       **All of this now ships**: the kernel block is enabled from 1.0.23.
 - [x] **bridge port-level VLANs** (`d68e57d`, 2026-09-29): `[[interface.port]]` (pvid/tagged/untagged) under a `type="bridge"` interface → VLAN-aware bridging via rtnetlink, idempotent + rollback, caps-gated on `CONFIG_BRIDGE_VLAN_FILTERING`; real-kernel netns test.
+- [x] **VRRP** (`[[vrrp]]`, v0.6.0/0.6.1, RFC 3768 wire format, lab 37/37);
+      wayang-fw has the HA pair + conntrackd sync (0.6.3) and WayangOS 1.0.31
+      bundles `conntrackd`. Still open here: config sync, router-side conntrack
+      sync, VRRPv3.
 - [ ] IPsec IKEv2; PPPoE; Wi-Fi AP.
 - [ ] Edge 1-NIC (WAN-only) support — same open item as wayangi above.
 - Lab: `/tmp/wayang-tools/{bzImage-lab,initramfs-lab.img}` on the builder
@@ -232,7 +240,8 @@ static v4/v6, DHCP client, forwarding, static routes):
       `docs/ROADMAP.md`.
 - Released **v0.3.0** (Edge schema), **v0.3.1** (never strand the last uplink),
   **v0.3.2** (`wan-monitor` → `wan-failover`), **v0.3.3** (program the
-  `wan_group` table at bring-up via rtnetlink).
+  `wan_group` table at bring-up via rtnetlink), then **v0.4.x–v0.6.1** (see
+  wayang-router `HANDOVER.md`); WayangOS pins `0.6.1`.
 
 ## dcheck (dalang-io/dcheck)
 

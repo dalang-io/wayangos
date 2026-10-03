@@ -95,6 +95,14 @@ kernel core `configs/defconfig-intel`, bukan menunggu edisi itu.
 > IFB/u32, VRF + policy routing IPv6, nftables + flowtable. Yang benar-benar
 > belum di kernel: **ipset, PPPoE, MPLS, VXLAN/IPV6_SIT, conntrack helper
 > SIP/PPTP/TFTP**. Lihat update di atas.
+>
+> **Catatan 2026-10-03:** kolom "Userspace — Belum" di tabel bawah juga usang:
+> `nft`, `wg`, `tc` (iproute2), `bird`, `radvd`, `dnsmasq` 2.93 dan
+> `conntrackd` (conntrack-tools 1.4.9, 1.0.31) sekarang dibundel; `wayang-fw`
+> dan `wayang-router` ada di `/usr/bin`, dan `wayang-waf 0.1.1` ikut terkirim.
+> Yang masih belum: `pppd`, `ethtool`, `tcpdump`, FRR, `birdc`. Device uji
+> sekarang `163.128.55.4` (sebelumnya `.3`). `defconfig-qemu` dan edisi ARM64
+> masih belum memuat blok router.
 
 | Area | Ada | Belum |
 |------|-----|-------|

@@ -1,5 +1,7 @@
 # Hardware session checklist — diagnosing the "freezes" at the device
 
+> **2026-10-03:** the test device's address moved from `163.128.55.3` to **`163.128.55.4`** (per the owner). Hardware/slot details below were written for the old address and have not been re-verified; use `.4` for every `ssh`.
+
 A self-contained protocol for a supervised session on the test device
 `root@163.128.55.3` (ThinkStation P320 Tiny, WayangOS ≥ 1.0.21 in slot A).
 No agent context needed. Background: [INCIDENT-1.0.13.md](INCIDENT-1.0.13.md),
@@ -60,7 +62,7 @@ boots answer within ~120–200 s here). Past that, the boot is broken — stop
 retrying, capture/record what you have, and power-cycle.
 
 ```sh
-HOST=root@163.128.55.3
+HOST=root@163.128.55.4
 
 # Kernel log, IRQs, load (written every second only when wayang.debug was on
 # the cmdline — check first):

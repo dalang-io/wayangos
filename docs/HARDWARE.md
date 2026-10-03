@@ -1,5 +1,7 @@
 # Tested hardware
 
+> **2026-10-03:** the test device's address moved from `163.128.55.3` to **`163.128.55.4`** (per the owner). Hardware/slot details below were written for the old address and have not been re-verified; use `.4` for every `ssh`.
+
 Real-device bring-up notes: what was found, which driver/firmware it needs, and
 what to check when a new board shows up. Kernel config lives in
 [`configs/`](../configs/README.md); firmware staging in

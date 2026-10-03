@@ -1,5 +1,14 @@
 # Bisecting the router kernel options
 
+> **Status 2026-10-03 — this plan is complete.** Every group passed its bisect,
+> the accumulated block showed no failing subset, and the full block was enabled
+> in `configs/defconfig-intel` (`106bb23`) and shipped from **1.0.23** (M7
+> resolved 2026-09-29; see `docs/GOAL.md` and `docs/TODO-M7-UNBLOCK.md`). The
+> intro below describes the state when the doc was written (1.0.13/1.0.15) and
+> is kept as the method and tooling reference. `defconfig-qemu` and the ARM64
+> editions still do not carry the block. The test device is now
+> `root@163.128.55.4` (was `.3`); the procedure below uses `.4`.
+
 1.0.13 enabled a large "router" kernel block; the test device locked up after
 the shell prompt (keyboard + USB uplink both dead). 1.0.15 brought back only
 `CONFIG_VLAN_8021Q`, `CONFIG_BRIDGE` and `CONFIG_BRIDGE_VLAN_FILTERING` and was
@@ -86,14 +95,14 @@ building anything.
 
    ```sh
    sha256sum bisect-<group>-1.0.99-x86_64.wup
-   ssh root@163.128.55.3 'cat > /data/bisect.wup' < bisect-<group>-1.0.99-x86_64.wup
-   ssh root@163.128.55.3 'sha256sum /data/bisect.wup'
+   ssh root@163.128.55.4 'cat > /data/bisect.wup' < bisect-<group>-1.0.99-x86_64.wup
+   ssh root@163.128.55.4 'sha256sum /data/bisect.wup'
    ```
 
 2. Stage it into the idle slot (no reboot):
 
    ```sh
-   ssh root@163.128.55.3 'wayang update --from /data/bisect.wup'
+   ssh root@163.128.55.4 'wayang update --from /data/bisect.wup'
    ```
 
 3. Reboot into the idle slot **by hand** — pick it in the GRUB menu (3 s
@@ -105,7 +114,7 @@ building anything.
    lockup shows up:
 
    ```sh
-   ssh root@163.128.55.3 'uname -a; cat /proc/net/dev; dmesg | tail -n 40'
+   ssh root@163.128.55.4 'uname -a; cat /proc/net/dev; dmesg | tail -n 40'
    ```
 
    Good result: keyboard works, SSH answers, no stray `bond0/dummy0/ifb0/...`
@@ -153,7 +162,7 @@ rootfs (`wayang/trusted_keys`), so only a bundle signed with it is accepted.
 plus every group above (`scripts/bisect-router-opts.sh --print-opts all`) into
 `bzImage-lab`, in a `/tmp` dir with a copy of the kernel tree. It is for QEMU
 only — wayang-router develops WireGuard / QoS / VRF / tunnels against it while
-the hardware bisect is pending. **Never stage it on the device or ship it.**
+the hardware bisect that originally gated these options has since passed (2026-09-29), but the lab kernel stays QEMU-only. **Never stage it on the device or ship it.**
 
 There is no `configs/defconfig-intel-lab` on purpose: `defconfig-intel` is
 already a fragment and `build-kernel.sh` resolves one level only. The script
@@ -248,7 +257,7 @@ Kernel: `defconfig-intel` + safety net + `wayang.selftest=60`; final grubenv
 2. Set a probe target the uplink can always reach, if the gateway may drop
    ICMP: `echo 1.1.1.1 > /data/etc/selftest.host`.
 3. Then, per group: `--group NAME --unattended 600`, copy + verify, then
-   `ssh root@163.128.55.3 'wayang update --from /data/bisect.wup && reboot'`.
+   `ssh root@163.128.55.4 'wayang update --from /data/bisect.wup && reboot'`.
    Wait ~15 min before declaring anything; then read `/data/selftest.log`,
    `/data/debug/` (if the bundle's cmdline had `wayang.debug`) and
    `wayang status` on whatever slot answers.
