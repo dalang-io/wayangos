@@ -26,6 +26,12 @@ build), then these.
 ## Edge / router / firewall product
 * [EDGEROUTER.md](EDGEROUTER.md) — WayangOS as a wayangi “Edge” unit.
 * [EDGEROUTER-RUNBOOK.md](EDGEROUTER-RUNBOOK.md) — field operations for an Edge box.
+* [MT7621A.md](MT7621A.md) — **port plan**: WayangOS on a 4-thread MIPS router
+  (512 MB RAM / 128 MB NAND): what is missing, the flowtable/offload work that
+  decides whether it is fast, milestones with acceptance tests, risks, non-goals.
+* [DISTRIBUTION.md](DISTRIBUTION.md) — **how an image reaches a client**: per-arch
+  delivery matrix, build+sign per arch, the provisioning bundle, rollout/rollback,
+  fleet inventory, revocation, support matrix.
 * [ROUTER-TODO.md](ROUTER-TODO.md) — router/firewall plan (points at
   `wayang-router`/`wayang-fw` roadmaps).
 * [NETWORK.md](NETWORK.md) — networking model.
@@ -43,6 +49,8 @@ build), then these.
 * [UPDATE.md](UPDATE.md), [UPDATE-DESIGN.md](UPDATE-DESIGN.md),
   [UPDATE-ARM.md](UPDATE-ARM.md), [UPDATE-TODO.md](UPDATE-TODO.md),
   [CHANNEL.md](CHANNEL.md) — signed A/B updates and the release channel.
+* [DISTRIBUTION.md](DISTRIBUTION.md) — the operator-facing side: what a client gets
+  per arch, how it is provisioned, rolled out, rolled back and revoked.
 
 ## Ops / hardware
 * [MONITORING.md](MONITORING.md), [HARDWARE.md](HARDWARE.md),

@@ -63,6 +63,13 @@ See [TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md),
 
 ## TODO toward the goal (owner-visible)
 
+- [ ] **WayangOS on an MT7621A router, and reaching clients** (2026-10-03): the plan
+      is [MT7621A.md](MT7621A.md) (port + performance) and
+      [DISTRIBUTION.md](DISTRIBUTION.md) (image → provisioning → rollout →
+      revocation). Owner decision needed on six questions in `MT7621A.md` §2 — the
+      kernel source for the board and whether the web console lives on the box or
+      manages it from elsewhere are the two that shape everything else.
+
 - [x] **Unblock M7 — multi-agent plan**: [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).
       T1 DHCP resilience `765ee81` · T2 shipped safety net `61c768f` ·
       T3 boot-count harness `17ecaf0` · T4 hardware session doc `4a00b2e`

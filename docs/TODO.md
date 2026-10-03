@@ -15,6 +15,40 @@ must **never strand the box** — keep the last/only path when a check fails;
 and **never import a bundle/config without matching the box's real topology
 first**. See `AGENTS.md` §Current state.
 
+## New hardware target: MT7621A router (2026-10-03)
+
+A client-class MIPS router (2c/4t, 512 MB RAM, 128 MB NAND) as a WayangOS product,
+and the path to hand it to clients. **Full plan, decisions, performance matrix and
+non-goals: [MT7621A.md](MT7621A.md); the client-facing side: [DISTRIBUTION.md](DISTRIBUTION.md).**
+Nothing here exists yet — this section is the index of the work, in order.
+
+- [ ] **wayang-fw: render a flowtable + `flow add @ft`** (opt-in `system.offload`) —
+      `wayang-fw/src/render.rs` base chains; the kernel capability is already on
+      (`configs/defconfig-intel:97-99`) and **nothing uses it today**. This is the
+      single lever that decides whether the box is a router or a toy on this SoC.
+      Owned by `wayang-fw` (its `docs/ROADMAP.md`).
+- [ ] **wayang-fw/router: publish `mipsel-unknown-linux-musl` artifacts** (tier-3
+      Rust target: nightly + `-Z build-std`, C cross-toolchain for `ring`), then pin
+      them in `scripts/build-wayang-{fw,router}.sh` like the x86_64 assets.
+- [ ] **M0** arch allowlist (`scripts/build-kernel.sh`, `build-rootfs.sh`) + a new
+      `configs/defconfig-mt7621` fragment; a board boots to a serial prompt.
+- [ ] **M1** every baked tool builds static for mipsel (BusyBox, Dropbear, nft,
+      iproute2, BIRD, wireguard-tools, radvd, dnsmasq, conntrackd).
+- [ ] **M2** flash/boot model: U-Boot + NAND layout, `/data` persistence, a written
+      recovery procedure per board.
+- [ ] **M3** the tools apply and reboot on the board (firewall before network, the
+      confirmed-ruleset boot path).
+- [ ] **M4** offload + the measurement matrix (line-rate TCP, 64-byte pps, offload
+      on/off CPU, PPPoE, WireGuard, CAKE, console polling) — numbers, not claims.
+- [ ] **M5** updates on this board: A/B in NAND (or single image + manual recovery)
+      and a rolling-back failure exercise.
+- [ ] **M6** ship to a client: channel directory, provisioning bundle, support-matrix
+      row, one-page runbook.
+- [ ] **Decisions to take first** ([MT7621A.md](MT7621A.md) §2): kernel source
+      (mainline vs OpenWrt flavour), boot chain, storage/wear, console on-box vs
+      off-box, arch/channel naming (`mipsel`?), and which features "full" means here
+      (WAF and conntrack sync are out).
+
 ## Edge product (cross-repo — the full backlog is wayangi `docs/FUTURE-WORKS.md`)
 
 The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
