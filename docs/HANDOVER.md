@@ -13,7 +13,29 @@ building and the milestones). This file is *where things stand* across the repos
 | Prod Edge box `163.128.55.4` | (same machine as the test-device row above) site 5 `ThinkStation-P320-Tiny`, WayangOS **1.0.30** (1.0.33 staged); managed via the hub tunnel (`ssh dell-jkt` → `ssh root@10.99.130.5` / `@163.128.55.4`); public ping + SSH now work. **`163.128.54.4` is a different MikroTik RouterOS — not ours.** |
 | Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27`, `v1.0.28`, `v1.0.29`, `v1.0.30`, `v1.0.31`, `v1.0.32`, `v1.0.33` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
 
-## 2026-10-03 (latest) — 1.0.33: the product API P1–P3
+## 2026-10-03 — docs: the MT7621A port plan and client distribution (no code)
+
+The owner asked what it takes to run WayangOS on an MT7621A router (2 cores /
+4 threads, 512 MB RAM, 128 MB NAND) at router speeds, and how an image reaches a
+client. Both answers are written down, with the facts behind them:
+
+| Commit | Repo | What landed |
+|---|---|---|
+| `1657e9f` | `wayangos` | `docs/MT7621A.md` — the port plan: what the repo has and has not, the six decisions the port forces, the flowtable/offload work, a measurement matrix, milestones M0–M6 with acceptance tests, ranked risks, non-goals. Plus `docs/DISTRIBUTION.md` — per-arch delivery matrix, build+sign per arch, the provisioning bundle, rollout/rollback, fleet inventory, revocation, support matrix. Indexed in `docs/README.md`, backlog section in `docs/TODO.md`, owner-visible item in `docs/GOAL.md`. |
+| `3adffbf` | `wayang-fw` | `docs/ROADMAP.md` priority 8: render a `flowtable` + `flow add @ft` (opt-in, `system.offload`). The kernel already enables `NF_FLOW_TABLE` / `NFT_FLOW_OFFLOAD` (`configs/defconfig-intel:97-99`) and **no flow ever enters it** — the lever that decides whether this SoC is a router or a packet filter, with the semantics it changes (QoS, conntrackd sync, SYN proxy/`notrack`, per-packet logging, the WAF NFQUEUE path). |
+| `fbf5514` | `wayang-router` | `docs/ROADMAP.md`: what "tiny hardware" means concretely — `mipsel-unknown-linux-musl` artifacts next to x86_64 (tier-3 Rust target: nightly + `-Z build-std`, C cross-toolchain for `ring`), small FIB by design, and QoS-vs-offload as a product either/or. |
+
+Nothing was built: **no code, no config, no image changed** — those three commits
+touch only `docs/`. The port has not started; its first gate is the six decisions in
+`MT7621A.md` §2 (kernel source mainline-vs-OpenWrt, boot chain U-Boot/NAND,
+storage and wear, console on-box vs off-box, arch/channel naming, and what "full
+feature" means on this board).
+
+Every claim in the new docs carries a `file:line` or an external source (the
+RB760iGS bar comes from MikroTik's own hEX S datasheet — same SoC); the 37
+citations were checked to resolve to real files and line ranges.
+
+## 2026-10-03 (latest release) — 1.0.33: the product API P1–P3
 
 - **Tag `v1.0.33`**: bakes `wayang-router 0.8.0` (sha256 `d7a8f1f3…e9d2`) and `wayang-fw 0.7.0`
   (`4515aea5…1553`) — both on the mirror, GitHub releases made — and ships `wayang api`

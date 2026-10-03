@@ -22,6 +22,10 @@ and the path to hand it to clients. **Full plan, decisions, performance matrix a
 non-goals: [MT7621A.md](MT7621A.md); the client-facing side: [DISTRIBUTION.md](DISTRIBUTION.md).**
 Nothing here exists yet — this section is the index of the work, in order.
 
+Plans committed (docs only, nothing built): `1657e9f` (this repo),
+`3adffbf` (wayang-fw roadmap priority 8 — flow offload), `fbf5514` (wayang-router
+roadmap — what "tiny hardware" means). State recorded in `docs/HANDOVER.md`.
+
 - [ ] **wayang-fw: render a flowtable + `flow add @ft`** (opt-in `system.offload`) —
       `wayang-fw/src/render.rs` base chains; the kernel capability is already on
       (`configs/defconfig-intel:97-99`) and **nothing uses it today**. This is the
