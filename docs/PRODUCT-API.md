@@ -1,6 +1,8 @@
 # Product API — one API per tool (wayang · wayang-fw · wayang-router)
 
-Status: **design** (2026-09-30). Goal: each console tool can be driven by an
+Status: **design** (2026-09-30); **P0 and P1 implemented for `wayang-router` and
+`wayang-fw` on 2026-10-03** (see [PRODUCT-API-REFERENCE.md](PRODUCT-API-REFERENCE.md)).
+P2/P3 and the `wayang` CLI are still design. Goal: each console tool can be driven by an
 **API** (not only the CLI/HUD), so an orchestrator — or wayangi — can read and
 change a box without SSH-ing in and parsing TUI output.
 

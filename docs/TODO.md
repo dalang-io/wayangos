@@ -68,12 +68,15 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
 - [x] **Layout consistency: one tab = one full-screen view** — **done** (§5d):
       no more per-screen side-by-side/stacked panes; a tab owns the body, one
       shared DETAIL treatment.
-- [~] **Product API (all three tools)** — **P0 read-only implemented on
-      `wayang-router`** (`wayang-router api`, loopback + bearer token; see
-      [`docs/PRODUCT-API-REFERENCE.md`](PRODUCT-API-REFERENCE.md)). Open: **P1**
-      (`config|candidate|check|plan|commit|confirm|rollback|history`), then the
-      same for `wayang-fw` & `wayang` CLI, and the shared `wayang-api` crate.
-      Design: [`docs/PRODUCT-API.md`](PRODUCT-API.md).
+- [~] **Product API (all three tools)** — **P0 (read-only) and P1 (the config
+      lifecycle, `--rw`: candidate/check/plan/commit/confirm/rollback/history +
+      audit + idempotency, mandatory confirm window) are implemented on
+      `wayang-router` and `wayang-fw`** (2026-10-03, on `master`; not yet
+      released or deployed — they ship with the next tool tags and OS release).
+      See [`docs/PRODUCT-API-REFERENCE.md`](PRODUCT-API-REFERENCE.md). Open: the
+      same for the `wayang` CLI, **P2** (TLS/mTLS, token scopes, rate limit, SSE
+      `/v1/events`), the shared `wayang-api` crate, OpenAPI, and wayangi calling
+      it. Design: [`docs/PRODUCT-API.md`](PRODUCT-API.md).
 - [x] **`wayang-tui` shared component library** — **done** (repo
       `dalang-io/wayang-tui` `v0.2.1`): theme/widgets/focus/overlay/term/splash/
       transition/layout; all three HUDs migrated + adopted; `dcheck` standardized.
