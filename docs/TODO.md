@@ -80,8 +80,10 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       Edge bundle, SSH keys, net — admin-only for anything that changes the box;
       `/etc/init.d/api` starts it only when `<config dir>/api.args` exists. Only
       unit-tested + a BusyBox test of the init script: **not run on a real box**.
-      Open: migrating fw/router to the crate, OpenAPI + the wayangi client (P3),
-      a QEMU boot test of the init hook, `/v1/wifi`.
+      fw 0.7.0 and router 0.8.0 migrated onto the crate (one contract); OpenAPI 3.1
+      files + conformance tests; wayangi client `wayangi-boxapi` (P3) — all done.
+      Open: a QEMU boot test of the init hook, `/v1/wifi`, calling the API from the
+      wayangi dashboard, rotating tokens across a fleet.
       Design: [`docs/PRODUCT-API.md`](PRODUCT-API.md).
 - [x] **`wayang-tui` shared component library** — **done** (repo
       `dalang-io/wayang-tui` `v0.2.1`): theme/widgets/focus/overlay/term/splash/
