@@ -1,4 +1,7 @@
 #!/bin/bash
+# `check` eval()s its condition string, so the variables it names look unused and the
+# single-quoted conditions are meant to expand late.
+# shellcheck disable=SC2016,SC2034
 # Real-binary check of `wayang api`: tokens/scopes, writes + audit + replay, SSE,
 # read-only default, rate limit, flag guard rails, TLS and mutual TLS with
 # openssl-made certificates. Run on the builder against a musl build:
@@ -63,7 +66,7 @@ kill $S3; wait $S3 2>/dev/null
 check "--rw --insecure-no-auth refused" '$B api --rw --insecure-no-auth 2>&1 | grep -q "needs a bearer token"'
 check "non-loopback without TLS refused" '$B api --listen 0.0.0.0:18640 --token-file $TF 2>&1 | grep -q "needs TLS"'
 # TLS + mTLS with real certificates
-cd $T/tls
+cd "$T/tls" || exit 1
 openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 2 -subj "/CN=test ca" -addext "basicConstraints=critical,CA:TRUE" >/dev/null 2>&1
 openssl req -newkey rsa:2048 -nodes -keyout srv.key -out srv.csr -subj "/CN=localhost" >/dev/null 2>&1
 printf "subjectAltName=DNS:localhost,IP:127.0.0.1\n" > san.ext
