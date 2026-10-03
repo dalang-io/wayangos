@@ -1,0 +1,1566 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "wayang (WayangOS) management API",
+    "version": "0.1.0",
+    "description": "The OS CLI's operations as JSON. Everything that changes the box needs scope `admin` **and** `--rw`. Transport is the shared crate `wayang-api`.",
+    "license": {
+      "name": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8632",
+      "description": "loopback (the default bind); non-loopback needs TLS or --insecure-http"
+    }
+  ],
+  "tags": [
+    {
+      "name": "read",
+      "description": "read-only"
+    },
+    {
+      "name": "actions",
+      "description": "sensitive actions: scope admin on a --rw server; nothing here reboots the box"
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "summary": "Liveness",
+        "tags": [
+          "read"
+        ],
+        "x-wayang-scope": "none",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Health"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        }
+      }
+    },
+    "/v1/audit": {
+      "get": {
+        "summary": "The audit trail, newest first",
+        "tags": [
+          "read"
+        ],
+        "x-wayang-scope": "ro",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AuditList"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          }
+        },
+        "description": "One line per mutating request, accepted or refused: method, path, status, peer, token label and scope, Idempotency-Key, revision. Never a body, a query string or a token.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50
+            },
+            "description": "how many entries"
+          }
+        ]
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "summary": "Server-sent events: the audit trail as it happens",
+        "tags": [
+          "read"
+        ],
+        "x-wayang-scope": "ro",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "resume after this event id (the last 256 are kept); without it the stream starts at now"
+          }
+        ],
+        "description": "`id:` numbered `event: audit` frames whose `data:` is an AuditEntry, and a `: keepalive` comment every 15 s. At most 8 concurrent streams (`503` beyond).",
+        "responses": {
+          "200": {
+            "description": "text/event-stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        }
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "summary": "Slots, versions, update state, uptime, the tools' versions, a network summary",
+        "tags": [
+          "read"
+        ],
+        "x-wayang-scope": "ro",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "status"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        }
+      }
+    },
+    "/v1/update/check": {
+      "get": {
+        "summary": "Installed vs the channel's bundle (downloads nothing)",
+        "tags": [
+          "read"
+        ],
+        "x-wayang-scope": "ro",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "available, notes"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "502": {
+            "$ref": "#/components/responses/E502"
+          }
+        }
+      }
+    },
+    "/v1/net": {
+      "get": {
+        "summary": "Interfaces, the uplink choice, the also-lease list",
+        "tags": [
+          "read"
+        ],
+        "x-wayang-scope": "ro",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "net"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        }
+      }
+    },
+    "/v1/ssh-keys": {
+      "get": {
+        "summary": "Authorized keys: kind, fingerprint, comment — never the key",
+        "tags": [
+          "read"
+        ],
+        "x-wayang-scope": "ro",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "keys"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add one public key",
+        "tags": [
+          "actions"
+        ],
+        "x-wayang-scope": "admin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "the added key"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "422": {
+            "$ref": "#/components/responses/E422"
+          }
+        },
+        "x-wayang-requires-rw": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "a retry with the same key replays the first answer (`Idempotent-Replay: true`) instead of acting twice"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ssh-keys/remove": {
+      "post": {
+        "summary": "Remove a key by fingerprint (never the last one)",
+        "tags": [
+          "actions"
+        ],
+        "x-wayang-scope": "admin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "removed"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          }
+        },
+        "x-wayang-requires-rw": true,
+        "parameters": [
+          {
+            "name": "allow_empty",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "yes"
+              ]
+            },
+            "description": "remove the last key too (can lock SSH out)"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "a retry with the same key replays the first answer (`Idempotent-Replay: true`) instead of acting twice"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/edgerouter/status": {
+      "get": {
+        "summary": "The wayangi agent's health and next step",
+        "tags": [
+          "read"
+        ],
+        "x-wayang-scope": "ro",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "agent"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        }
+      }
+    },
+    "/v1/edgerouter/apply": {
+      "post": {
+        "summary": "Install an Edge bundle (applies nothing)",
+        "tags": [
+          "actions"
+        ],
+        "x-wayang-scope": "admin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "installed paths"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "413": {
+            "$ref": "#/components/responses/E413"
+          }
+        },
+        "x-wayang-requires-rw": true,
+        "description": "Body = the bundle as .tar.gz, or JSON {router_toml, fw_toml, token?}. Writes the configs and enrols the token; the old config becomes .bak. Commit with confirm afterwards.",
+        "parameters": [
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "replace an existing config"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "a retry with the same key replays the first answer (`Idempotent-Replay: true`) instead of acting twice"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "router_toml": {
+                    "type": "string"
+                  },
+                  "fw_toml": {
+                    "type": "string"
+                  },
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "router_toml",
+                  "fw_toml"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/update": {
+      "post": {
+        "summary": "Download, verify and stage an update into the idle slot (never reboots)",
+        "tags": [
+          "actions"
+        ],
+        "x-wayang-scope": "admin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "staged version"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "423": {
+            "$ref": "#/components/responses/E423"
+          },
+          "502": {
+            "$ref": "#/components/responses/E502"
+          }
+        },
+        "x-wayang-requires-rw": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "a retry with the same key replays the first answer (`Idempotent-Replay: true`) instead of acting twice"
+          }
+        ]
+      }
+    },
+    "/v1/update/boot-other": {
+      "post": {
+        "summary": "Arm a one-shot boot of the idle slot",
+        "tags": [
+          "actions"
+        ],
+        "x-wayang-scope": "admin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "armed"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          }
+        },
+        "x-wayang-requires-rw": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "a retry with the same key replays the first answer (`Idempotent-Replay: true`) instead of acting twice"
+          }
+        ]
+      }
+    },
+    "/v1/update/confirm": {
+      "post": {
+        "summary": "Mark the running slot good (`mark-ok`)",
+        "tags": [
+          "actions"
+        ],
+        "x-wayang-scope": "admin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "confirmed"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          }
+        },
+        "x-wayang-requires-rw": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "a retry with the same key replays the first answer (`Idempotent-Replay: true`) instead of acting twice"
+          }
+        ]
+      }
+    },
+    "/v1/update/rollback": {
+      "post": {
+        "summary": "The next boot uses the previous slot",
+        "tags": [
+          "actions"
+        ],
+        "x-wayang-scope": "admin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "armed"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          }
+        },
+        "x-wayang-requires-rw": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "a retry with the same key replays the first answer (`Idempotent-Replay: true`) instead of acting twice"
+          }
+        ]
+      }
+    },
+    "/v1/reset": {
+      "post": {
+        "summary": "Reset the config dirs to defaults (`wayang reset --yes`)",
+        "tags": [
+          "actions"
+        ],
+        "x-wayang-scope": "admin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "reset"
+                    },
+                    "rev": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the active revision"
+                    },
+                    "pending": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "the revision awaiting confirmation, if any"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          }
+        },
+        "x-wayang-requires-rw": true,
+        "parameters": [
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "yes-reset"
+              ]
+            },
+            "description": "the second key: mandatory"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "description": "a retry with the same key replays the first answer (`Idempotent-Replay: true`) instead of acting twice"
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Tokens have a scope: `ro` reads (and may check/plan), `rw` may also change the configuration on a server started with --rw, `admin` may also do the sensitive actions a tool marks. With mutual TLS the client certificate is required **and** the token is still checked."
+      }
+    },
+    "schemas": {
+      "Issue": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "enum": [
+              "error",
+              "warning"
+            ]
+          },
+          "what": {
+            "type": "string"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "level",
+          "what",
+          "msg"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "const": false
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Issue"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "rw": {
+            "type": "boolean"
+          },
+          "tls": {
+            "type": "boolean"
+          },
+          "mtls": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "required": [
+          "version"
+        ],
+        "description": "Harmless liveness data; tools add their own fields."
+      },
+      "AuditEntry": {
+        "type": "object",
+        "properties": {
+          "ts": {
+            "type": "integer"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "remote": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string",
+            "description": "the token's label"
+          },
+          "scope": {
+            "enum": [
+              "ro",
+              "rw",
+              "admin"
+            ]
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rev": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ts",
+          "method",
+          "path",
+          "status"
+        ]
+      },
+      "Revision": {
+        "type": "object",
+        "properties": {
+          "rev": {
+            "type": "integer"
+          },
+          "time": {
+            "type": "string"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "rolled_back": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "rev"
+        ]
+      },
+      "AuditList": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "entries"
+        ]
+      }
+    },
+    "responses": {
+      "E400": {
+        "description": "bad request (a malformed body, a missing or forbidden confirm window, a bad parameter)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E401": {
+        "description": "no or wrong bearer token (also: with mutual TLS the certificate alone is not enough)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E403": {
+        "description": "`read_only` (the server was not started with --rw) or `forbidden` (the token's scope is too low)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E404": {
+        "description": "no such route or revision",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E405": {
+        "description": "wrong method for this path (see `Allow`)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E409": {
+        "description": "the engine refused (no nft, a failed apply, nothing pending to confirm); the reason is in plain words",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E413": {
+        "description": "request body over 1 MiB",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E422": {
+        "description": "validation: `error.issues` lists what is wrong; nothing was stored or applied",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E423": {
+        "description": "locked: a commit is already waiting for confirmation",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E429": {
+        "description": "rate limited, or too many failed tokens from this address (`Retry-After`)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E502": {
+        "description": "the update channel is unreachable",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "E503": {
+        "description": "too many connections or event streams",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-wayang-contract": "1"
+}

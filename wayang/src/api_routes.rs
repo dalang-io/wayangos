@@ -553,6 +553,50 @@ mod tests {
     use std::sync::{Arc, MutexGuard};
     use wayang_api::{Options, Outcome, Scope, Server, TokenStore};
 
+    /// docs/openapi-wayang.json lists exactly the routes (and scopes) the app serves.
+    #[test]
+    fn the_openapi_file_describes_exactly_the_routes_the_app_serves() {
+        use wayang_api::{App, Need, Route};
+        let spec: Value = serde_json::from_str(include_str!("../../docs/openapi-wayang.json"))
+            .expect("docs/openapi-wayang.json is JSON");
+        assert_eq!(spec["openapi"], "3.1.0");
+        let app = WayangApp::new(false, false, true);
+        // served by the shared crate before the app is asked
+        let shared = ["/v1/health", "/v1/audit", "/v1/events"];
+        let mut ops = 0;
+        for (path, item) in spec["paths"].as_object().unwrap() {
+            if shared.contains(&path.as_str()) {
+                continue;
+            }
+            for m in ["GET", "PUT", "POST"] {
+                let doc = item.get(m.to_lowercase());
+                match (app.route(m, path), doc) {
+                    (Route::Known(need), Some(op)) => {
+                        let want = match op["x-wayang-scope"].as_str().unwrap() {
+                            "ro" => Need::Read,
+                            "rw" => Need::Write,
+                            "admin" => Need::Admin,
+                            s => panic!("{m} {path}: scope {s}"),
+                        };
+                        assert_eq!(need, want, "{m} {path}: the documented scope");
+                        ops += 1;
+                    }
+                    (Route::Known(_), None) => {
+                        panic!("{m} {path} is served but missing from docs/openapi-wayang.json")
+                    }
+                    (_, Some(_)) => panic!(
+                        "{m} {path} is in docs/openapi-wayang.json but the app does not serve it"
+                    ),
+                    (_, None) => {}
+                }
+            }
+        }
+        assert_eq!(
+            ops, 13,
+            "the documented routes of the app (the 3 shared ones aside)"
+        );
+    }
+
     /// A throwaway `WAYANG_ROOT` with a boot tree and an installed version,
     /// holding the process-wide env lock for as long as it lives.
     struct Fx {
