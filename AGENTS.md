@@ -86,7 +86,9 @@ bundled; UI reference for all TUIs).
 
 ## Current state
 
-**Released: 1.0.31** (tag + channel + GitHub release; channel serves 1.0.31).
+**Released: 1.0.32** (tag + channel + GitHub release; channel serves 1.0.32; bakes
+`wayang-router 0.7.0` and `wayang-fw 0.6.4`). 1.0.31 was the previous release
+(router 0.6.0 / fw 0.6.3).
 1.0.27 = the **full router block enabled** (`configs/defconfig-intel`:
 WireGuard/VRF/veth/macvlan/tun/ipsec/dummy/bonding/gre-ipip/QoS/bridge; M7
 resolved 2026-09-29 — soak ~30 clean block boots + cold-boot PASS) plus userspace:
