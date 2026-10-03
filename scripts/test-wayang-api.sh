@@ -3,7 +3,8 @@
 # read-only default, rate limit, flag guard rails, TLS and mutual TLS with
 # openssl-made certificates. Run on the builder against a musl build:
 #   bash scripts/test-wayang-api.sh   (expects /tmp/wayangos-dev/wayang/target/x86_64-unknown-linux-musl/release/wayang)
-# Everything lives in a temp WAYANG_ROOT; nothing outside it is touched.set -u
+# Everything lives in a temp WAYANG_ROOT; nothing outside it is touched.
+set -u
 B=/tmp/wayangos-dev/wayang/target/x86_64-unknown-linux-musl/release/wayang
 T=/tmp/wayang-api-real.$$; mkdir -p $T/root/data/etc/wayangi $T/root/root/.ssh $T/root/etc/wayang $T/root/boot/grub $T/tls
 export WAYANG_ROOT=$T/root
