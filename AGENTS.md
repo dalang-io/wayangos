@@ -72,12 +72,16 @@ command line. The firewall lab lives in `dalang-io/wayang-fw/tests/lab/lab.py`.
 
 ## Devices
 
-- Test device `root@163.128.55.4` (moved from `.3` on 2026-10-03; the hardware/slot details after this were recorded at `.3` and not re-verified) (i3-7100; uplink eth1 = **USB** Ethernet
-  sr9700 with the public IP, onboard e1000e eth0; i915 1440×900, USB keyboard
-  only; WayangOS 1.0.12 in slot A). No sftp-server: copy files with
-  `ssh host 'cat > FILE' < FILE`. Reinstalled 2026-09-26: `/data/bin` has
-  wayang-fw + wayang-router (nothing committed), no POS. Commit firewall or
-  router changes only with `--confirm` (eth1 is the only way in).
+- Box `root@163.128.55.4` (site 5 `ThinkStation-P320-Tiny`, hostname
+  `edge-thinkstation-p320-tiny`; it moved here from `.3`, and the old i3-7100 notes no longer
+  apply). Checked 2026-10-03: **no eth1**; `eth0` = private LAN `192.168.88.254/24` (default via
+  `.88.1`), the public `/32` and the hub links live on the WireGuard tunnels `wg-jkt` / `wg-mlb`
+  (`wan-failover` runs there). WayangOS 1.0.30 running, **1.0.33 staged in slot A** (not rebooted);
+  `/data/bin` overrides wayang-fw 0.7.0, wayang-router 0.8.0 and an old `wayang`. No sftp-server:
+  copy files with `ssh host 'cat > FILE' < FILE`. Commit firewall or router changes only with
+  `--confirm` ≥ 120 and never touch eth0's address or the `wg-*` links (they are the only ways in).
+  API files (`api.args`, `api.tokens`, `/data/etc/api-tls/`) exist for fw and router but nothing is
+  started ([docs/API-GUIDE.md](docs/API-GUIDE.md)).
 
 ## Related repos
 

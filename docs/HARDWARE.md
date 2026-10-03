@@ -1,6 +1,6 @@
 # Tested hardware
 
-> **2026-10-03:** the test device's address moved from `163.128.55.3` to **`163.128.55.4`** (per the owner). Hardware/slot details below were written for the old address and have not been re-verified; use `.4` for every `ssh`.
+> **2026-10-03 (checked on the box):** `163.128.55.4` is the ThinkStation P320 Tiny (site 5): **no `eth1`** — `eth0` is a private LAN and the public `/32` sits on the WireGuard tunnel `wg-jkt`. Everything below describes the *old* test device (i3-7100, USB `eth1` uplink, `163.128.55.3`) and is kept as history; do not apply its interface names to `.4`.
 
 Real-device bring-up notes: what was found, which driver/firmware it needs, and
 what to check when a new board shows up. Kernel config lives in

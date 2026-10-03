@@ -8,12 +8,37 @@ building and the milestones). This file is *where things stand* across the repos
 
 | | |
 |---|---|
-| WayangOS release | **1.0.32** (tag `v1.0.32`, 2026-10-03; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.32; **bakes `wayang-router 0.7.0` and `wayang-fw 0.6.4`**, nothing else changed — see the 1.0.32 entry below). Before it: **1.0.31** (tag `v1.0.31`). 1.0.23+ carries the **full router block**; 1.0.25 removed `wayang-selftest`; 1.0.26 added `wayang reset`; 1.0.27 makes all wired NICs hotplug-DHCP; **1.0.28–1.0.30 bake `wayang-router` + `wayang-fw` into `/usr/bin`, drop the 09 EDGEROUTER TUI module (8 modules), and open public SSH by default**; **1.0.31 bundles `conntrackd`** (conntrack-tools 1.4.9, static — HA connection-state sync stops being a no-op), pins **`wayang-fw 0.6.3`** (the HA round: the VRRPv2 daemon, the virtual-MAC VIP, `sync_iface`, and the ICMP protocol-number fix that made an `icmp`/ping policy impossible to commit on WayangOS) and **`wayang-router 0.6.1`** — with one honest caveat: the *released* 1.0.31 images were built while the router pin was still `0.6.0` (the 0.6.1 asset reached the mirror minutes after the channel published), so the **next** build takes the RFC-3768 VRRP fix — and carries `wayang-waf 0.1.1` (Go + Coraza + OWASP CRS) and `dnsmasq 2.93` |
+| WayangOS release | **1.0.33** (tag `v1.0.33`, 2026-10-03; ISO, `.wup` and manifest published by CI; **bakes `wayang-router 0.8.0`, `wayang-fw 0.7.0` and `wayang api`** — see the 1.0.33 entry below). Before it: **1.0.32** (router 0.7.0 / fw 0.6.4, tool pins only) and **1.0.31** (tag `v1.0.31`). 1.0.23+ carries the **full router block**; 1.0.25 removed `wayang-selftest`; 1.0.26 added `wayang reset`; 1.0.27 makes all wired NICs hotplug-DHCP; **1.0.28–1.0.30 bake `wayang-router` + `wayang-fw` into `/usr/bin`, drop the 09 EDGEROUTER TUI module (8 modules), and open public SSH by default**; **1.0.31 bundles `conntrackd`** (conntrack-tools 1.4.9, static — HA connection-state sync stops being a no-op), pins **`wayang-fw 0.6.3`** (the HA round: the VRRPv2 daemon, the virtual-MAC VIP, `sync_iface`, and the ICMP protocol-number fix that made an `icmp`/ping policy impossible to commit on WayangOS) and **`wayang-router 0.6.1`** — with one honest caveat: the *released* 1.0.31 images were built while the router pin was still `0.6.0` (the 0.6.1 asset reached the mirror minutes after the channel published), so the **next** build takes the RFC-3768 VRRP fix — and carries `wayang-waf 0.1.1` (Go + Coraza + OWASP CRS) and `dnsmasq 2.93` |
 | Test device `root@163.128.55.4` (was `.3`; moved) | **1.0.30 running; 1.0.33 STAGED in slot A, next boot = A (B = 1.0.30 is the good fallback), not rebooted yet** (2026-10-03). `/data/bin/wayang-fw` is now **0.7.0** and `wayang-router` **0.8.0** (installed with `mv`, so the running monitors/wan-failover still use the old inodes until restart; backups `*.0.6.4.bak` / `*.0.6.0.bak`); the API was checked read-only on loopback only. `/data/bin/wayang` is still the Sep-30 override and wins over the new OS's `wayang` — remove it to test `wayang api`. Earlier: 1.0.30 + manual `/data/bin` overrides (checked 2026-10-03: up 22 h, SSH works, `edge-thinkstation-p320-tiny`, kernel 7.2.7). `/data/bin/wayang-fw` is **0.6.4** (deployed by hand 2026-10-03, previous kept as `wayang-fw.0.6.0.bak`) and `/data/bin/wayang-router` is an old build; **both win over the `/usr/bin` copies baked into an OS release, so remove them before testing an upgrade**. Its `wayang-fw` has no drift baseline until the next commit/boot. Older notes: uplink on onboard `eth0`; USB LAN `ssh root@192.168.2.2` (SR9700, duplex-flaky); it was powered off on purpose on 2026-09-30, no longer true |
-| Prod Edge box `163.128.55.4` | site 5 `ThinkStation-P320-Tiny`, WayangOS **1.0.30**; managed via the hub tunnel (`ssh dell-jkt` → `ssh root@10.99.130.5` / `@163.128.55.4`); public ping + SSH now work. **`163.128.54.4` is a different MikroTik RouterOS — not ours.** |
-| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27`, `v1.0.28`, `v1.0.29`, `v1.0.30`, `v1.0.31`, `v1.0.32` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+| Prod Edge box `163.128.55.4` | (same machine as the test-device row above) site 5 `ThinkStation-P320-Tiny`, WayangOS **1.0.30** (1.0.33 staged); managed via the hub tunnel (`ssh dell-jkt` → `ssh root@10.99.130.5` / `@163.128.55.4`); public ping + SSH now work. **`163.128.54.4` is a different MikroTik RouterOS — not ours.** |
+| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27`, `v1.0.28`, `v1.0.29`, `v1.0.30`, `v1.0.31`, `v1.0.32`, `v1.0.33` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
 
-## 2026-10-03 (later) — `wayang api` (not released)
+## 2026-10-03 (latest) — 1.0.33: the product API P1–P3
+
+- **Tag `v1.0.33`**: bakes `wayang-router 0.8.0` (sha256 `d7a8f1f3…e9d2`) and `wayang-fw 0.7.0`
+  (`4515aea5…1553`) — both on the mirror, GitHub releases made — and ships `wayang api`
+  (port 8632). Release + installer workflows passed; the plain `CI` run on master failed on
+  shellcheck of `scripts/test-wayang-api.sh` and was fixed afterwards (`shellcheck scripts/*.sh`
+  clean) — its re-run was not looked at. `scripts/build-wayang.sh` now gives `ring` a C compiler
+  (musl-gcc, else gcc) on a Linux x86_64 musl build.
+- **P3 (OpenAPI + client):** `docs/openapi-wayang.json` (+ the router's and fw's) generated by
+  `scripts/gen-openapi.py`, each guarded by a conformance test; wayangi's `wayangi-boxapi` ran a full
+  apply against live fw and router `--rw` servers. fw and router share one contract
+  (commit/confirm/rollback/candidate/plan/history shapes).
+- **Box `.4`** (see the device row): fw 0.7.0 and router 0.8.0 installed in `/data/bin` (backups
+  `*.bak`), 1.0.33 **staged in slot A by an accidental bare `wayang update`** (next boot = A, B =
+  1.0.30 is the fallback; not rebooted). `api.args` + `api.tokens` + `/data/etc/api-tls/` created
+  for fw and router (mTLS + token, read-only); nothing started, the firewall allows only tcp/22.
+  The client side (CA, client cert, tokens) is in `~/.wayang-box4/` on the operator's Mac.
+  `/etc/init.d/api` only exists after the reboot into 1.0.33. The old `/data/bin/wayang` would
+  shadow `wayang api`.
+- **Docs:** [API-GUIDE.md](API-GUIDE.md) (operator guide) is new; the reference and PRODUCT-API
+  headers, the stale "eth1" notes and the device block were corrected: the box has no eth1 (eth0 is
+  a private LAN, the public `/32` is on `wg-jkt`).
+- Not done: token expiry/rotation, cert → scope mapping, cert renewal, `--rw` on a physical device,
+  a QEMU boot test of the init hook, `/v1/wifi`, the wayangi dashboard calling the API.
+
+## 2026-10-03 (earlier) — `wayang api` (written before the release)
 
 - **New subcommand** `wayang api` (`wayang/src/api.rs` flags + rules,
   `api_routes.rs` routes) on the shared crate **wayang-api v0.1.0** (new public

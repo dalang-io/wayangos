@@ -17,8 +17,11 @@ build), then these.
 * [TUI-UX-REVAMP.md](TUI-UX-REVAMP.md) — the design behind it (navigation
   grammar, visual spec, focus, no-flash startup, terminal robustness, one-tab=
   one-full-screen layout). Shared library: `dalang-io/wayang-tui`.
-* [PRODUCT-API.md](PRODUCT-API.md) — the `api` subcommand design (drive a box
-  by API instead of SSH).
+* [API-GUIDE.md](API-GUIDE.md) — **start here for the API**: enable it on a box, tokens, mTLS,
+  the firewall rule, `wayangi-boxapi`, troubleshooting.
+* [PRODUCT-API-REFERENCE.md](PRODUCT-API-REFERENCE.md) — routes, statuses and examples; OpenAPI files:
+  [openapi-wayang.json](openapi-wayang.json) (+ wayang-fw / wayang-router `docs/openapi.json`).
+* [PRODUCT-API.md](PRODUCT-API.md) — the design and phases P0–P3 (all implemented).
 
 ## Edge / router / firewall product
 * [EDGEROUTER.md](EDGEROUTER.md) — WayangOS as a wayangi “Edge” unit.

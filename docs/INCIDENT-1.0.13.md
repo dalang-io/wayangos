@@ -1,5 +1,7 @@
 # Incident: WayangOS 1.0.13 locks up the test device (2026-09-26)
 
+
+> **2026-10-03 (checked on the box):** `163.128.55.4` is the ThinkStation P320 Tiny (site 5): **no `eth1`** — `eth0` is a private LAN and the public `/32` sits on the WireGuard tunnel `wg-jkt`. Everything below describes the *old* test device (i3-7100, USB `eth1` uplink, `163.128.55.3`) and is kept as history; do not apply its interface names to `.4`.
 Status: **mitigated, not fully diagnosed.** 1.0.13 was pulled from the channel.
 1.0.14 dropped the router option block (kept only a VLAN/bridge MVP in 1.0.15)
 and booted cleanly on the device, so the leading theory is those options. The

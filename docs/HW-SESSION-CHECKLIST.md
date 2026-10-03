@@ -1,6 +1,6 @@
 # Hardware session checklist — diagnosing the "freezes" at the device
 
-> **2026-10-03:** the test device's address moved from `163.128.55.3` to **`163.128.55.4`** (per the owner). Hardware/slot details below were written for the old address and have not been re-verified; use `.4` for every `ssh`.
+> **2026-10-03 (checked on the box):** `163.128.55.4` is the ThinkStation P320 Tiny (site 5): **no `eth1`** — `eth0` is a private LAN and the public `/32` sits on the WireGuard tunnel `wg-jkt`. Everything below describes the *old* test device (i3-7100, USB `eth1` uplink, `163.128.55.3`) and is kept as history; do not apply its interface names to `.4`.
 
 A self-contained protocol for a supervised session on the test device
 `root@163.128.55.3` (ThinkStation P320 Tiny, WayangOS ≥ 1.0.21 in slot A).

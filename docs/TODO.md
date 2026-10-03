@@ -3,7 +3,7 @@
 Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
-release: **1.0.32** (see `docs/HANDOVER.md`; it bakes router 0.7.0 / fw 0.6.4). **Product goal + roadmap:
+release: **1.0.33** (see `docs/HANDOVER.md`; it bakes router 0.8.0 / fw 0.7.0 and ships `wayang api`). **Product goal + roadmap:
 [docs/GOAL.md](GOAL.md).** **M7 (router kernel block) is resolved and released**
 — the execution plan is archived in
 [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).
@@ -68,23 +68,19 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
 - [x] **Layout consistency: one tab = one full-screen view** — **done** (§5d):
       no more per-screen side-by-side/stacked panes; a tab owns the body, one
       shared DETAIL treatment.
-- [~] **Product API (all three tools)** — **P0 (read-only) and P1 (the config
-      lifecycle, `--rw`: candidate/check/plan/commit/confirm/rollback/history +
-      audit + idempotency, mandatory confirm window) are implemented on
-      `wayang-router` and `wayang-fw`** (2026-10-03, on `master`; not yet
-      released or deployed — they ship with the next tool tags and OS release).
-      See [`docs/PRODUCT-API-REFERENCE.md`](PRODUCT-API-REFERENCE.md).
-      **`wayang api` (the OS CLI) is built** on the new shared crate
-      `dalang-io/wayang-api` v0.1.0 (token scopes, rate limit, TLS/mTLS, SSE
-      events): status, update check/stage/boot-other/confirm/rollback, reset,
-      Edge bundle, SSH keys, net — admin-only for anything that changes the box;
-      `/etc/init.d/api` starts it only when `<config dir>/api.args` exists. Only
-      unit-tested + a BusyBox test of the init script: **not run on a real box**.
-      fw 0.7.0 and router 0.8.0 migrated onto the crate (one contract); OpenAPI 3.1
-      files + conformance tests; wayangi client `wayangi-boxapi` (P3) — all done.
-      Open: a QEMU boot test of the init hook, `/v1/wifi`, calling the API from the
-      wayangi dashboard, rotating tokens across a fleet.
-      Design: [`docs/PRODUCT-API.md`](PRODUCT-API.md).
+- [x] **Product API P0–P3 (all three tools)** — **released** (2026-10-03: router `v0.8.0`,
+      fw `v0.7.0`, OS **1.0.33**). Config lifecycle (`--rw`, mandatory confirm window), token
+      scopes, rate limit, TLS/mTLS, SSE, OpenAPI 3.1 files with conformance tests, and wayangi's
+      `wayangi-boxapi` (verified against live fw/router servers in a netns) — all on the shared crate
+      `dalang-io/wayang-api` v0.1.0. `wayang api` (OS) has admin-only actions; `/etc/init.d/api`
+      starts a tool's API only when `<config dir>/api.args` exists. Guide:
+      [`API-GUIDE.md`](API-GUIDE.md); reference [`PRODUCT-API-REFERENCE.md`](PRODUCT-API-REFERENCE.md);
+      design [`PRODUCT-API.md`](PRODUCT-API.md).
+- [ ] **API follow-ups:** a QEMU boot test of `/etc/init.d/api`; `--rw` on a physical device;
+      `/v1/wifi`, fw `/v1/policies|nat|drops|objects`; token expiry/rotation and fleet distribution
+      (today: files by hand per box); certificate → scope mapping and certificate renewal; the wayangi
+      dashboard calling the API (today only the CLI client exists); make a failed-token lockout
+      per token/cert instead of per address (a NAT'd neighbour is locked out too).
 - [x] **`wayang-tui` shared component library** — **done** (repo
       `dalang-io/wayang-tui` `v0.2.1`): theme/widgets/focus/overlay/term/splash/
       transition/layout; all three HUDs migrated + adopted; `dcheck` standardized.
@@ -98,12 +94,16 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
 
 ## wayangos (this repo)
 
-- [ ] **Test the 1.0.32 upgrade on a device — manual (`wayang update`) and
+- [ ] **Test the 1.0.33 upgrade on a device — manual (`wayang update`) and
       automatic (the stable channel) — and confirm the A/B flow** (`mark-ok`,
-      `wayang update --rollback`). The owner is doing this. On the test box first
-      remove the manual overrides `/data/bin/wayang-fw` (0.6.4) and
-      `/data/bin/wayang-router` (old): `/data/bin` wins over the baked
-      `/usr/bin`, so an upgrade would otherwise not exercise router 0.7.0 / fw 0.6.4.
+      `wayang update --rollback`). The owner is doing this. **State of `163.128.55.4`:**
+      1.0.33 is already *staged* in slot A (an accidental bare `wayang update`), next boot = A,
+      B = 1.0.30 is the fallback. `/data/bin` wins over the baked `/usr/bin`: it now holds
+      wayang-fw 0.7.0 and wayang-router 0.8.0 (same as the OS bakes) **and an old `wayang`
+      (30 Sep)** — remove that one, or `wayang api` and the new CLI are not exercised.
+- [ ] **Turn the API on at `163.128.55.4`** ([API-GUIDE.md](API-GUIDE.md)): files exist for fw and
+      router; still to do: reboot into 1.0.33 (init hook), a local-in firewall rule for 8630/8631
+      (`--confirm`), `wayang api` token + `api.args`, then try `--rw` (never done on a physical device).
 
 - [x] **WayangOS as a wayangi EdgeRouter** — unit type in the dashboard
       (`internal/edgewos`), self-managed WireGuard (no agent), hub provisioned
@@ -258,7 +258,7 @@ static v4/v6, DHCP client, forwarding, static routes):
 - Released **v0.3.0** (Edge schema), **v0.3.1** (never strand the last uplink),
   **v0.3.2** (`wan-monitor` → `wan-failover`), **v0.3.3** (program the
   `wan_group` table at bring-up via rtnetlink), then **v0.4.x–v0.7.0** (see
-  wayang-router `HANDOVER.md`); WayangOS **1.0.32** pins `0.7.0`.
+  wayang-router `HANDOVER.md`), **v0.8.0** (product API); WayangOS **1.0.33** pins `0.8.0`.
 - [x] **Router v0.7.0 (2026-10-03):** BGP per-neighbour policy (local-pref, MED,
       prepend, standard + large communities, reject-by-community) and named
       `[[route_map]]`s; `bgp table`; `backup` / `restore`; OSPFv3
