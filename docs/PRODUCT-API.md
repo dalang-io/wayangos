@@ -2,7 +2,10 @@
 
 Status: **design** (2026-09-30); **P0 and P1 implemented for `wayang-router` and
 `wayang-fw` on 2026-10-03** (see [PRODUCT-API-REFERENCE.md](PRODUCT-API-REFERENCE.md)).
-P2/P3 and the `wayang` CLI are still design. Goal: each console tool can be driven by an
+The shared crate `wayang-api` (scopes, rate limit, TLS/mTLS, SSE events — the P2
+transport) exists and the **`wayang` CLI's API is built on it** (update, slot
+actions, reset, Edge bundle, SSH keys, net; `/etc/init.d/api` starts it only when
+`api.args` exists). P3 (OpenAPI, the wayangi client) is still design. Goal: each console tool can be driven by an
 **API** (not only the CLI/HUD), so an orchestrator — or wayangi — can read and
 change a box without SSH-ing in and parsing TUI output.
 

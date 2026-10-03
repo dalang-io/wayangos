@@ -33,3 +33,7 @@ wayang-tui = { git = "https://github.com/dalang-io/wayang-tui", tag = "v0.2.1" }
 # Reset SIGPIPE to SIG_DFL for the CLI subcommands so `wayang status | head`
 # terminates cleanly instead of aborting on a broken pipe.
 libc = "0.2"
+# The management-API transport shared with wayang-fw and wayang-router (HTTP,
+# token scopes, rate limit, TLS/mTLS via rustls, audit, SSE). Approved by the
+# owner for the product-API P2 work.
+wayang-api = { git = "https://github.com/dalang-io/wayang-api", tag = "v0.1.0" }

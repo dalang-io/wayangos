@@ -34,7 +34,8 @@ Updates are signed A/B bundles (`wayang update`, docs/UPDATE-DESIGN.md).
 configs/            kernel configs (defconfig-intel = device/installer kernel: nftables + router options)
 scripts/            build pipeline: fetch-sources, build-kernel, build-rootfs (generates /etc/init.d/*),
                     build-nft (static nft), build-bundle, ci-build ...
-wayang/             Rust CLI: updater (A/B), `wayang net|wifi`, HUD
+wayang/             Rust CLI: updater (A/B), `wayang net|wifi`, HUD; `src/api.rs` + `src/api_routes.rs` = `wayang api`
+                    (HTTP/JSON API on the shared `wayang-api` crate; init hook `/etc/init.d/api`, only with `api.args`)
 installer/          Rust installer TUI
 docs/               ARCHITECTURE, UPDATE-*, NETWORK, APPS, ROUTER-TODO (router/firewall plan) ...
 landing-page/       wayang.dalang.io

@@ -73,10 +73,16 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       audit + idempotency, mandatory confirm window) are implemented on
       `wayang-router` and `wayang-fw`** (2026-10-03, on `master`; not yet
       released or deployed — they ship with the next tool tags and OS release).
-      See [`docs/PRODUCT-API-REFERENCE.md`](PRODUCT-API-REFERENCE.md). Open: the
-      same for the `wayang` CLI, **P2** (TLS/mTLS, token scopes, rate limit, SSE
-      `/v1/events`), the shared `wayang-api` crate, OpenAPI, and wayangi calling
-      it. Design: [`docs/PRODUCT-API.md`](PRODUCT-API.md).
+      See [`docs/PRODUCT-API-REFERENCE.md`](PRODUCT-API-REFERENCE.md).
+      **`wayang api` (the OS CLI) is built** on the new shared crate
+      `dalang-io/wayang-api` v0.1.0 (token scopes, rate limit, TLS/mTLS, SSE
+      events): status, update check/stage/boot-other/confirm/rollback, reset,
+      Edge bundle, SSH keys, net — admin-only for anything that changes the box;
+      `/etc/init.d/api` starts it only when `<config dir>/api.args` exists. Only
+      unit-tested + a BusyBox test of the init script: **not run on a real box**.
+      Open: migrating fw/router to the crate, OpenAPI + the wayangi client (P3),
+      a QEMU boot test of the init hook, `/v1/wifi`.
+      Design: [`docs/PRODUCT-API.md`](PRODUCT-API.md).
 - [x] **`wayang-tui` shared component library** — **done** (repo
       `dalang-io/wayang-tui` `v0.2.1`): theme/widgets/focus/overlay/term/splash/
       transition/layout; all three HUDs migrated + adopted; `dcheck` standardized.

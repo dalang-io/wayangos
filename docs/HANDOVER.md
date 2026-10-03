@@ -13,6 +13,42 @@ building and the milestones). This file is *where things stand* across the repos
 | Prod Edge box `163.128.55.4` | site 5 `ThinkStation-P320-Tiny`, WayangOS **1.0.30**; managed via the hub tunnel (`ssh dell-jkt` → `ssh root@10.99.130.5` / `@163.128.55.4`); public ping + SSH now work. **`163.128.54.4` is a different MikroTik RouterOS — not ours.** |
 | Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27`, `v1.0.28`, `v1.0.29`, `v1.0.30`, `v1.0.31`, `v1.0.32` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
 
+## 2026-10-03 (later) — `wayang api` (not released)
+
+- **New subcommand** `wayang api` (`wayang/src/api.rs` flags + rules,
+  `api_routes.rs` routes) on the shared crate **wayang-api v0.1.0** (new public
+  repo; adds `rustls` with the `ring` provider to this crate — approved by the
+  owner for P2; the musl build needs a C compiler, `CC_x86_64_unknown_linux_musl=gcc`
+  on the builder). Same flag contract as `wayang-fw api` / `wayang-router api`;
+  routes and scopes in `docs/PRODUCT-API-REFERENCE.md` §`wayang api`.
+- **Reads** (any token): status, update check, net, ssh-keys (fingerprints only),
+  edgerouter status. **Changes** (scope `admin` + `--rw`): update stage,
+  boot-other, confirm, rollback, reset (second key `?confirm=yes-reset`), Edge
+  bundle apply (never applies the configs), SSH key add/remove (the last key is
+  protected). Nothing reboots the box.
+- `update.rs` was split into `plan()` + `stage_plan()` (the CLI uses the same two
+  functions; behaviour unchanged, the ESP is still opened after the download).
+- **Init:** `/etc/init.d/api` (+ `fw-api`/`router-api`/`wayang-api` links), started
+  after SSH, stopped in rcK, **only** for a tool whose `api.args` file exists
+  (`/data/etc/{fw,router,wayangi}/api.args`) — a default image listens on nothing.
+- **Verification:** 230 unit tests (18 new: route table, status, slot actions on
+  a fake boot tree, ssh-key flow, reset, bundle apply as tar.gz and JSON, update
+  check against a local channel, scope gating through the real pipeline, flag
+  rules), clippy clean; the init script passes `shellcheck -s sh` and was run
+  under real BusyBox (nothing enabled → nothing starts, start/second start/
+  restart/stop, missing binary non-fatal). **The real musl binary** (builder, 2.5 MB
+  static-pie) passes `scripts/test-wayang-api.sh` 23/23: scopes (ro/rw refused,
+  admin allowed), a key added and listed as a fingerprint only, reset needing its
+  second key, an Edge bundle installed with `applied:false`, `Idempotency-Key`
+  replay, the audit trail (0600, no tokens or key text), an SSE event for a write,
+  read-only default, 429, flag guard rails, HTTPS and mutual TLS with
+  openssl-made certificates (a client certificate **without** the
+  `clientAuth` extension is refused). **Not verified:** a real update
+  download+stage (needs a device and a channel), a boot of an image with the
+  hook (QEMU).
+  The test env lock `paths::TEST_ENV` now serialises tests that set `WAYANG_ROOT`.
+- **Not done:** `/v1/wifi`; no pin bump, tag or release (the parent does that).
+
 ## 2026-10-03 — 1.0.32 (tool pins only)
 
 - **What changed vs 1.0.31:** only the tool pins — `wayang-router 0.6.0 → 0.7.0`

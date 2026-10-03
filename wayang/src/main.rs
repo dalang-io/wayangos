@@ -2,6 +2,8 @@
 //!
 //! See `docs/UPDATE-DESIGN.md` for the frozen interfaces and exit codes.
 
+mod api;
+mod api_routes;
 mod arch;
 mod bundle;
 mod cli;
@@ -72,6 +74,9 @@ usage:
   wayang mark-ok [--esp DEV]
   wayang reset [--yes]               reset config to defaults (router/fw/wayangi/network; clears a pending update)
   wayang addkey github:USER | gitlab:USER | FILE | 'ssh-ed25519 AAAA... comment'
+  wayang api [--listen ADDR] [--rw] [--token-file F] [--tls-cert F --tls-key F [--client-ca F]]
+                                     HTTP/JSON API (read-only unless --rw; default 127.0.0.1:8632)
+  wayang api --gen-token [--scope ro|rw|admin] [--label WORD] [--append]   write an API token
   wayang --demo [--screens DIR [--svg]] [--size COLSxROWS]   render HUD screens (text, SVG)
 
 env:
@@ -212,6 +217,7 @@ fn main() -> ExitCode {
         Command::MarkOk { esp } => run_mark_ok(esp.as_deref()),
         Command::Reset { yes } => run_reset(yes),
         Command::AddKey { spec } => sshkeys::addkey_cmd(&spec).map_err(error::AppError::err),
+        Command::Api(a) => api::run(&a).map_err(error::AppError::err),
     };
 
     match result {

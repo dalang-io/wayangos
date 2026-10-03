@@ -361,6 +361,10 @@ echo "Starting SSH..."
 /etc/init.d/sshd start
 ntpd -p pool.ntp.org -S /bin/true &
 
+# The management APIs (wayang-fw / wayang-router / wayang): each runs only when
+# its <config dir>/api.args exists, so a default image listens on nothing.
+/etc/init.d/api start
+
 echo ""
 echo "  $(wayang-logo)WayangOS ready"
 echo "  Kernel: $(uname -r)"
@@ -381,6 +385,7 @@ chmod +x "$ROOTFS/etc/init.d/rcS"
 cat > "$ROOTFS/etc/init.d/rcK" << 'SHUTDOWN'
 #!/bin/sh
 echo "WayangOS shutting down..."
+/etc/init.d/api stop
 killall dropbear 2>/dev/null
 killall syslogd 2>/dev/null
 killall ntpd 2>/dev/null
@@ -699,6 +704,130 @@ case "$1" in
 esac
 ROUTER
 chmod +x "$ROOTFS/etc/init.d/router"
+
+# Management API (docs/PRODUCT-API-REFERENCE.md §Enabling it): `wayang-fw api`,
+# `wayang-router api` and `wayang api` run ONLY when asked — a tool's API starts
+# when <config dir>/api.args exists (its content is the flag line), never
+# otherwise, so a default image listens on nothing.
+cat > "$ROOTFS/etc/init.d/api" << 'API'
+#!/bin/sh
+# /etc/init.d/api [start|stop|restart|status]  — all three tools
+# /etc/init.d/{fw,router,wayang}-api [...]     — one tool (symlinks to this file)
+#
+# fw      -> /data/etc/fw/api.args       runs `wayang-fw api $(cat api.args)`
+# router  -> /data/etc/router/api.args   runs `wayang-router api $(cat api.args)`
+# wayang  -> /data/etc/wayangi/api.args  runs `wayang api $(cat api.args)`
+#
+# api.args is one line of flags (--listen, --rw, --token-file, --tls-cert …).
+# The token is written with `<tool> api --gen-token` (docs); no file, no API.
+
+case "$(basename "$0")" in
+    fw-api) TOOLS="fw" ;;
+    router-api) TOOLS="router" ;;
+    wayang-api) TOOLS="wayang" ;;
+    *) TOOLS="fw router wayang" ;;
+esac
+
+bin_name() {
+    case "$1" in
+        fw) echo wayang-fw ;;
+        router) echo wayang-router ;;
+        *) echo wayang ;;
+    esac
+}
+
+conf_dir() {
+    case "$1" in
+        fw) echo /data/etc/fw ;;
+        router) echo /data/etc/router ;;
+        *) echo /data/etc/wayangi ;;
+    esac
+}
+
+find_bin() {
+    for b in "/data/bin/$1" "/usr/bin/$1"; do
+        [ -x "$b" ] && { echo "$b"; return 0; }
+    done
+    return 1
+}
+
+pidfile() { echo "/var/run/$(bin_name "$1")-api.pid"; }
+
+# The pid of a live API of this tool, or nothing. A recycled pid would look
+# alive, so the command line must still be `<tool> api`.
+api_pid() {
+    pf="$(pidfile "$1")"
+    [ -s "$pf" ] || return 1
+    pid="$(cat "$pf" 2>/dev/null)"
+    case "$pid" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || return 1
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q "$(bin_name "$1") api" || return 1
+    echo "$pid"
+}
+
+start_one() {
+    t="$1"
+    args="$(conf_dir "$t")/api.args"
+    [ -f "$args" ] || return 0
+    api_pid "$t" >/dev/null && return 0
+    bin="$(find_bin "$(bin_name "$t")")" || {
+        logger -t "$(bin_name "$t")" "api: not started, $(bin_name "$t") is not installed"
+        return 0
+    }
+    log="/var/log/$(bin_name "$t")-api.log"
+    # The flags are one line of words; splitting them is the point.
+    # shellcheck disable=SC2046
+    setsid "$bin" api $(cat "$args") >>"$log" 2>&1 < /dev/null &
+    echo "$!" > "$(pidfile "$t")"
+    sleep 1
+    if api_pid "$t" >/dev/null; then
+        logger -t "$(bin_name "$t")" "api started (pid $(api_pid "$t"), flags: $args)"
+    else
+        rm -f "$(pidfile "$t")"
+        logger -t "$(bin_name "$t")" "api did not stay up (see $log)"
+    fi
+}
+
+stop_one() {
+    if pid="$(api_pid "$1")"; then
+        kill "$pid" 2>/dev/null || true
+    fi
+    rm -f "$(pidfile "$1")"
+}
+
+case "$1" in
+    start)
+        for t in $TOOLS; do start_one "$t"; done
+        ;;
+    stop)
+        for t in $TOOLS; do stop_one "$t"; done
+        ;;
+    restart)
+        for t in $TOOLS; do stop_one "$t"; done
+        sleep 1
+        for t in $TOOLS; do start_one "$t"; done
+        ;;
+    status)
+        for t in $TOOLS; do
+            if pid="$(api_pid "$t")"; then
+                echo "$(bin_name "$t") api: running (pid $pid)"
+            elif [ -f "$(conf_dir "$t")/api.args" ]; then
+                echo "$(bin_name "$t") api: enabled but not running"
+            else
+                echo "$(bin_name "$t") api: off (no $(conf_dir "$t")/api.args)"
+            fi
+        done
+        ;;
+    *) echo "usage: $0 {start|stop|restart|status}" >&2; exit 1 ;;
+esac
+API
+chmod +x "$ROOTFS/etc/init.d/api"
+for t in fw router wayang; do
+    ln -sf api "$ROOTFS/etc/init.d/$t-api"
+done
 
 # Network init script
 cat > "$ROOTFS/etc/init.d/network" << 'NETWORK'

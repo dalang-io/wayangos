@@ -3,6 +3,12 @@
 
 use std::path::PathBuf;
 
+/// Tests that point `WAYANG_ROOT` at a temp tree hold this lock for as long as
+/// they do, so two of them (or the API tests) never see each other's value of
+/// the process-wide variable.
+#[cfg(test)]
+pub(crate) static TEST_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn root() -> Option<PathBuf> {
     std::env::var_os("WAYANG_ROOT")
         .filter(|v| !v.is_empty())

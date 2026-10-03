@@ -78,6 +78,8 @@ pub enum Command {
     AddKey {
         spec: String,
     },
+    /// `wayang api …`: the management API (flags parsed by `api::parse_args`).
+    Api(Vec<String>),
     PrintVersion,
     Help,
 }
@@ -305,6 +307,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "addkey" => Ok(Command::AddKey {
             spec: rest.join(" "),
         }),
+        "api" => Ok(Command::Api(rest.to_vec())),
         "reset" => {
             let mut yes = false;
             for a in rest {

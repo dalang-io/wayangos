@@ -1371,9 +1371,12 @@ mod tests {
 
     #[test]
     fn enroll_uses_wayang_root() {
+        let _env = crate::paths::TEST_ENV
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = tmp();
-        // SAFETY: single-threaded test; this test is the only mutator of the
-        // process environment here and restores it before returning.
+        // SAFETY: the TEST_ENV lock serialises every test that touches the
+        // process environment; it is restored before returning.
         unsafe { std::env::set_var("WAYANG_ROOT", &dir) };
         assert_eq!(paths::wayangi_dir(), dir.join("data/etc/wayangi"));
         let hex = "0123456789abcdef0123456789abcdef";

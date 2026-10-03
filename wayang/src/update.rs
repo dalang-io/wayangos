@@ -113,6 +113,54 @@ pub fn run_with_progress(
         return run_fallback(a);
     }
 
+    let plan = plan(upgrade, a)?;
+    let (installed, manifest) = (&plan.installed, &plan.manifest);
+    if plan.decision == Decision::NoUpdate {
+        crate::outln!(
+            "No update available: installed {} is up to date (bundle {}).",
+            installed,
+            manifest.version
+        );
+        return Ok(2);
+    }
+
+    if a.check {
+        crate::outln!(
+            "Update available: {} -> {} ({} / {}).",
+            installed,
+            manifest.version,
+            manifest.channel,
+            manifest.arch
+        );
+        if let Some(n) = &manifest.notes {
+            crate::outln!("notes: {n}");
+        }
+        return Ok(0);
+    }
+
+    let (version, target) =
+        stage_plan(plan, || mount::open(a.esp.as_deref()), progress.as_deref())?;
+
+    crate::outln!("Staged {} into slot {}.", version, target.as_str());
+    maybe_reboot(a.reboot)?;
+    Ok(0)
+}
+
+/// What `wayang update` found out before touching anything: the installed
+/// version, the bundle on offer (from the channel, or `--from FILE`, in which
+/// case the verified bundle is kept) and whether it is newer.
+pub struct Plan {
+    pub installed: semver::Version,
+    pub channel: String,
+    pub host: &'static str,
+    pub manifest: Manifest,
+    loaded: Option<Bundle>,
+    pub decision: Decision,
+}
+
+/// The first half of `wayang update`: read the installed version, obtain the
+/// manifest, check compatibility and decide. Shared by the CLI and the API.
+pub fn plan(upgrade: bool, a: &UpdateArgs) -> Result<Plan> {
     let installed = sema::parse_version(&version::read()?)?;
     let channel = a
         .channel
@@ -136,35 +184,30 @@ pub fn run_with_progress(
     };
 
     sema::check_compat(&installed, &manifest, host)?;
-    if let Decision::NoUpdate = sema::decide(upgrade, &installed, &manifest)? {
-        crate::outln!(
-            "No update available: installed {} is up to date (bundle {}).",
-            installed,
-            manifest.version
-        );
-        return Ok(2);
-    }
+    let decision = sema::decide(upgrade, &installed, &manifest)?;
+    Ok(Plan {
+        installed,
+        channel,
+        host,
+        manifest,
+        loaded,
+        decision,
+    })
+}
 
-    if a.check {
-        crate::outln!(
-            "Update available: {} -> {} ({} / {}).",
-            installed,
-            manifest.version,
-            manifest.channel,
-            manifest.arch
-        );
-        if let Some(n) = &manifest.notes {
-            crate::outln!("notes: {n}");
-        }
-        return Ok(0);
-    }
-
-    let bundle = match loaded {
+/// The second half: download and verify the bundle (unless `--from` gave it),
+/// *then* open the boot tree (`open_boot`, so the ESP is not mounted during a
+/// long download) and write the bundle into the idle slot. Never reboots.
+/// Returns the staged version and the slot.
+pub fn stage_plan(
+    plan: Plan,
+    open_boot: impl FnOnce() -> Result<mount::BootRoot>,
+    progress: Option<&Progress>,
+) -> Result<(String, crate::slot::Slot)> {
+    let bundle = match plan.loaded {
         Some(b) => b,
-        None => download_and_verify(&channel, host, &manifest.version, progress.as_deref())?,
+        None => download_and_verify(&plan.channel, plan.host, &plan.manifest.version, progress)?,
     };
-
-    let boot = mount::open(a.esp.as_deref())?;
     let meta = SlotMeta {
         version: bundle.manifest.version.clone(),
         channel: bundle.manifest.channel.clone(),
@@ -174,16 +217,9 @@ pub fn run_with_progress(
         kernel_sha256: bundle.manifest.kernel_sha256.clone(),
         keyid: bundle.manifest.keyid.clone(),
     };
+    let boot = open_boot()?;
     let target = staging::stage(&boot, &bundle.kernel, &bundle.initramfs, &meta)?;
-    drop(boot);
-
-    crate::outln!(
-        "Staged {} into slot {}.",
-        bundle.manifest.version,
-        target.as_str()
-    );
-    maybe_reboot(a.reboot)?;
-    Ok(0)
+    Ok((bundle.manifest.version.clone(), target))
 }
 
 fn download_and_verify(
@@ -276,8 +312,11 @@ mod tests {
 
     #[test]
     fn reboot_not_called_in_test_env() {
-        // SAFETY: single-threaded test; the process environment is restored
-        // before returning.
+        let _env = crate::paths::TEST_ENV
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        // SAFETY: the TEST_ENV lock serialises every test that touches the
+        // process environment; it is restored before returning.
         unsafe { std::env::set_var("WAYANG_ROOT", "/tmp/wayang-reboot-test") };
         assert!(maybe_reboot(true).is_ok());
         // SAFETY: see set_var above.
