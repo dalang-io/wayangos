@@ -55,6 +55,14 @@ WRAPPER
         echo "  Linker: zig cc (${TARGET%%-*}-linux-musl)"
     fi
 
+    # `wayang api` pulls in rustls (ring), which compiles C. On a Linux x86_64 host the
+    # musl target has no C compiler of its own: use musl-gcc, else plain gcc (static
+    # musl output either way). Cross targets keep whatever the caller exported.
+    cc_var="CC_$(printf '%s' "$TARGET" | tr '-' '_')"
+    if [ "$TARGET" = x86_64-unknown-linux-musl ] && [ "$(uname -s)" = Linux ] && [ -z "${!cc_var:-}" ]; then
+        if command -v musl-gcc >/dev/null 2>&1; then export "$cc_var=musl-gcc"; else export "$cc_var=gcc"; fi
+    fi
+
     (cd "$CRATE_DIR" && cargo build --release --target "$TARGET")
 
     BIN="${CARGO_TARGET_DIR:-$CRATE_DIR/target}/$TARGET/release/$BIN_NAME"
