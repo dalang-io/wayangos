@@ -8,10 +8,35 @@ building and the milestones). This file is *where things stand* across the repos
 
 | | |
 |---|---|
-| WayangOS release | **1.0.31** (tag `v1.0.31`; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.31). 1.0.23+ carries the **full router block**; 1.0.25 removed `wayang-selftest`; 1.0.26 added `wayang reset`; 1.0.27 makes all wired NICs hotplug-DHCP; **1.0.28–1.0.30 bake `wayang-router` + `wayang-fw` into `/usr/bin`, drop the 09 EDGEROUTER TUI module (8 modules), and open public SSH by default**; **1.0.31 bundles `conntrackd`** (conntrack-tools 1.4.9, static — HA connection-state sync stops being a no-op), pins **`wayang-fw 0.6.3`** (the HA round: the VRRPv2 daemon, the virtual-MAC VIP, `sync_iface`, and the ICMP protocol-number fix that made an `icmp`/ping policy impossible to commit on WayangOS) and **`wayang-router 0.6.1`** — with one honest caveat: the *released* 1.0.31 images were built while the router pin was still `0.6.0` (the 0.6.1 asset reached the mirror minutes after the channel published), so the **next** build takes the RFC-3768 VRRP fix — and carries `wayang-waf 0.1.1` (Go + Coraza + OWASP CRS) and `dnsmasq 2.93` |
-| Test device `root@163.128.55.4` (was `.3`; moved, state not re-checked) | **1.0.30** (updated in place via `wayang update`); uplink on onboard `eth0`; USB LAN `ssh root@192.168.2.2` (SR9700, duplex-flaky). **Powered off on purpose as of 2026-09-30** — it does not answer SSH, which is expected, not a fault |
+| WayangOS release | **1.0.32** (tag `v1.0.32`, 2026-10-03; channel live `https://wayang.dalang.io/channel/stable/x86_64`, serving 1.0.32; **bakes `wayang-router 0.7.0` and `wayang-fw 0.6.4`**, nothing else changed — see the 1.0.32 entry below). Before it: **1.0.31** (tag `v1.0.31`). 1.0.23+ carries the **full router block**; 1.0.25 removed `wayang-selftest`; 1.0.26 added `wayang reset`; 1.0.27 makes all wired NICs hotplug-DHCP; **1.0.28–1.0.30 bake `wayang-router` + `wayang-fw` into `/usr/bin`, drop the 09 EDGEROUTER TUI module (8 modules), and open public SSH by default**; **1.0.31 bundles `conntrackd`** (conntrack-tools 1.4.9, static — HA connection-state sync stops being a no-op), pins **`wayang-fw 0.6.3`** (the HA round: the VRRPv2 daemon, the virtual-MAC VIP, `sync_iface`, and the ICMP protocol-number fix that made an `icmp`/ping policy impossible to commit on WayangOS) and **`wayang-router 0.6.1`** — with one honest caveat: the *released* 1.0.31 images were built while the router pin was still `0.6.0` (the 0.6.1 asset reached the mirror minutes after the channel published), so the **next** build takes the RFC-3768 VRRP fix — and carries `wayang-waf 0.1.1` (Go + Coraza + OWASP CRS) and `dnsmasq 2.93` |
+| Test device `root@163.128.55.4` (was `.3`; moved) | **1.0.30** + manual `/data/bin` overrides (checked 2026-10-03: up 22 h, SSH works, `edge-thinkstation-p320-tiny`, kernel 7.2.7). `/data/bin/wayang-fw` is **0.6.4** (deployed by hand 2026-10-03, previous kept as `wayang-fw.0.6.0.bak`) and `/data/bin/wayang-router` is an old build; **both win over the `/usr/bin` copies baked into an OS release, so remove them before testing an upgrade**. Its `wayang-fw` has no drift baseline until the next commit/boot. Older notes: uplink on onboard `eth0`; USB LAN `ssh root@192.168.2.2` (SR9700, duplex-flaky); it was powered off on purpose on 2026-09-30, no longer true |
 | Prod Edge box `163.128.55.4` | site 5 `ThinkStation-P320-Tiny`, WayangOS **1.0.30**; managed via the hub tunnel (`ssh dell-jkt` → `ssh root@10.99.130.5` / `@163.128.55.4`); public ping + SSH now work. **`163.128.54.4` is a different MikroTik RouterOS — not ours.** |
-| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27`, `v1.0.28`, `v1.0.29`, `v1.0.30`, `v1.0.31` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+| Tags that exist | `v1.0.18`, `v1.0.19`, `v1.0.21`, `v1.0.22`, `v1.0.23`, `v1.0.24`, `v1.0.25`, `v1.0.26`, `v1.0.27`, `v1.0.28`, `v1.0.29`, `v1.0.30`, `v1.0.31`, `v1.0.32` — **`v1.0.20` was NEVER released** (its kernel froze, see below) |
+
+## 2026-10-03 — 1.0.32 (tool pins only)
+
+- **What changed vs 1.0.31:** only the tool pins — `wayang-router 0.6.0 → 0.7.0`
+  (BGP per-neighbour policy and named route maps, `bgp table`, `backup`/`restore`,
+  OSPFv3 + `ospf`, TCP health probes for multi-WAN, OSPF adjacency info) and
+  `wayang-fw 0.6.3 → 0.6.4` (drift detection, HUD clarity round). Kernel,
+  rootfs scripts, `wayang` CLI and the other tools are as in 1.0.31. (1.0.31
+  shipped router `0.6.0`, not the `0.6.1` its pin said — the asset reached the
+  mirror after the channel published; 1.0.32 does not have that problem, both
+  assets were on the mirror and sha256-verified before tagging.)
+- **Release procedure used** (`docs/HUD-DEPLOY.md` §4): build musl on the builder
+  from the exact tagged commit → tag + push → copy the asset to
+  `/root/wayang.dalang.io/public/edge/tools/` on `10.0.0.251` and check the sha256
+  over HTTPS → `gh release create` → bump the pin in
+  `scripts/build-wayang-{router,fw}.sh` and verify it with
+  `BUILD_DIR=/tmp/x bash scripts/<script>` → tag the OS. CI (kernel ∥ tools →
+  rootfs → release → publish channel) took ~7 min, all green; the channel
+  manifest says `"version": "1.0.32"`.
+- **Pins:** router `0.7.0` sha256 `b2249181…f933`, fw `0.6.4` sha256
+  `d1b57a4d…19d8e`. Assets on the mirror: `wayang-router-v0.7.0-…`,
+  `wayang-fw-v0.6.4-…`.
+- **Not tested here:** the upgrade itself (manual `wayang update` and the
+  automatic channel path) on a device — the owner is testing it. Test box caveat:
+  `/data/bin/wayang-{fw,router}` override `/usr/bin`, see the device row above.
 
 1.0.22 = 1.0.21 + the **shipped safety net** (watchdog + lockup/panic detectors +
 `wayang.selftest=120 panic=10 …` baked into `configs/defconfig-intel`

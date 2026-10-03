@@ -3,7 +3,7 @@
 Cross-repo backlog. Each repo also has its own roadmap: this file is the index
 of what is *not* done, with pointers. Status: `[ ]` open, `[~]` in progress,
 `[x]` done. Read `AGENTS.md` in each repo before starting. Current WayangOS
-release: **1.0.31** (see `docs/HANDOVER.md`). **Product goal + roadmap:
+release: **1.0.32** (see `docs/HANDOVER.md`; it bakes router 0.7.0 / fw 0.6.4). **Product goal + roadmap:
 [docs/GOAL.md](GOAL.md).** **M7 (router kernel block) is resolved and released**
 — the execution plan is archived in
 [docs/TODO-M7-UNBLOCK.md](TODO-M7-UNBLOCK.md).
@@ -82,11 +82,17 @@ The 2026-09-29 round (box **`163.128.55.4`**, site 5) surfaced these; they span
       `TermGuard` so no product can forget it; (b) `cargo fmt` consistency for
       the `wayang-router` / `dcheck` baselines (pre-existing dirty); (c) unify the
       `collapsible_if` approach (rewrite vs `allow`, currently mixed); (d) ~~tag
-      `v0.6.1`~~ **done** (router `v0.6.1`, fw `v0.6.3`; WayangOS **1.0.31**
-      bakes the CLI + the 0.6.x tools — the shipped images carry router
-      `0.6.0`, the next build takes `0.6.1`).
+      `v0.6.1`~~ **done** (router `v0.7.0`, fw `v0.6.4`; WayangOS **1.0.32**
+      bakes the CLI + those tools; 1.0.31 had router `0.6.0` / fw `0.6.3`).
 
 ## wayangos (this repo)
+
+- [ ] **Test the 1.0.32 upgrade on a device — manual (`wayang update`) and
+      automatic (the stable channel) — and confirm the A/B flow** (`mark-ok`,
+      `wayang update --rollback`). The owner is doing this. On the test box first
+      remove the manual overrides `/data/bin/wayang-fw` (0.6.4) and
+      `/data/bin/wayang-router` (old): `/data/bin` wins over the baked
+      `/usr/bin`, so an upgrade would otherwise not exercise router 0.7.0 / fw 0.6.4.
 
 - [x] **WayangOS as a wayangi EdgeRouter** — unit type in the dashboard
       (`internal/edgewos`), self-managed WireGuard (no agent), hub provisioned
@@ -240,8 +246,18 @@ static v4/v6, DHCP client, forwarding, static routes):
       `docs/ROADMAP.md`.
 - Released **v0.3.0** (Edge schema), **v0.3.1** (never strand the last uplink),
   **v0.3.2** (`wan-monitor` → `wan-failover`), **v0.3.3** (program the
-  `wan_group` table at bring-up via rtnetlink), then **v0.4.x–v0.6.1** (see
-  wayang-router `HANDOVER.md`); WayangOS pins `0.6.1`.
+  `wan_group` table at bring-up via rtnetlink), then **v0.4.x–v0.7.0** (see
+  wayang-router `HANDOVER.md`); WayangOS **1.0.32** pins `0.7.0`.
+- [x] **Router v0.7.0 (2026-10-03):** BGP per-neighbour policy (local-pref, MED,
+      prepend, standard + large communities, reject-by-community) and named
+      `[[route_map]]`s; `bgp table`; `backup` / `restore`; OSPFv3
+      (`[ospf] ipv6 = true`) and `ospf` (neighbours/interfaces/topology) with
+      adjacency counts in the HUD; TCP health probes (`check = ["tcp:IP:PORT"]`)
+      for multi-WAN. All six QEMU labs green (22/44/33/41/37/15), the new
+      `lab_ospf.py` being the first end-to-end OSPF test.
+- [ ] **Router still open:** the BGP route table in the HUD, regex AS-path
+      filters, router-side conntrack/config sync for VRRP; IPsec and PPPoE need
+      a daemon bundled here first.
 
 ## dcheck (dalang-io/dcheck)
 
