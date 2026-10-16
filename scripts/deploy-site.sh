@@ -28,10 +28,16 @@ rsync -a \
 echo "=== uploading to $HOST:$REMOTE_DIR ==="
 # shellcheck disable=SC2029 # the path is meant to expand locally
 ssh "$HOST" "mkdir -p '$REMOTE_DIR'"
-# --delete keeps the server in sync with the repo, except the release channels
-# (dcheck + wayang), which are published separately and must not be wiped.
+# --delete keeps the server in sync with the repo, except the trees that live
+# only on the server and are published separately, which must not be wiped:
+#   /dcheck/   dcheck release channel (dalang-io/dcheck)
+#   /channel/  WayangOS update channel (scripts/publish-channel.sh)
+#   /edge/     edge tool mirror (docs/HUD-DEPLOY.md §4)
+#   /tmp/      scratch space on the server
 rsync -rlptz --delete --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
     --filter='P /dcheck/' \
     --filter='P /channel/' \
+    --filter='P /edge/' \
+    --filter='P /tmp/' \
     "$STAGE/" "$HOST:$REMOTE_DIR/"
 echo "done."
