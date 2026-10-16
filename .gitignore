@@ -29,6 +29,7 @@ vmlinuz*
 
 # Old binaries
 fbpos-v3
+temp_auto_push.bat
 wayang-pos-v4
 wx
 wx-static
@@ -60,3 +61,5 @@ Thumbs.db
 # SQLite amalgamation (large, download separately)
 sqlite3.c
 sqlite3.h
+.gitignore
+branch_structure.json
